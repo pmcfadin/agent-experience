@@ -1,0 +1,31 @@
+# Phase 0 registration for the optional Sonnet 5.5 comparison arm (SPEC §1). Dev only.
+name: phase0-sonnet
+version: 1
+model:
+  provider: anthropic
+  id: claude-sonnet-5-5
+  effort: medium
+  max_tokens_per_turn: 16000
+prices_usd_per_mtok:
+  claude-sonnet-5-5: {input: 2.00, output: 10.00, cache_write_5m: 2.50, cache_read: 0.20}
+budgets:
+  max_turns: 40
+  max_total_tokens: 400000
+  wall_clock_seconds: 1200
+  bash_timeout_seconds: 120
+  tool_output_chars: 12000
+sandbox:
+  backend: podman
+  image: localhost/elh-cpu-mem:dev   # replace with a pinned digest once podman works in dev
+  cpus: 2
+  memory_mb: 2048
+  network: none
+sandbox_cpu_usd_per_hour: 0.0
+arms: [A]
+histories: 1
+families: [cpu_mem]
+schedule:
+  seed: 20261024
+amortization:
+  horizon_tasks: 1000
+  sensitivity: [100, 500, 5000]

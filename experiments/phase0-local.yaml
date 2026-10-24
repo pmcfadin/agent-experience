@@ -1,0 +1,53 @@
+# Phase 0 registration, primary configuration (SPEC §1): the self-hosted model is the agent
+# and Hindsight's memory model. Dev only until every `pin` field is filled in.
+name: phase0-local
+version: 1
+model:
+  provider: openai_compat
+  id: pilot-coder                 # TODO: a dedicated alias for the study, so Hermes changes can't move it
+  base_url_env: ELH_MODEL_BASE_URL
+  api_key_env: ELH_MODEL_API_KEY
+  max_tokens_per_turn: 8192
+  temperature: 0.7                # Qwen3-Coder recommended sampling; preregistered
+  top_p: 0.8
+  pin:                            # required before any non-dev split (controller enforces)
+    weights_sha256: ""
+    weights_file: ""
+    quantization: ""
+    server: ""
+    context_tokens: 0
+prices_usd_per_mtok:
+  # PLACEHOLDER shadow prices. Replace with values derived from measured GPU-seconds per token
+  # and a fixed hardware rate before Phase 1; they change only by re-registering.
+  pilot-coder: {input: 0.05, output: 0.20}
+budgets:
+  max_turns: 40
+  max_total_tokens: 600000
+  wall_clock_seconds: 1800
+  bash_timeout_seconds: 120
+  tool_output_chars: 12000
+sandbox:
+  backend: podman
+  image: localhost/elh-cpu-mem:dev   # replace with a pinned digest once podman works in dev
+  cpus: 2
+  memory_mb: 2048
+  network: none
+sandbox_cpu_usd_per_hour: 0.0
+arms: [A]
+histories: 1
+families: [cpu_mem]
+schedule:
+  seed: 20261024
+amortization:
+  horizon_tasks: 1000
+  sensitivity: [100, 500, 5000]
+memory_service:
+  kind: hindsight
+  base_url_env: ELH_HINDSIGHT_URL
+  version: ""                     # pin when the dedicated instance is deployed
+  llm:
+    provider: openai_compat
+    id: memory
+    base_url_env: ELH_MODEL_BASE_URL
+    api_key_env: ELH_MODEL_API_KEY
+  embedder: ""

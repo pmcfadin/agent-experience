@@ -1,0 +1,24 @@
+[project]
+name = "elh"
+version = "0.1.0"
+description = "Experiential Learning Harness: does a frozen-weight agent get more experienced?"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic==2.3.0",  # pinned: part of the frozen harness config
+    "openai==3.37.0",  # pinned: OpenAI-compatible client for the local model gateway
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+elh = "elh.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
