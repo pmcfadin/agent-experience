@@ -51,7 +51,7 @@ from elh.registry import ExperimentConfig
 from elh.runner.models import InfraError
 from elh.tasks.base import TaskInstance, get_family
 
-KNOWN_ARMS = ("A", "B")
+KNOWN_ARMS = ("A", "B", "C")
 
 
 class _Strict(BaseModel):

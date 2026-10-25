@@ -10,6 +10,8 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from elh.learner.utility import UtilityConfig
+
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -88,7 +90,27 @@ class MemoryServiceConfig(_Strict):
     # lesson-v2: outcome, judge timings, the agent's summary and source diff; ticket as context.
     # lesson-v1: same, but a failed check was described by its pass wording (inverted lesson); do not use.
     # ticket-v0: the first format (ticket first, fixed context), kept for comparison experiments.
-    record_format: Literal["lesson-v2", "lesson-v1", "ticket-v0"] = "lesson-v2"
+    # lesson-v3: short outcome context (no ticket text: Hindsight reranks "{context}: {text}", so a
+    #   ticket context made recall rank by ticket similarity), outcome tags, a distilled rule first
+    #   when there is one (Learning on the Job), diff optional (Moves to Memory: raw detail transfers badly).
+    record_format: Literal["lesson-v3", "lesson-v2", "lesson-v1", "ticket-v0"] = "lesson-v2"
+    include_diff: bool = True              # lesson-v3 only
+    ticket_metadata: bool = True           # lesson-v3 only: ticket kept as item metadata
+    recall_max_tokens: int = 2048
+    recall_types: list[str] | None = None  # Hindsight fact types for the ticket query (None: all)
+    lesson_query: str | None = None        # fixed, preregistered second query filling lesson_k slots
+    lesson_k: int = 2
+    lesson_types: list[str] | None = None
+    retain_mission: str | None = None
+    observations_mission: str | None = None
+    retain_extraction_mode: str | None = None
+
+    def hindsight_options(self) -> dict:
+        """HindsightMemory constructor kwargs for this registration."""
+        return {k: getattr(self, k) for k in (
+            "record_format", "include_diff", "ticket_metadata", "recall_max_tokens", "recall_types",
+            "lesson_query", "lesson_k", "lesson_types", "retain_mission", "observations_mission",
+            "retain_extraction_mode")}
 
 
 class Price(_Strict):
@@ -144,10 +166,11 @@ class ExperimentConfig(_Strict):
     schedule: Schedule = Schedule()
     amortization: Amortization = Amortization()
     memory_service: MemoryServiceConfig | None = None
+    utility: UtilityConfig | None = None   # arm C (MemRL-style utility ranking); required when C runs
 
     @property
     def config_hash(self) -> str:
-        blob = json.dumps(self.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+        blob = json.dumps(_hashable(self), sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode()).hexdigest()
 
     def price(self, model_id: str) -> Price:
@@ -155,6 +178,27 @@ class ExperimentConfig(_Strict):
             return self.prices_usd_per_mtok[model_id]
         except KeyError:
             raise KeyError(f"no pinned price for model {model_id!r}; add it to the registration file") from None
+
+
+# Fields added after registrations were in use. Left out of the hash while at their default, so a
+# registration that doesn't use them keeps its hash (and its run id and banks).
+_LATE_FIELDS = {
+    "": {"utility": None},
+    "memory_service": {"include_diff": True, "ticket_metadata": True, "recall_max_tokens": 2048,
+                       "recall_types": None, "lesson_query": None, "lesson_k": 2, "lesson_types": None,
+                       "retain_mission": None, "observations_mission": None, "retain_extraction_mode": None},
+}
+
+
+def _hashable(cfg: "ExperimentConfig") -> dict:
+    d = cfg.model_dump(mode="json")
+    for section, defaults in _LATE_FIELDS.items():
+        target = d if not section else d.get(section)
+        if isinstance(target, dict):
+            for k, v in defaults.items():
+                if k in target and target[k] == v:
+                    del target[k]
+    return d
 
 
 def load_config(path: str | Path) -> ExperimentConfig:

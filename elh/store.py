@@ -58,7 +58,7 @@ class Store:
         self.db = sqlite3.connect(self.root / "elh.sqlite3", check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
-        self._add_columns("episodes", {"memory_props_sha256": "TEXT", "batch_id": "TEXT"})
+        self._add_columns("episodes", {"memory_props_sha256": "TEXT", "batch_id": "TEXT", "retrieval_json": "TEXT"})
 
     def _add_columns(self, table: str, cols: dict[str, str]) -> None:
         """Columns added after a store was created (CREATE TABLE IF NOT EXISTS keeps the old shape)."""
