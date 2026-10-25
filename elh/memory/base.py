@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from elh.tasks.base import TaskInstance
@@ -13,6 +13,11 @@ class MemoryItem:
     memory_id: str
     text: str
     score: float = 0.0
+    # Source episode (Hindsight document_id == our episode_id); survives snapshot restore, so
+    # learner state keyed on it (arm C utilities) stays valid across snapshots.
+    document_id: str | None = None
+    # Per-stage retrieval scores as the memory service reported them, e.g. {"rerank": 0.78}.
+    scores: dict = field(default_factory=dict, compare=False)
 
 
 class Memory(Protocol):
