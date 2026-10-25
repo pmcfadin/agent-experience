@@ -4,16 +4,23 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from typing import Callable
 
 from elh.registry import Budgets
 from elh.runner.models import IDENTITY_FIELDS, ContextLimitError, InfraError, ModelClient
-from elh.runner.prompts import SYSTEM_PROMPT, TOOLS, first_user_message
+from elh.memory.base import MemoryItem, render_memory_block
+from elh.runner.prompts import first_user_message, system_prompt, tools as tool_list
 from elh.sandbox.base import ExecResult, Sandbox
 from elh.tasks.base import TaskInstance
 
 TRACE_OUTPUT_CAP = 200_000
 
 TRUNCATED_CONTINUE = "Your previous response hit the output limit and was cut off. Continue."
+
+NO_SEARCH_RESULTS = "No matching memories found."
+
+# search(query, k) -> ranked items. Must be read-only: it runs inside timed episodes on every split.
+SearchFn = Callable[[str, int], list[MemoryItem]]
 
 
 @dataclass
@@ -28,6 +35,11 @@ class EpisodeResult:
     trace: list[dict] = field(default_factory=list)
     submit_summary: str | None = None
     wall_s: float = 0.0
+    # One record per search_memory call: {turn, tool_use_id, query, k, ids, ranks, document_ids,
+    # scores, stage_scores}. Always empty when the tool is off.
+    memory_searches: list[dict] = field(default_factory=list)
+    # The exact conversation the model saw (first user message onward), for post-episode reflection.
+    messages: list[dict] = field(default_factory=list, repr=False)
 
     @property
     def total_tokens(self) -> int:
@@ -52,16 +64,26 @@ def format_exec(res: ExecResult, timeout_s: float, limit: int) -> str:
 
 
 def run_episode(task: TaskInstance, sandbox: Sandbox, client: ModelClient, budgets: Budgets,
-                max_tokens: int, memory_block: str = "") -> EpisodeResult:
-    """Run one episode in an already-started sandbox. The caller owns sandbox lifecycle."""
+                max_tokens: int, memory_block: str = "", search: SearchFn | None = None,
+                search_k: int = 5) -> EpisodeResult:
+    """Run one episode in an already-started sandbox. The caller owns sandbox lifecycle.
+
+    `search` turns on the optional `search_memory` tool (paper 2607.22157's agent-driven read
+    path): the system prompt advertises it, the first message carries the memory-check reminder,
+    and each call's query goes to `search(query, search_k)`. With `search=None` (the default)
+    every byte the model sees is what it was before the tool existed."""
     t0 = time.perf_counter()
-    first = first_user_message(task, sandbox.workdir, memory_block)
+    on = search is not None
+    system, tools = system_prompt(on), tool_list(on)
+    first = first_user_message(task, sandbox.workdir, memory_block, memory_check=on)
     messages: list[dict] = [{"role": "user", "content": first}]
-    result = EpisodeResult(outcome="budget_exhausted")
+    result = EpisodeResult(outcome="budget_exhausted", messages=messages)
     identity: dict | None = None
-    result.trace.append({"event": "episode_start", "task_id": task.task_id, "task_hash": task.content_hash,
-                         "model": client.model_id, "system": SYSTEM_PROMPT, "tools": TOOLS,
-                         "first_message": first})
+    start = {"event": "episode_start", "task_id": task.task_id, "task_hash": task.content_hash,
+             "model": client.model_id, "system": system, "tools": tools, "first_message": first}
+    if on:
+        start["search_memory"] = True
+    result.trace.append(start)
 
     for turn in range(budgets.max_turns):
         if time.perf_counter() - t0 > budgets.wall_clock_seconds:
@@ -72,7 +94,7 @@ def run_episode(task: TaskInstance, sandbox: Sandbox, client: ModelClient, budge
             break
 
         try:
-            resp = client.create(system=SYSTEM_PROMPT, messages=messages, tools=TOOLS, max_tokens=max_tokens)
+            resp = client.create(system=system, messages=messages, tools=tools, max_tokens=max_tokens)
         except ContextLimitError:
             result.budget_reason = "context"
             break
@@ -124,6 +146,8 @@ def run_episode(task: TaskInstance, sandbox: Sandbox, client: ModelClient, budge
                                      "command": inp["command"], "exit_code": res.exit_code,
                                      "timed_out": res.timed_out, "wall_s": round(res.wall_s, 3),
                                      "stdout": res.stdout[:TRACE_OUTPUT_CAP], "stderr": res.stderr[:TRACE_OUTPUT_CAP]})
+            elif on and name == "search_memory" and isinstance(inp.get("query"), str) and inp["query"].strip():
+                content, is_error = _search_memory(search, search_k, inp["query"], turn, tu["id"], result), False
             else:
                 content, is_error = f"Invalid tool call: {name} {inp!r}", True
             block = {"type": "tool_result", "tool_use_id": tu["id"], "content": content}
@@ -144,3 +168,16 @@ def run_episode(task: TaskInstance, sandbox: Sandbox, client: ModelClient, budge
                          "turns": result.turns, "tool_calls": result.tool_calls, "usage": result.usage,
                          "wall_s": round(result.wall_s, 3)})
     return result
+
+
+def _search_memory(search: SearchFn, k: int, query: str, turn: int, tool_use_id: str,
+                   result: EpisodeResult) -> str:
+    """Run one agent-issued search; record what came back and in which order."""
+    items = list(search(query, k))[:k]
+    rec = {"turn": turn, "tool_use_id": tool_use_id, "query": query, "k": k,
+           "ids": [it.memory_id for it in items], "ranks": list(range(1, len(items) + 1)),
+           "document_ids": [it.document_id for it in items], "scores": [it.score for it in items],
+           "stage_scores": [dict(it.scores) for it in items]}
+    result.memory_searches.append(rec)
+    result.trace.append({"event": "memory_search", **rec})
+    return render_memory_block(items) if items else NO_SEARCH_RESULTS
