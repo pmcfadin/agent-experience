@@ -1,0 +1,26 @@
+# Arms built from the papers, on exp1's tasks and order.
+# B: Hindsight as its paper intends (lesson-v3: outcome context instead of the ticket, outcome tags;
+#    recall restricted to `experience` facts, the agent's own episodes).
+# C: B plus MemRL two-phase retrieval: Hindsight's candidates, similarity gate, rerank by
+#    0.5*z(sim) + 0.5*z(Q), Q <- Q + 0.3 (r - Q) on every injected episode (elh/learner/utility.py).
+#    sim stats and gate calibrated read-only on exp1-r2's e15 bank over its 15 train tickets
+#    (207 episode similarities, 2026-10-25). Deviation: delta is the 20th percentile, not MemRL's
+#    80th, because our candidates are already Hindsight's relevance top list (~14 episodes per
+#    ticket), not the whole store; an 80th-percentile gate would leave ~3 episodes for 5 slots.
+#    One unit per episode so C injects as many memories as B. Reward: pass 1 - cost/budget, fail -1.
+name: exp6-papers-bc
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  utility: {k1: 10, k2: 5, delta: 0.8533, sim_mean: 0.8651, sim_std: 0.01716, units_per_doc: 1,
+            reward_mode: spec-signed}
+family: cpu_mem
+histories: 1
+arms: [A, B, C]
+phases:
+  - train:
+      tasks: {causes: [queue_pop_front], themes: [billing, logistics, telemetry, course_registration, network_flows], seeds: [1000, 1003]}
+  - eval:
+      label: after-15
+      tasks: {causes: [queue_pop_front], themes: [inventory], seeds: [2000, 2010]}
