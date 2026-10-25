@@ -317,6 +317,12 @@ KNOWN_HASHES = {
     "experiments/batches/exp4-record-format.yaml": "1dd1351e8725c84b151e1e3f5a596160a9085b11aecb18a0b4646292e86418e6",
     "experiments/batches/exp5-dose.yaml": "a6c22d611cbb97d2774eb0548f6b1505216bbe178f9af9e301be84a24765e7ad",
     "experiments/batches/exp6-papers-bc.yaml": "749350de06672d88c324703eeb2b861c847b23d7822cc3d8813c2317a9add792",
+    # pinned when RulesConfig.store / recall_k were added (values from before that change)
+    "experiments/batches/exp7-arm-d.yaml": "1e8a415510bd70e87e4ca13337d914b34b0fa8c051192d1005c50dd2185bc343",
+    "experiments/batches/exp8a-hard-memory.yaml": "45ef717de862efdf36b705319fe3c5e3a35c9454d1c507bd20a973e9e2381e4e",
+    "experiments/batches/exp8b-hard-rules.yaml": "d9fc6b33ba246e1eb8ff7c3ce0f9341ca74b97f9abced2bb7bdc91e2558618fe",
+    "experiments/batches/exp9-hard-cd.yaml": "b2578129177cf680c7d4ee23a176a7a12726f3316ed883e92a14abf5f1a4da1a",
+    "experiments/batches/probe-difficulty.yaml": "a8051420eea2169d474d9583b152fa50d7e5500060bd70c3874e0a423102eb64",
 }
 
 

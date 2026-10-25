@@ -279,6 +279,19 @@ workspace-writing commands, never the oracle, reference or hidden inputs. The wr
 requires the protected files changed verbatim, with up to `max_retries` (2) bounces before the rule
 is accepted with its gaps. Reflection tokens are `learning`.
 
+*Storage (`rules.store`).* `extract` (default; exp8b, exp9): the rule leads the lesson-v3 episode
+record, so Hindsight's LLM extraction paraphrases it (in exp8b no recalled unit kept "AVOID",
+"VERIFIED" or "WHEN"). `verbatim` (exp10 on): the paper stores rules as written, so the record is
+retained without the rule and the rule is a second retain item (`render_rule` + `Situation:
+<query>`, tags `family:…`, `rule`, `rule:<kind>`, document `<episode_id>:rule`) under the bank
+retain strategy `rule-verbatim` = `{retain_extraction_mode: chunks}`: one `world` unit holding the
+text as written, no LLM call. Recall fills its first `rules.recall_k` (2) slots from a rule-only
+recall by the ticket text (`tags: [rule]`, `tags_match: any_strict`), the rest as before; arms C/D
+show those rules first and let the utility learner rerank the other `k2 - len(rules)` episodes
+(shown rules are logged in `retrieval_json.rules` and get no Q update). `search_memory` returns rule
+hits first. Remaining deviation: the paper retrieves rules only through the agent's own queries;
+here they are also recalled by the ticket text at episode start.
+
 ### 6.3 Model client
 
 `ModelClient.create(**request) -> Response` with two implementations: `AnthropicClient` (real API,

@@ -88,6 +88,18 @@ class RulesConfig(_Strict):
     # None: the agent's own registered sampling (the paper reflects with the agent's llm_args).
     temperature: float | None = Field(None, ge=0.0, le=2.0)
     max_tokens: int = Field(2048, gt=0)
+    # Where the rule lives in memory. "extract": inside the episode record, where Hindsight's LLM
+    # fact extraction paraphrases it (exp8b, exp9). "verbatim": its own retain item under a
+    # chunks-mode strategy (stored as written, no LLM call), tagged "rule"; recall reserves
+    # `recall_k` slots of the shown memory for rules (the paper stores and returns rules verbatim).
+    store: Literal["extract", "verbatim"] = "extract"
+    recall_k: int = Field(2, ge=0)
+
+    def hindsight_options(self) -> dict:
+        """HindsightMemory kwargs for the rule store (none for the default, so banks reproduce)."""
+        if not self.enabled or self.store == "extract":
+            return {}
+        return {"rule_store": self.store, "rule_k": self.recall_k}
 
 
 class WorkflowConfig(BaseModel):  # arm D (AWM source and the dev gate); elh/learner/workflows.py
@@ -286,6 +298,7 @@ _LATE_FIELDS = {
                        "recall_types": None, "lesson_query": None, "lesson_k": 2, "lesson_types": None,
                        "retain_mission": None, "observations_mission": None, "retain_extraction_mode": None,
                        "agent_search": False},
+    "rules": {"store": "extract", "recall_k": 2},
 }
 
 

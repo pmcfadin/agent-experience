@@ -15,7 +15,7 @@ from elh.learner.rules import write_rule
 from elh.learner.utility import UtilityLearner, episode_cost_usd
 from elh.ledger import compute_entry, usage_entries
 from elh.memory.base import Memory, NullMemory, render_memory_block
-from elh.memory.hindsight import HindsightMemory, restore_bank, usage_to_ledger, workspace_diff
+from elh.memory.hindsight import HindsightMemory, is_rule_item, restore_bank, usage_to_ledger, workspace_diff
 from elh.registry import ExperimentConfig
 from elh.runner.agent import EpisodeResult, run_episode
 from elh.runner.models import InfraError, ModelClient, fetch_backend_props
@@ -79,6 +79,11 @@ def _hindsight_url(cfg: ExperimentConfig) -> str:
     return url
 
 
+def hindsight_options(cfg: ExperimentConfig) -> dict:
+    """HindsightMemory kwargs: the memory service's, plus the rule store when rules are verbatim."""
+    return {**cfg.memory_service.hindsight_options(), **(cfg.rules.hindsight_options() if cfg.rules else {})}
+
+
 def bank_id_for(cfg: ExperimentConfig, history: int, arm: str) -> str:
     return f"elh-{run_id_for(cfg)}-h{history}-{arm}"
 
@@ -106,7 +111,7 @@ def memory_for(cfg: ExperimentConfig, arm: str, history: int, split: str, *,
         if split in SNAPSHOT_SPLITS:
             raise ValueError(f"split {split!r} must run against a memory snapshot (snapshot_id)")
         mem = HindsightMemory(_hindsight_url(cfg), bank_id_for(cfg, history, arm), readonly=split in READ_ONLY_SPLITS,
-                              **cfg.memory_service.hindsight_options())
+                              **hindsight_options(cfg))
         mem.ensure_bank()
         if arm in ("C", "D"):
             if store is None:
@@ -175,7 +180,7 @@ def open_snapshot(cfg: ExperimentConfig, store: Store, snapshot_id: str) -> Hind
     if row["run_id"] != run_id_for(cfg):
         raise ValueError(f"snapshot {snapshot_id} belongs to run {row['run_id']}, not {run_id_for(cfg)}")
     url = _hindsight_url(cfg)
-    opts = cfg.memory_service.hindsight_options()
+    opts = hindsight_options(cfg)
     mem = HindsightMemory(url, row["bank_id"], readonly=True, **opts)
     if not mem.exists():
         archive = store.get_blob("snapshots", row["bank_export_sha256"])
@@ -266,12 +271,22 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
         raise ValueError(f"split {split!r} updates the utility learner, but it is a read-only view")
     learner_guard = learner.state_sha256() if learner is not None and split in READ_ONLY_SPLITS else None
     proc_rev, proc_lib = _procedures_for(cfg, store, memory, task, arm, split, history, procedures)
+    verbatim_rules = getattr(memory, "verbatim_rules", False)
     if learner is not None:  # arm C: relevance candidates reranked by learned utility (MemRL)
-        items = learner.rank(task, memory.recall_candidates(task))
+        # Verbatim rules (Learning on the Job) take their reserved slots first; the learner
+        # reranks the other candidates into the remaining k2 - len(rules) episodes.
+        rules = memory.recall_rules(task.prompt) if verbatim_rules else []
+        rule_ids = {it.memory_id for it in rules}
+        candidates = [it for it in memory.recall_candidates(task) if it.memory_id not in rule_ids]
+        items = rules + learner.rank(task, candidates, k2=learner.config.k2 - len(rules) if rules else None)
         retrieval = {"ranker": "utility", **learner.last_trace.to_dict()}
+        if verbatim_rules:
+            retrieval["rules"] = [_logged(it) for it in rules]
     else:
         items = memory.recall(task, memory_k)
         retrieval = {"ranker": "service", "k": memory_k, "items": [_logged(it) for it in items]}
+        if verbatim_rules:
+            retrieval["rules"] = [_logged(it) for it in items if is_rule_item(it)]
         if hasattr(memory, "recall_candidates"):  # read-only; shows where un-injected memories ranked
             retrieval["candidates"] = [_logged(it) for it in memory.recall_candidates(task, RETRIEVAL_LOG_DEPTH)]
     if arm == "D":  # the procedures shown first in the experience block, by `skill_id@revision`
@@ -352,7 +367,8 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
         record = episode_record(episode_id, task, result, verdict, final_ws)
         if cfg.rules is not None and cfg.rules.enabled and not isinstance(memory, NullMemory):
             # Learning on the Job: the agent reflects on its verified episode and writes one rule,
-            # retained first in the record; its calls are learning overhead.
+            # retained first in the record (rules.store "extract") or as its own verbatim item
+            # ("verbatim", see HindsightMemory.retain); its calls are learning overhead.
             rr = write_rule(client, task, result, verdict, final_ws, cfg.rules)
             entries += [e for c in rr.calls for e in usage_entries(cfg, cfg.model.id, c["usage"], category="learning")]
             store.db.execute("UPDATE episodes SET rule_json = ? WHERE episode_id = ?",

@@ -51,6 +51,14 @@ class HindsightMemory:
       lesson_types       fact types for the lesson query; None = recall_types.
     Bank (applied by ensure_bank through PATCH /config, only when set and the bank is writable):
       retain_mission, observations_mission, retain_extraction_mode.
+    Rules (Learning on the Job, arXiv 2607.22157):
+      rule_store         "extract" (default): an episode's rule is part of its record and goes
+                         through LLM extraction. "verbatim": the record is sent without the rule and
+                         the rule is its own item under the bank strategy RULE_STRATEGY (chunks mode:
+                         stored as written, fact type "world", tagged "rule"), document
+                         "<episode_id>:rule".
+      rule_k             verbatim only: recall and search fill their first rule_k slots from a
+                         rule-only recall (tags ["rule"], strict), the rest from the usual queries.
     Snapshots:
       fingerprint_version  1 = v6 content hash (unit type/state/tags/text + document count, plus
                          unit metadata, bank config overrides, mental models and directives when any
@@ -64,7 +72,8 @@ class HindsightMemory:
                  recall_types: list[str] | None = None, lesson_query: str | None = None, lesson_k: int = 2,
                  lesson_types: list[str] | None = None,
                  retain_mission: str | None = None, observations_mission: str | None = None,
-                 retain_extraction_mode: str | None = None, fingerprint_version: int | None = None):
+                 retain_extraction_mode: str | None = None, fingerprint_version: int | None = None,
+                 rule_store: str = "extract", rule_k: int = 2):
         if record_format not in RECORD_FORMATS:
             raise ValueError(f"unknown record format {record_format!r}; known: {sorted(RECORD_FORMATS)}")
         if not include_diff and record_format != "lesson-v3":
@@ -76,6 +85,8 @@ class HindsightMemory:
             raise ValueError("lesson_query needs non-empty text and lesson_k >= 1")
         if fingerprint_version not in (None, 1, 2):
             raise ValueError(f"unknown fingerprint_version {fingerprint_version!r}")
+        if rule_store not in ("extract", "verbatim") or rule_k < 0:
+            raise ValueError(f"rule_store must be 'extract' or 'verbatim' and rule_k >= 0; got {rule_store!r}, {rule_k}")
         self.base = base_url.rstrip("/") + f"/v1/default/banks/{bank_id}"
         self.bank_id = bank_id
         self.readonly = readonly
@@ -91,6 +102,10 @@ class HindsightMemory:
         self.bank_config = {k: v for k, v in (("retain_mission", retain_mission),
                                                ("observations_mission", observations_mission),
                                                ("retain_extraction_mode", retain_extraction_mode)) if v is not None}
+        self.rule_store = rule_store
+        self.rule_k = rule_k
+        if rule_store == "verbatim":
+            self.bank_config["retain_strategies"] = {RULE_STRATEGY: {"retain_extraction_mode": "chunks"}}
         self.fingerprint_version = fingerprint_version or (2 if record_format == "lesson-v3" else 1)
         self.last_usage: dict | None = None  # token usage of the last retain (memory LLM)
         self.snapshot_id: str | None = None    # set when this bank is a checkpoint snapshot
@@ -104,7 +119,8 @@ class HindsightMemory:
                 "retain_mission": self.bank_config.get("retain_mission"),
                 "observations_mission": self.bank_config.get("observations_mission"),
                 "retain_extraction_mode": self.bank_config.get("retain_extraction_mode"),
-                "fingerprint_version": self.fingerprint_version}
+                "fingerprint_version": self.fingerprint_version,
+                "rule_store": self.rule_store, "rule_k": self.rule_k}
 
     # -- http --------------------------------------------------------------------------------
     def _raw(self, method: str, url: str, data: bytes | None = None, content_type: str = "application/json",
@@ -161,59 +177,91 @@ class HindsightMemory:
             time.sleep(poll_s)
 
     # -- contract ----------------------------------------------------------------------------
-    def _recall(self, query: str, types: list[str] | None) -> list[MemoryItem]:
-        """One recall, every result in Hindsight's ranked order (it packs results up to max_tokens)."""
+    def _recall(self, query: str, types: list[str] | None, tags: list[str] | None = None) -> list[MemoryItem]:
+        """One recall, every result in Hindsight's ranked order (it packs results up to max_tokens).
+        With tags, only memories carrying one of them (untagged memories excluded)."""
         body = {"query": query, "max_tokens": self.recall_max_tokens}
         if types:
             body["types"] = types
+        if tags:
+            body["tags"], body["tags_match"] = tags, "any_strict"
         return [_item(r) for r in self._call("POST", "/memories/recall", body).get("results", [])]
 
-    def recall(self, task: TaskInstance, k: int) -> list[MemoryItem]:
-        """Top k for the ticket. With a lesson query, the ticket fills the first k - lesson_k slots and
-        the lesson query the rest (skipping memories already chosen); short lists backfill from the
-        ticket results."""
+    @property
+    def verbatim_rules(self) -> bool:
+        return self.rule_store == "verbatim"
+
+    def recall_rules(self, query: str, n: int | None = None) -> list[MemoryItem]:
+        """Verbatim rules ranked for `query` (first n; default rule_k). Empty unless rule_store is
+        "verbatim"."""
+        n = self.rule_k if n is None else n
+        if not self.verbatim_rules or n <= 0:
+            return []
+        return self._recall(query, [RULE_FACT_TYPE], [RULE_TAG])[:n]
+
+    def _records(self, task: TaskInstance, k: int) -> tuple[list[MemoryItem], list[MemoryItem]]:
+        """(top k for the ticket, the ticket query's full ranked list). With a lesson query, the
+        ticket fills the first k - lesson_k slots and the lesson query the rest (skipping memories
+        already chosen); short lists backfill from the ticket results."""
         ranked = self._recall(task.prompt, self.recall_types)
         if not self.lesson_query:
-            return ranked[:k]
+            return ranked[:k], ranked
         n_ticket = max(k - self.lesson_k, 0)
         out = ranked[:n_ticket]
         seen = {it.memory_id for it in out}
-        for it in self._recall(self.lesson_query, self.lesson_types):
-            if len(out) >= k:
-                break
-            if it.memory_id not in seen:
-                out.append(it)
-                seen.add(it.memory_id)
-        for it in ranked[n_ticket:]:
-            if len(out) >= k:
-                break
-            if it.memory_id not in seen:
-                out.append(it)
-                seen.add(it.memory_id)
+        _fill(out, seen, self._recall(self.lesson_query, self.lesson_types), k)
+        _fill(out, seen, ranked[n_ticket:], k)
+        return out, ranked
+
+    def recall(self, task: TaskInstance, k: int) -> list[MemoryItem]:
+        """Top k for the ticket (see `_records`). With verbatim rules, the first min(rule_k, k) slots
+        go to rules recalled by the ticket text, the rest to the records; duplicates are skipped and
+        a short list backfills from the remaining rules, then the ticket results."""
+        if not self.verbatim_rules:
+            return self._records(task, k)[0]
+        all_rules = self.recall_rules(task.prompt, k)
+        out = all_rules[:min(self.rule_k, k)]
+        seen = {it.memory_id for it in out}
+        records, ranked = self._records(task, k - len(out))
+        _fill(out, seen, records, k)
+        _fill(out, seen, all_rules, k)
+        _fill(out, seen, ranked, k)
         return out
 
     def recall_candidates(self, task: TaskInstance, n: int | None = None) -> list[MemoryItem]:
         """The ticket query's full ranked list (first n; all when n is None), with document ids and
-        per-stage scores, for a learner that reranks relevance candidates (arm C)."""
+        per-stage scores, for a learner that reranks relevance candidates (arm C). Verbatim rules
+        are not candidates: the controller shows `recall_rules` first and reranks the rest."""
         ranked = self._recall(task.prompt, self.recall_types)
         return ranked if n is None else ranked[:n]
 
     def search(self, query: str, k: int) -> list[MemoryItem]:
-        """Top k for a free-text query (an agent-issued memory search), over recall_types."""
-        return self._recall(query, self.recall_types)[:k]
+        """Top k for a free-text query (an agent-issued memory search), over recall_types. With
+        verbatim rules, up to min(k, rule_k) rule hits come first, then the other hits, no duplicates."""
+        out = self.recall_rules(query, min(k, self.rule_k))
+        _fill(out, {it.memory_id for it in out}, self._recall(query, self.recall_types), k)
+        return out
 
     def retain(self, episode: dict) -> list[str]:
+        """Store the episode record (document id = episode id). With verbatim rules the record is
+        rendered without the rule, and the rule, when there is one, is a second item (document
+        "<episode_id>:rule") stored as written. Returns the document ids written."""
         if self.readonly:
             raise RuntimeError(f"bank {self.bank_id} is read-only for this episode")
+        rule = _rule(episode) if self.verbatim_rules else None
+        record = {k: v for k, v in episode.items() if k != "rule"} if self.verbatim_rules else episode
         if self.record_format == "lesson-v3":
-            item = lesson_v3_item(episode, include_diff=self.include_diff, ticket_metadata=self.ticket_metadata)
+            item = lesson_v3_item(record, include_diff=self.include_diff, ticket_metadata=self.ticket_metadata)
         else:
             content, context = RECORD_FORMATS[self.record_format]
-            item = {"content": content(episode), "context": context(episode),
-                    "tags": [f"family:{episode['family']}"]}
-        out = self._call("POST", "/memories", {"items": [{**item, "document_id": episode["episode_id"]}]})
+            item = {"content": content(record), "context": context(record),
+                    "tags": [f"family:{record['family']}"]}
+        items = [{**item, "document_id": episode["episode_id"]}]
+        if rule is not None:
+            items.append(rule_item(episode, rule))
+        out = self._call("POST", "/memories", {"items": items})
         self.last_usage = out.get("usage")
-        return [episode["episode_id"]]
+        return [it["document_id"] for it in items]
 
     def wait_idle(self, timeout_s: float = 900, poll_s: float = 1.0) -> None:
         deadline = time.monotonic() + timeout_s
@@ -449,6 +497,43 @@ def lesson_v3_item(ep: dict, *, include_diff: bool = True, ticket_metadata: bool
         item["metadata"] = {"ticket": ep["prompt"].strip(),
                             "outcome": "passed" if ep["verdict"]["passed"] else "failed"}
     return item
+
+
+# Verbatim rules (rule_store="verbatim"). Hindsight 1.1.0's "chunks" extraction mode stores each
+# chunk of the item's content as one "world" unit with the item's tags/context/metadata and no LLM
+# call; a per-item `strategy` names a bank `retain_strategies` entry whose overrides apply to that
+# item only. A chunk holds up to retain_chunk_size characters (default 3000), so a rule stays one
+# unit unless the agent wrote more than that.
+RULE_STRATEGY = "rule-verbatim"
+RULE_TAG = "rule"
+RULE_FACT_TYPE = "world"
+RULE_DOC_SUFFIX = ":rule"
+RULE_CONTEXT = "a rule an agent wrote after a verified attempt"
+
+
+def render_rule_verbatim(rule: dict) -> str:
+    return f"{render_rule(rule)}\nSituation: {situation_key(rule)}"
+
+
+def rule_item(ep: dict, rule: dict) -> dict:
+    """The retain item for one verbatim rule (content stored as written)."""
+    return {"content": render_rule_verbatim(rule), "context": RULE_CONTEXT,
+            "tags": [f"family:{ep['family']}", RULE_TAG, f"rule:{rule['kind']}"],
+            "strategy": RULE_STRATEGY, "document_id": ep["episode_id"] + RULE_DOC_SUFFIX}
+
+
+def is_rule_item(it: MemoryItem) -> bool:
+    return (it.document_id or "").endswith(RULE_DOC_SUFFIX)
+
+
+def _fill(out: list[MemoryItem], seen: set[str], items, k: int) -> None:
+    """Append items not yet seen until out holds k."""
+    for it in items:
+        if len(out) >= k:
+            break
+        if it.memory_id not in seen:
+            out.append(it)
+            seen.add(it.memory_id)
 
 
 def _item(r: dict) -> MemoryItem:
