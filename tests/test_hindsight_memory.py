@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from elh.memory.hindsight import HindsightMemory, render_episode, usage_to_ledger
+from elh.memory.hindsight import HindsightMemory, render_context, render_episode, usage_to_ledger, workspace_diff
 from elh.tasks.base import get_family
 
 
@@ -52,7 +52,8 @@ class _Stub:
 
 
 def _episode(task):
-    return {"episode_id": "e1", "family": task.family, "prompt": task.prompt, "submit_summary": "used a deque",
+    return {"episode_id": "e1", "family": task.family, "prompt": task.prompt, "title": "Ticket X: slow",
+            "outcome": "submitted", "submit_summary": "used a deque", "diff": "--- a/job/core.py\n+++ b/job/core.py",
             "verdict": {"passed": False, "checks": {"integrity": True, "performance": False},
                         "detail": {"quality": {"agent_s": 3.0, "budget_s": 3.0, "large_status": "timeout"}}},
             "turns": 12, "tool_calls": 12}
@@ -69,6 +70,7 @@ def test_recall_retain_and_idle_wait():
     mem.wait_idle(poll_s=0.01)
     method, path, body = stub.requests[2]
     assert path == "/v1/default/banks/b1/memories" and body["items"][0]["document_id"] == "e1"
+    assert body["items"][0]["context"].endswith(task.prompt.strip())
     assert stub.requests[1][2]["query"] == task.prompt
     assert usage_to_ledger(mem.last_usage) == {"input_tokens": 400, "output_tokens": 50,
                                                "cache_read_input_tokens": 600, "cache_creation_input_tokens": 0}
@@ -85,5 +87,18 @@ def test_episode_record_has_feedback_not_oracle():
     family = get_family("cpu_mem")
     task = family.generate("queue_pop_front", "billing", 1)
     text = render_episode(_episode(task))
-    assert "FAILED" in text and "performance=FAIL" in text and "used a deque" in text
-    assert family.solution_core(task) not in text and "def reference(" not in text
+    assert text.startswith("Outcome of an attempt") and "FAILED: performance budget" in text
+    assert "3.00s against a budget of 3.00s" in text and "used a deque" in text and "a/job/core.py" in text
+    assert task.prompt.strip() not in text and task.prompt.strip() in render_context(_episode(task))
+    for t in (text, render_context(_episode(task))):
+        assert family.solution_core(task) not in t and "def reference(" not in t
+
+
+def test_workspace_diff_keeps_source_and_names_scratch_files():
+    before = {"job/core.py": "a = 1\n", "tests/t.py": "x\n"}
+    after = {"job/core.py": "a = 2\n", "tests/t.py": "x\n", "big.json": "[" + "1," * 300000 + "1]",
+             "job/core.py.bak": "a = 1\n"}
+    d = workspace_diff(before, after)
+    assert "-a = 1" in d and "+a = 2" in d and len(d) < 1000
+    assert "big.json (created, 600003 bytes)" in d and "job/core.py.bak (created" in d
+    assert workspace_diff(before, {**before, "out.json": "{}"}).startswith("No source file was changed.")

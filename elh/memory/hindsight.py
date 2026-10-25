@@ -1,8 +1,9 @@
 """HindsightMemory: arm B's memory, backed by the dedicated Hindsight server (SPEC §10).
 
 One bank per (run, history, arm). Recall uses the ticket text as the query. Retain stores one
-post-episode record built only from what the agent may learn from: the ticket, its own summary
-and the judge's verified feedback (checks and timings), never the hidden oracle.
+post-episode record built only from what the agent may learn from: the judge's verified feedback
+(checks and timings), its own summary and code diff, with the ticket passed as extraction context;
+never the hidden oracle.
 
 Hindsight consolidates in the background after a retain; `wait_idle()` blocks until that work is
 done, so it never overlaps the next episode's timed grading.
@@ -98,7 +99,7 @@ class HindsightMemory:
             raise RuntimeError(f"bank {self.bank_id} is read-only for this episode")
         out = self._call("POST", "/memories", {"items": [{
             "content": render_episode(episode),
-            "context": "a coding-agent episode and the judge's verified result",
+            "context": render_context(episode),
             "document_id": episode["episode_id"],
             "tags": [f"family:{episode['family']}"],
         }]})
@@ -162,20 +163,74 @@ def restore_bank(base_url: str, archive: bytes, target_bank_id: str, **kw) -> Hi
     return target
 
 
+CHECK_WORDS = {"integrity": "left the tests and harness untouched", "public_tests": "public tests",
+               "correctness": "hidden correctness tests", "performance": "performance budget on the large input"}
+OUTCOME_WORDS = {"submitted": "submitted its fix", "implicit_submit": "stopped without calling submit",
+                 "budget_exhausted": "ran out of its turn/token budget before submitting"}
+MAX_DIFF_LINES = 80
+MAX_DIFF_CHARS = 6000
+SOURCE_SUFFIXES = (".py",)
+
+
+def workspace_diff(before: dict[str, str], after: dict[str, str], max_lines: int = MAX_DIFF_LINES,
+                   max_chars: int = MAX_DIFF_CHARS) -> str:
+    """The agent's own changes: a unified diff of source files it edited or created, and the
+    names of every other file it created or deleted (scratch data, backups, outputs), truncated."""
+    import difflib
+
+    lines: list[str] = []
+    other: list[str] = []
+    for rel in sorted(set(before) | set(after)):
+        a, b = before.get(rel), after.get(rel)
+        if a == b:
+            continue
+        if not rel.endswith(SOURCE_SUFFIXES):
+            other.append(f"{rel} ({'deleted' if b is None else 'created' if a is None else 'modified'}, "
+                         f"{len(b or '')} bytes)")
+            continue
+        lines += difflib.unified_diff((a or "").splitlines(), (b or "").splitlines(),
+                                      f"a/{rel}" if a is not None else "/dev/null",
+                                      f"b/{rel}" if b is not None else "/dev/null", lineterm="", n=1)
+    lines = [ln if len(ln) <= 200 else ln[:200] + " ..." for ln in lines]
+    if len(lines) > max_lines:
+        lines = lines[:max_lines] + [f"... ({len(lines) - max_lines} more diff lines)"]
+    text = "\n".join(lines)
+    if len(text) > max_chars:
+        text = text[:max_chars] + "\n... (diff truncated)"
+    if other:
+        text += ("\n" if text else "No source file was changed.\n") + "Other files changed: " + "; ".join(other[:20]) + \
+            (f"; and {len(other) - 20} more" if len(other) > 20 else "")
+    return text
+
+
 def render_episode(ep: dict) -> str:
+    """The retained record leads with what happened and what was tried; the ticket goes in
+    `render_context`, so extraction yields lessons rather than restatements of the ticket."""
     verdict = ep["verdict"]
-    checks = ", ".join(f"{k}={'pass' if v else 'FAIL'}" for k, v in verdict["checks"].items())
-    lines = [
-        f"Task family {ep['family']}. Outcome: {'PASSED' if verdict['passed'] else 'FAILED'} ({checks}).",
-        f"Ticket:\n{ep['prompt'].strip()}",
-        f"Agent's own summary of its change:\n{(ep.get('submit_summary') or '(none)').strip()}",
-    ]
+    failed = [CHECK_WORDS.get(k, k) for k, v in verdict["checks"].items() if not v]
+    passed = [CHECK_WORDS.get(k, k) for k, v in verdict["checks"].items() if v]
+    head = "PASSED: the fix was verified correct and fast enough." if verdict["passed"] else \
+        f"FAILED: {', '.join(failed)}."
+    lines = [f"Outcome of an attempt at a {ep['family']} ticket ({ep.get('title') or 'untitled'}): {head}"]
+    if not verdict["passed"] and passed:
+        lines.append(f"Checks that passed: {', '.join(passed)}.")
     q = verdict.get("detail", {}).get("quality") or {}
-    if q:
-        lines.append(f"Judge timing on the large input: agent {q.get('agent_s')}s vs budget {q.get('budget_s')}s "
-                     f"(status {q.get('large_status')}).")
-    lines.append(f"Episode used {ep['turns']} turns and {ep['tool_calls']} tool calls.")
+    if q.get("agent_s") is not None and q.get("budget_s"):
+        status = q.get("large_status")
+        lines.append(f"On the large input the agent's code took {q['agent_s']:.2f}s against a budget of "
+                     f"{q['budget_s']:.2f}s ({q['agent_s'] / q['budget_s']:.0%} of budget"
+                     f"{', ' + status if status and status != 'ok' else ''}).")
+    lines.append(f"The agent {OUTCOME_WORDS.get(ep.get('outcome'), ep.get('outcome') or 'finished')} after "
+                 f"{ep['turns']} turns and {ep['tool_calls']} tool calls.")
+    lines.append(f"What the agent said it changed: {(ep.get('submit_summary') or '(no summary)').strip()}")
+    diff = ep.get("diff")
+    lines.append(f"The agent's code change:\n{diff}" if diff else "The agent made no code change.")
     return "\n\n".join(lines)
+
+
+def render_context(ep: dict) -> str:
+    return (f"One coding agent's attempt at a performance ticket, with the result verified by an automated "
+            f"judge. The ticket was:\n{ep['prompt'].strip()}")
 
 
 def usage_to_ledger(usage: dict | None) -> dict:

@@ -84,6 +84,9 @@ class MemoryServiceConfig(_Strict):
     llm: MemoryLLMConfig = MemoryLLMConfig()
     embedder: str = ""                 # repo@revision; files hashed in services/hindsight/models.lock.json
     reranker: str = ""
+    # What one retained episode looks like (elh/memory/hindsight.py render_episode/render_context).
+    # lesson-v1: outcome, judge timings, the agent's summary and source diff; ticket as context.
+    record_format: Literal["lesson-v1"] = "lesson-v1"
 
 
 class Price(_Strict):

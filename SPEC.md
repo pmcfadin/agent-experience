@@ -370,8 +370,14 @@ budget reasoning and retain stalls). Embedder `intfloat/multilingual-e5-small` a
 revision and sha256 (`models.lock.json`, `fetch_models.py`); `HF_HUB_OFFLINE=1` at run time.
 
 `HindsightMemory` (`elh/memory/hindsight.py`): recall queries with the ticket text and injects the
-top k; retain stores one record per `train` episode (ticket, the agent's own summary, the judge's
-checks and timings, never the oracle), tagged by family, with the episode id as document id. The
+top k; retain stores one record per `train` episode, tagged by family, with the episode id as
+document id. Record format `lesson-v1` (registered as `memory_service.record_format`): the content
+leads with the outcome (failed checks, the agent's time against the budget, how the episode
+ended), then the agent's own summary and its diff to source files (other files it created are
+named, not shown; capped at 80 lines / 6000 chars); the ticket goes in Hindsight's extraction
+`context`. Never the oracle or the reference timing. Chosen 2026-10-25 because the first format
+(ticket first) made recall return ticket restatements: on two real episodes and three probe
+tickets, top-5 recall held 12/15 restatements and 3/15 lessons; `lesson-v1` gave 5/15 and 10/15. The
 memory LLM's tokens from each retain are charged as `learning`. The controller waits until the
 bank has no active operations (consolidation runs in the background after a retain) before the
 next recall, so memory work never overlaps a timed episode.

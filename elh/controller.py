@@ -12,7 +12,7 @@ from elh import __version__
 from elh.judge import Verdict, grade
 from elh.ledger import compute_entry, usage_entries
 from elh.memory.base import Memory, NullMemory, render_memory_block
-from elh.memory.hindsight import HindsightMemory, restore_bank, usage_to_ledger
+from elh.memory.hindsight import HindsightMemory, restore_bank, usage_to_ledger, workspace_diff
 from elh.registry import ExperimentConfig
 from elh.runner.agent import EpisodeResult, run_episode
 from elh.runner.models import InfraError, ModelClient, fetch_backend_props
@@ -238,9 +238,7 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
     entries.append(compute_entry(cfg, usage.cpu_s))
 
     if split not in READ_ONLY_SPLITS and result.outcome != "refused":
-        memory.retain({"episode_id": episode_id, "family": task.family, "prompt": task.prompt,
-                       "submit_summary": result.submit_summary, "verdict": verdict.to_dict(),
-                       "turns": result.turns, "tool_calls": result.tool_calls})
+        memory.retain(episode_record(episode_id, task, result, verdict, final_ws))
         mem_usage = usage_to_ledger(getattr(memory, "last_usage", None))
         if mem_usage:
             entries += usage_entries(cfg, cfg.memory_service.llm.id, mem_usage, category="learning")
@@ -250,6 +248,15 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
         store.insert("ledger", {"run_id": run_id, "episode_id": episode_id, "category": e.category,
                                 "component": e.component, "units": e.units, "unit": e.unit, "usd": e.usd})
     return episode_id, result, verdict
+
+
+def episode_record(episode_id: str, task: TaskInstance, result: EpisodeResult, verdict: Verdict,
+                   final_ws: dict[str, str]) -> dict:
+    """What a memory may retain from an episode: the agent's own work and the judge's feedback."""
+    return {"episode_id": episode_id, "family": task.family, "prompt": task.prompt,
+            "title": task.prompt.strip().splitlines()[0], "outcome": result.outcome,
+            "submit_summary": result.submit_summary, "verdict": verdict.to_dict(),
+            "diff": workspace_diff(task.workspace, final_ws), "turns": result.turns, "tool_calls": result.tool_calls}
 
 
 def regrade_episode(cfg: ExperimentConfig, store: Store, episode_id: str,
