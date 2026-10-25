@@ -44,7 +44,7 @@ def test_bundled_experiments_load(path):
     exp, cfg = load_experiment(path)
     assert cfg.name == f"phase0-local-{exp.name}"
     steps = schedule(exp, cfg)
-    assert {s.arm for s in steps if s.kind == "train"} == {"B"}
+    assert {s.arm for s in steps if s.kind == "train"} == set(exp.arms) - {"A"}
     assert all(s.task.seed >= 2000 if s.kind == "eval" else 1000 <= s.task.seed < 2000 for s in steps)
 
 

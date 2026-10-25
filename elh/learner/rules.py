@@ -45,15 +45,8 @@ from elh.runner.prompts import SYSTEM_PROMPT, TOOLS
 from elh.tasks.base import TaskInstance
 
 
-class RulesConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    enabled: bool = False
-    # Rejections before a rule is accepted with its gaps (paper: MAX_RULE_REJECTIONS = 2).
-    max_retries: int = Field(2, ge=0, le=5)
-    # None: the agent's own registered sampling (the paper reflects with the agent's llm_args).
-    temperature: float | None = Field(None, ge=0.0, le=2.0)
-    max_tokens: int = Field(2048, gt=0)
+# RulesConfig lives in the registry (it is part of a registration); re-exported here.
+from elh.registry import RulesConfig  # noqa: E402
 
 
 # --- prompts (module constants; any edit is a new registration) ------------------------------

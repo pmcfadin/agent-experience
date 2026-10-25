@@ -10,6 +10,7 @@ from functools import partial
 
 from elh import __version__
 from elh.judge import Verdict, grade
+from elh.learner.rules import write_rule
 from elh.learner.utility import UtilityLearner, episode_cost_usd
 from elh.ledger import compute_entry, usage_entries
 from elh.memory.base import Memory, NullMemory, render_memory_block
@@ -214,8 +215,10 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
     sbx = make_sbx()
     try:
         sbx.start(task.workspace)
+        ms = cfg.memory_service
+        search = memory.search if ms is not None and ms.agent_search and hasattr(memory, "search") else None
         result = run_episode(task, sbx, client, cfg.budgets, cfg.model.max_tokens_per_turn,
-                             memory_block=render_memory_block(items))
+                             memory_block=render_memory_block(items), search=search, search_k=memory_k)
         final_ws = sbx.snapshot_workspace()
         usage = sbx.resource_usage()
         backend, image = sbx.backend, sbx.image
@@ -246,6 +249,8 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
         "trace_sha256": trace_sha, "final_workspace_sha256": ws_sha,
         "retrieved_memory_ids_json": json.dumps([it.memory_id for it in items]),
         "retrieval_json": json.dumps(retrieval, sort_keys=True, default=str),
+        "memory_searches_json": json.dumps(result.memory_searches, sort_keys=True, default=str)
+        if result.memory_searches else None,
         "memory_snapshot_id": getattr(memory, "snapshot_id", None),
         "backend_props_sha256": props_sha, "memory_props_sha256": memory_props_sha,
         "batch_id": batch_id,
@@ -268,7 +273,18 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
     entries.append(compute_entry(cfg, usage.cpu_s))
 
     if split not in READ_ONLY_SPLITS and result.outcome != "refused":
-        memory.retain(episode_record(episode_id, task, result, verdict, final_ws))
+        record = episode_record(episode_id, task, result, verdict, final_ws)
+        if cfg.rules is not None and cfg.rules.enabled and not isinstance(memory, NullMemory):
+            # Learning on the Job: the agent reflects on its verified episode and writes one rule,
+            # retained first in the record; its calls are learning overhead.
+            rr = write_rule(client, task, result, verdict, final_ws, cfg.rules)
+            entries += [e for c in rr.calls for e in usage_entries(cfg, cfg.model.id, c["usage"], category="learning")]
+            store.db.execute("UPDATE episodes SET rule_json = ? WHERE episode_id = ?",
+                             (json.dumps(rr.to_dict(), sort_keys=True, default=str), episode_id))
+            store.db.commit()
+            if rr.rule is not None:
+                record["rule"] = rr.rule.to_dict()
+        memory.retain(record)
         mem_usage = usage_to_ledger(getattr(memory, "last_usage", None))
         if mem_usage:
             entries += usage_entries(cfg, cfg.memory_service.llm.id, mem_usage, category="learning")

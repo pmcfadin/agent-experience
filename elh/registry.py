@@ -78,6 +78,18 @@ class MemoryLLMConfig(_Strict):
     pin: ModelPin = ModelPin()
 
 
+class RulesConfig(_Strict):
+    """Learning on the Job (arXiv 2607.22157): after each train episode the agent writes one rule
+    (elh/learner/rules.py)."""
+
+    enabled: bool = False
+    # Rejections before a rule is accepted with its gaps (paper: MAX_RULE_REJECTIONS = 2).
+    max_retries: int = Field(2, ge=0, le=5)
+    # None: the agent's own registered sampling (the paper reflects with the agent's llm_args).
+    temperature: float | None = Field(None, ge=0.0, le=2.0)
+    max_tokens: int = Field(2048, gt=0)
+
+
 class MemoryServiceConfig(_Strict):
     kind: Literal["hindsight"] = "hindsight"
     base_url: str = ""                 # loopback URL of the dedicated server; not a secret
@@ -104,6 +116,8 @@ class MemoryServiceConfig(_Strict):
     retain_mission: str | None = None
     observations_mission: str | None = None
     retain_extraction_mode: str | None = None
+    # Learning on the Job's read path: the agent may call search_memory(query) during the episode.
+    agent_search: bool = False
 
     def hindsight_options(self) -> dict:
         """HindsightMemory constructor kwargs for this registration."""
@@ -167,6 +181,7 @@ class ExperimentConfig(_Strict):
     amortization: Amortization = Amortization()
     memory_service: MemoryServiceConfig | None = None
     utility: UtilityConfig | None = None   # arm C (MemRL-style utility ranking); required when C runs
+    rules: RulesConfig | None = None       # Learning on the Job: one reflected rule per train episode
 
     @property
     def config_hash(self) -> str:
@@ -183,10 +198,11 @@ class ExperimentConfig(_Strict):
 # Fields added after registrations were in use. Left out of the hash while at their default, so a
 # registration that doesn't use them keeps its hash (and its run id and banks).
 _LATE_FIELDS = {
-    "": {"utility": None},
+    "": {"utility": None, "rules": None},
     "memory_service": {"include_diff": True, "ticket_metadata": True, "recall_max_tokens": 2048,
                        "recall_types": None, "lesson_query": None, "lesson_k": 2, "lesson_types": None,
-                       "retain_mission": None, "observations_mission": None, "retain_extraction_mode": None},
+                       "retain_mission": None, "observations_mission": None, "retain_extraction_mode": None,
+                       "agent_search": False},
 }
 
 
