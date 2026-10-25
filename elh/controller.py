@@ -150,7 +150,8 @@ def open_snapshot(cfg: ExperimentConfig, store: Store, snapshot_id: str) -> Hind
 def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, client: ModelClient, *,
                        arm: str = "A", split: str = "dev", history: int = 0, ordinal: int = 0,
                        checkpoint: int | None = None, memory: Memory | None = None,
-                       sandbox_backend: str | None = None, memory_k: int = 5) -> tuple[str, EpisodeResult, Verdict]:
+                       sandbox_backend: str | None = None, memory_k: int = 5,
+                       batch_id: str | None = None) -> tuple[str, EpisodeResult, Verdict]:
     run_id = run_id_for(cfg)
     store.ensure_run(run_id, cfg.name, cfg.version, cfg.config_hash, json.dumps(cfg.model_dump(mode="json"), sort_keys=True),
                      git_rev(), __version__)
@@ -219,6 +220,7 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
         "retrieved_memory_ids_json": json.dumps([it.memory_id for it in items]),
         "memory_snapshot_id": getattr(memory, "snapshot_id", None),
         "backend_props_sha256": props_sha, "memory_props_sha256": memory_props_sha,
+        "batch_id": batch_id,
         "started_at": started, "finished_at": utcnow(),
     })
     for c in result.calls:

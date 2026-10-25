@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS episodes (
     wall_s REAL, sandbox_cpu_s REAL,
     trace_sha256 TEXT, final_workspace_sha256 TEXT,
     retrieved_memory_ids_json TEXT, memory_snapshot_id TEXT, backend_props_sha256 TEXT,
-    memory_props_sha256 TEXT,
+    memory_props_sha256 TEXT, batch_id TEXT,
     started_at TEXT, finished_at TEXT
 );
 CREATE TABLE IF NOT EXISTS llm_calls (
@@ -58,7 +58,7 @@ class Store:
         self.db = sqlite3.connect(self.root / "elh.sqlite3", check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
-        self._add_columns("episodes", {"memory_props_sha256": "TEXT"})
+        self._add_columns("episodes", {"memory_props_sha256": "TEXT", "batch_id": "TEXT"})
 
     def _add_columns(self, table: str, cols: dict[str, str]) -> None:
         """Columns added after a store was created (CREATE TABLE IF NOT EXISTS keeps the old shape)."""
