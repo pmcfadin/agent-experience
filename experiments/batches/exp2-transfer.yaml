@@ -1,0 +1,13 @@
+# Does a lesson transfer to another cause? B trains on 15 queue_pop_front tickets; then A and B
+# fix 10 quadratic_membership tickets in two of the training themes (only the cause changes).
+name: exp2-transfer
+base_config: experiments/phase0-local.yaml
+family: cpu_mem
+histories: 1
+arms: [A, B]
+phases:
+  - train:
+      tasks: {causes: [queue_pop_front], themes: [billing, logistics, telemetry, course_registration, network_flows], seeds: [1000, 1003]}
+  - eval:
+      label: after-15
+      tasks: {causes: [quadratic_membership], themes: [billing, logistics], seeds: [2000, 2005]}

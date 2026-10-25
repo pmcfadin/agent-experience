@@ -1,0 +1,15 @@
+# Dose-response: B trains on 30 queue_pop_front tickets (5 + 10 + 15, five themes per seed), with
+# the same 10 held-out inventory tickets evaluated after 5, 15 and 30. The first 15 training
+# tickets are exp1's training set.
+name: exp5-dose
+base_config: experiments/phase0-local.yaml
+family: cpu_mem
+histories: 1
+arms: [A, B]
+phases:
+  - train: {tasks: {causes: [queue_pop_front], themes: &themes [billing, logistics, telemetry, course_registration, network_flows], seeds: [1000, 1001]}}
+  - eval: {label: after-5, tasks: &eval {causes: [queue_pop_front], themes: [inventory], seeds: [2000, 2010]}}
+  - train: {tasks: {causes: [queue_pop_front], themes: *themes, seeds: [1001, 1003]}}
+  - eval: {label: after-15, tasks: *eval}
+  - train: {tasks: {causes: [queue_pop_front], themes: *themes, seeds: [1003, 1006]}}
+  - eval: {label: after-30, tasks: *eval}

@@ -86,7 +86,8 @@ class MemoryServiceConfig(_Strict):
     reranker: str = ""
     # What one retained episode looks like (elh/memory/hindsight.py render_episode/render_context).
     # lesson-v1: outcome, judge timings, the agent's summary and source diff; ticket as context.
-    record_format: Literal["lesson-v1"] = "lesson-v1"
+    # ticket-v0: the first format (ticket first, fixed context), kept for comparison experiments.
+    record_format: Literal["lesson-v1", "ticket-v0"] = "lesson-v1"
 
 
 class Price(_Strict):

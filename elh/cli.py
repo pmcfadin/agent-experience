@@ -105,6 +105,33 @@ def cmd_snapshot(args) -> int:
     return 0
 
 
+def cmd_run_batch(args) -> int:
+    from elh.batch import load_experiment, print_schedule, report, run_batch, schedule
+    from elh.tasks.base import get_family
+
+    exp, cfg = load_experiment(args.experiment)
+    if args.dry_run:
+        print_schedule(exp, cfg, schedule(exp, cfg))
+        return 0
+    if args.client is None:
+        raise SystemExit("run-batch: --client is required (model or scripted-*)")
+    from elh.store import Store
+
+    family = get_family(exp.family)
+    shared = _client("model", cfg, None, family) if args.client == "model" else None
+    store = Store(args.runs_dir)
+    results = run_batch(exp, cfg, store, lambda task: shared or _client(args.client, cfg, task, family),
+                        sandbox_backend=args.sandbox)
+    report(exp, store, results)
+    return 0
+
+
+def cmd_analyze(args) -> int:
+    from elh.analysis import main as analysis_main
+
+    return analysis_main(args.rest)
+
+
 def cmd_sandbox_setup(args) -> int:
     from elh.sandbox.user import setup
 
@@ -139,6 +166,19 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--after", type=int, required=True, help="number of train episodes the bank has seen")
     p.set_defaults(fn=cmd_snapshot)
 
+    p = sub.add_parser("run-batch", help="run an experiment file (experiments/batches/*.yaml) in sequence")
+    p.add_argument("experiment")
+    p.add_argument("--runs-dir", default="runs")
+    p.add_argument("--sandbox", help="override the registered sandbox backend (dev only)")
+    p.add_argument("--client", help="required unless --dry-run (no default: a scripted batch would claim the run)",
+                   choices=["model", "scripted-reference", "scripted-wrong", "scripted-noop"])
+    p.add_argument("--dry-run", action="store_true", help="print the expanded schedule and exit")
+    p.set_defaults(fn=cmd_run_batch)
+
+    p = sub.add_parser("analyze", help="compare arms for a batch (see python -m elh.analysis --help)")
+    p.add_argument("rest", nargs=argparse.REMAINDER)
+    p.set_defaults(fn=cmd_analyze)
+
     p = sub.add_parser("show-task", help="print a task's ticket; optionally write its workspace")
     p.add_argument("family")
     p.add_argument("cause")
@@ -169,6 +209,11 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("episode_id")
         p.set_defaults(fn=fn)
 
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["analyze"]:  # everything after it belongs to elh.analysis
+        from elh.analysis import main as analysis_main
+
+        return analysis_main(argv[1:])
     args = ap.parse_args(argv)
     return args.fn(args)
 

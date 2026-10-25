@@ -32,12 +32,15 @@ ACTIVE_STATES = {"pending", "processing", "running", "queued"}
 
 class HindsightMemory:
     def __init__(self, base_url: str, bank_id: str, *, readonly: bool = False, timeout_s: float = 600,
-                 recall_max_tokens: int = 2048):
+                 recall_max_tokens: int = 2048, record_format: str = "lesson-v1"):
+        if record_format not in RECORD_FORMATS:
+            raise ValueError(f"unknown record format {record_format!r}; known: {sorted(RECORD_FORMATS)}")
         self.base = base_url.rstrip("/") + f"/v1/default/banks/{bank_id}"
         self.bank_id = bank_id
         self.readonly = readonly
         self.timeout_s = timeout_s
         self.recall_max_tokens = recall_max_tokens
+        self.record_format = record_format
         self.last_usage: dict | None = None  # token usage of the last retain (memory LLM)
         self.snapshot_id: str | None = None    # set when this bank is a checkpoint snapshot
 
@@ -97,9 +100,10 @@ class HindsightMemory:
     def retain(self, episode: dict) -> list[str]:
         if self.readonly:
             raise RuntimeError(f"bank {self.bank_id} is read-only for this episode")
+        content, context = RECORD_FORMATS[self.record_format]
         out = self._call("POST", "/memories", {"items": [{
-            "content": render_episode(episode),
-            "context": render_context(episode),
+            "content": content(episode),
+            "context": context(episode),
             "document_id": episode["episode_id"],
             "tags": [f"family:{episode['family']}"],
         }]})
@@ -231,6 +235,32 @@ def render_episode(ep: dict) -> str:
 def render_context(ep: dict) -> str:
     return (f"One coding agent's attempt at a performance ticket, with the result verified by an automated "
             f"judge. The ticket was:\n{ep['prompt'].strip()}")
+
+
+def render_episode_ticket_v0(ep: dict) -> str:
+    """`ticket-v0`: the first record format (git 95b83ec), ticket first. Kept for comparison runs."""
+    verdict = ep["verdict"]
+    checks = ", ".join(f"{k}={'pass' if v else 'FAIL'}" for k, v in verdict["checks"].items())
+    lines = [
+        f"Task family {ep['family']}. Outcome: {'PASSED' if verdict['passed'] else 'FAILED'} ({checks}).",
+        f"Ticket:\n{ep['prompt'].strip()}",
+        f"Agent's own summary of its change:\n{(ep.get('submit_summary') or '(none)').strip()}",
+    ]
+    q = verdict.get("detail", {}).get("quality") or {}
+    if q:
+        lines.append(f"Judge timing on the large input: agent {q.get('agent_s')}s vs budget {q.get('budget_s')}s "
+                     f"(status {q.get('large_status')}).")
+    lines.append(f"Episode used {ep['turns']} turns and {ep['tool_calls']} tool calls.")
+    return "\n\n".join(lines)
+
+
+TICKET_V0_CONTEXT = "a coding-agent episode and the judge's verified result"
+
+# memory_service.record_format -> (content renderer, context renderer)
+RECORD_FORMATS = {
+    "lesson-v1": (render_episode, render_context),
+    "ticket-v0": (render_episode_ticket_v0, lambda ep: TICKET_V0_CONTEXT),
+}
 
 
 def usage_to_ledger(usage: dict | None) -> dict:

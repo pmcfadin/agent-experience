@@ -6,7 +6,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from elh.memory.hindsight import HindsightMemory, render_context, render_episode, usage_to_ledger, workspace_diff
+from pydantic import ValidationError
+
+from elh.memory.hindsight import (HindsightMemory, render_context, render_episode, render_episode_ticket_v0,
+                                  usage_to_ledger, workspace_diff)
+from elh.registry import MemoryServiceConfig
 from elh.tasks.base import get_family
 
 
@@ -102,3 +106,43 @@ def test_workspace_diff_keeps_source_and_names_scratch_files():
     assert "-a = 1" in d and "+a = 2" in d and len(d) < 1000
     assert "big.json (created, 600003 bytes)" in d and "job/core.py.bak (created" in d
     assert workspace_diff(before, {**before, "out.json": "{}"}).startswith("No source file was changed.")
+
+
+@pytest.mark.parametrize("fmt", ["lesson-v1", "ticket-v0"])
+def test_retain_sends_the_configured_record_format(fmt):
+    task = get_family("cpu_mem").generate("queue_pop_front", "billing", 1)
+    ep = _episode(task)
+    stub = _Stub([])
+    HindsightMemory(stub.url, "b1", record_format=fmt).retain(ep)
+    item = stub.requests[-1][2]["items"][0]
+    if fmt == "lesson-v1":
+        assert (item["content"], item["context"]) == (render_episode(ep), render_context(ep))
+    else:
+        assert item["content"] == render_episode_ticket_v0(ep)
+        assert item["context"] == "a coding-agent episode and the judge's verified result"
+    assert item["document_id"] == "e1" and item["tags"] == ["family:cpu_mem"]
+
+
+def test_ticket_v0_record_is_the_original_ticket_first_format():
+    family = get_family("cpu_mem")
+    task = family.generate("queue_pop_front", "billing", 1)
+    text = render_episode_ticket_v0(_episode(task))
+    assert text == (
+        "Task family cpu_mem. Outcome: FAILED (integrity=pass, performance=FAIL).\n\n"
+        f"Ticket:\n{task.prompt.strip()}\n\n"
+        "Agent's own summary of its change:\nused a deque\n\n"
+        "Judge timing on the large input: agent 3.0s vs budget 3.0s (status timeout).\n\n"
+        "Episode used 12 turns and 12 tool calls.")
+    assert family.solution_core(task) not in text and "def reference(" not in text
+
+
+def test_unknown_record_format_is_rejected():
+    with pytest.raises(ValueError, match="record format"):
+        HindsightMemory("http://127.0.0.1:9", "b1", record_format="lesson-v2")
+
+
+def test_registry_record_format_values():
+    assert MemoryServiceConfig().record_format == "lesson-v1"
+    assert MemoryServiceConfig(record_format="ticket-v0").record_format == "ticket-v0"
+    with pytest.raises(ValidationError):
+        MemoryServiceConfig(record_format="lesson-v2")

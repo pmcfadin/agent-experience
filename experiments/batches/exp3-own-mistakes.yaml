@@ -1,0 +1,13 @@
+# Does B learn from its own mixed experience? B trains on 15 tickets: all five causes x three
+# themes; then A and B fix 10 new tickets (new seeds) of the same causes in two of those themes.
+name: exp3-own-mistakes
+base_config: experiments/phase0-local.yaml
+family: cpu_mem
+histories: 1
+arms: [A, B]
+phases:
+  - train:
+      tasks: {causes: [quadratic_membership, nested_scan_join, queue_pop_front, repeated_sort_min, exponential_recursion], themes: [billing, logistics, telemetry], seeds: [1000, 1001]}
+  - eval:
+      label: after-15
+      tasks: {causes: [quadratic_membership, nested_scan_join, queue_pop_front, repeated_sort_min, exponential_recursion], themes: [billing, logistics], seeds: [2000, 2001]}

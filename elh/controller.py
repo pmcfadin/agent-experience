@@ -95,7 +95,8 @@ def memory_for(cfg: ExperimentConfig, arm: str, history: int, split: str, *,
             return open_snapshot(cfg, store, snapshot_id)
         if split in SNAPSHOT_SPLITS:
             raise ValueError(f"split {split!r} must run against a memory snapshot (snapshot_id)")
-        mem = HindsightMemory(_hindsight_url(cfg), bank_id_for(cfg, history, arm), readonly=split in READ_ONLY_SPLITS)
+        mem = HindsightMemory(_hindsight_url(cfg), bank_id_for(cfg, history, arm), readonly=split in READ_ONLY_SPLITS,
+                              record_format=cfg.memory_service.record_format)
         mem.ensure_bank()
         return mem
     raise ValueError(f"arm {arm} is not implemented yet")
