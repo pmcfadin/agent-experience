@@ -1,0 +1,19 @@
+# exp8a plus Learning on the Job (arXiv 2607.22157): after each train episode the agent writes one
+# WHEN-THEN rule (retained first in the record; calls charged as learning), and may call
+# search_memory(query) during episodes. Everything else as exp8a.
+name: exp8b-hard-rules
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  rules: {enabled: true}
+family: cpu_mem
+histories: 1
+arms: [A, B]
+phases:
+  - train:
+      tasks: {causes: [quadratic_membership], themes: [billing, logistics, telemetry, course_registration, network_flows], seeds: [1000, 1003]}
+  - eval:
+      label: after-15
+      tasks: {causes: [quadratic_membership], themes: [inventory], seeds: [2000, 2012]}
