@@ -503,6 +503,18 @@ What we have **[read: SPEC §10, `elh/memory/hindsight.py`]**:
    - **[inf]** Store the rule verbatim. Hindsight's retain runs LLM extraction; check whether
      Hindsight can store a pre-formed unit without re-extraction (e.g. as a "mental model" or
      verbatim document). If it cannot, a thin store of our own is more faithful.
+   - **Done (2026-10-25, `rules.store: verbatim`, first used by exp10).** exp8b/exp9 put the rule
+     inside the lesson-v3 record and extraction paraphrased it (0 of 587 exp8b recall candidates
+     contained "AVOID", "VERIFIED" or "WHEN"). Now the record is retained without the rule and
+     the rule is its own retain item, `<VERIFIED RULE|AVOID>: WHEN … THEN …` plus `Situation:
+     <query>`, under a bank retain strategy with `retain_extraction_mode: chunks` (Hindsight
+     1.1.0 stores each chunk as one `world` unit, no LLM call), tagged `rule`, document
+     `<episode>:rule`. Recall reserves `rules.recall_k` (2) slots for a rule-only recall
+     (tags `rule`, `any_strict`); `search_memory` returns rule hits first.
+     **Remaining deviation:** the paper retrieves rules only through the agent's own queries;
+     we also recall them by the ticket text at episode start (and the agent's queries hit the
+     rule text plus its situation key, not the key alone). The stored text is `render_rule`
+     (WHEN/THEN with its head), not the agent's `title` line.
    - Charge the reflection tokens as `learning`.
 3. **Credit assignment from the harness.**
    - On PASS: give the reflection the list of *consequential actions* (file edits / the diff
@@ -590,7 +602,8 @@ What we have **[read: SPEC §10, `elh/memory/hindsight.py`]**:
    retrieve against keys, not extracted facts.
 3. **Move the query later or let the agent write it:** after reading and profiling, use "problem
    + intended fix" (paper 1 A.3), or re-query mid-episode (paper 2 Step).
-4. **Store pre-formed rules verbatim** instead of letting Hindsight re-extract them.
+4. **Store pre-formed rules verbatim** instead of letting Hindsight re-extract them. Done as
+   `rules.store: verbatim` (see §3.2 item 2); exp8b/exp9 used the extracted form.
 5. **Add a decision-point reminder before `submit`**: re-read VERIFIED RULEs.
 6. **Evaluate with ΔRR/ΔNL against A**, not only the aggregate (9/10 vs 9/10 gives no power). A
    9/10 baseline leaves only 1 hard task, so per paper 2 we need far larger panels, or harder

@@ -380,8 +380,12 @@ class UtilityLearner:
         seed = hashlib.sha256(f"{self.config.epsilon_seed}:{key}:{self.state_sha256()}".encode()).digest()
         return random.Random(int.from_bytes(seed[:8], "big"))
 
-    def rank_with_trace(self, task, candidates: Sequence[MemoryItem]) -> tuple[list[MemoryItem], RankTrace]:
+    def rank_with_trace(self, task, candidates: Sequence[MemoryItem],
+                        k2: int | None = None) -> tuple[list[MemoryItem], RankTrace]:
+        """`k2` overrides the configured number of injected episodes (when other slots of the
+        memory block are already taken, e.g. by verbatim rules)."""
         cfg = self.config
+        k2_max = cfg.k2 if k2 is None else max(0, min(k2, cfg.k2))
         docs, unattributed = group_by_document(candidates, cfg.sim_score, cfg.doc_sim_agg)
         rows = {d.document_id: DocScore(d.document_id, d.sim, len(d.units)) for d in docs}
 
@@ -422,7 +426,7 @@ class UtilityLearner:
             r.score = (1.0 - cfg.lam) * r.sim_z + cfg.lam * r.q_z
         pool.sort(key=lambda d: (-rows[d.document_id].score, -d.sim, d.document_id))
 
-        k2 = min(cfg.k2, len(pool))
+        k2 = min(k2_max, len(pool))
         fired = False
         if cfg.epsilon > 0 and pool:
             rng = self._rng(task)
@@ -450,9 +454,9 @@ class UtilityLearner:
         self.last_trace = trace
         return out, trace
 
-    def rank(self, task, candidates: Sequence[MemoryItem]) -> list[MemoryItem]:
+    def rank(self, task, candidates: Sequence[MemoryItem], k2: int | None = None) -> list[MemoryItem]:
         """Learner.rank (SPEC §10). The full record of the call is left in `self.last_trace`."""
-        return self.rank_with_trace(task, candidates)[0]
+        return self.rank_with_trace(task, candidates, k2)[0]
 
     # -- learning ------------------------------------------------------------------------------
     def observe(self, injected_document_ids: Iterable[str], reward: float, *,
