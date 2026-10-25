@@ -69,7 +69,7 @@ model:
   id: study-qwen3-coder-30b-a3b
   base_url_env: WINTERMUTE_MODEL_API_BASE  # env var NAMES only; values live in a private env file
   api_key_env: WINTERMUTE_MODEL_API_KEY
-  props_url_env: ELH_BACKEND_PROPS_URL     # llama.cpp /props of the serving backend
+  props_url: http://127.0.0.1:4120/coder/props   # llama.cpp /props via the read-only relay
   max_tokens_per_turn: 8192
   temperature: 0.7
   top_p: 0.8
@@ -440,12 +440,14 @@ the earlier ticket; the useful verdict detail is thin, which is worth watching i
 1. ~~Local model access from dev~~ (done 2026-10-25: dev loopback, `claude-dev` key in
    `~/.config/wintermute/model-api.env`, aliases `study-qwen3-coder-30b-a3b` and
    `study-gemma4-26b-a4b`). The directory's `model-api` entry still lists only hermes and randy.
-2. Pin facts: they're in `docs/local-model-api-pilot.md` in `wintermute/wintermute-admin`, which
-   `claude-dev` can't read without a Forgejo token. Needs a token, or the facts pasted in.
-3. Backend `/props`: the backend (`127.0.0.1:8002` on the host) isn't reachable from dev and the
-   gateway doesn't serve `/props`. Needs a route (e.g. a gateway passthrough or a dev proxy) to put
-   in `ELH_BACKEND_PROPS_URL`. Non-dev splits refuse to run without it.
+2. ~~Pin facts~~ (done 2026-10-25: supplied by the sysadmin from `docs/local-model-api-pilot.md`
+   and matched against `/props`; registration v4 pins both the agent and the memory LLM. Gemma's
+   `context_tokens` is the per-request 65536: `--ctx-size 131072` over 2 slots). No Forgejo token.
+3. ~~Backend `/props`~~ (done 2026-10-25: `wintermute-props-relay` on `127.0.0.1:4120`, read-only,
+   `GET /coder/props` and `/gemma/props` only). Every episode fetches the agent's `/props` (and the
+   memory LLM's on arm B), stores it, and is an infra error if the weights file, build or
+   per-request context differs from the pin; the relay is sent no credentials.
 4. ~~Confirmatory sandbox~~ (decided 2026-10-25: UserSandbox in dev, §5).
-5. ~~Dedicated Hindsight~~ and ~~checkpoint snapshots~~ (done 2026-10-25, §10). `train` episodes
-   with the real model wait on item 2 (pin facts), since only the dev split may run unpinned.
+5. ~~Dedicated Hindsight~~ and ~~checkpoint snapshots~~ (done 2026-10-25, §10). First real-model
+   `train` episodes on arm B ran 2026-10-25 (retain, learning ledger, recall into the next episode).
 6. Optional: Anthropic credentials for the Sonnet comparison configuration.

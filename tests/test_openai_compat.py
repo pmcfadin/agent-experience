@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from elh.controller import run_single_episode
-from elh.registry import load_config
+from elh.registry import ModelPin, load_config
 from elh.runner.models import InfraError, OpenAICompatClient, to_openai_messages, to_openai_tools
 from elh.runner.prompts import TOOLS
 from elh.store import Store
@@ -115,6 +115,7 @@ def test_episode_through_openai_compat_client(tmp_path, family):
 
 def test_unpinned_local_model_refused_outside_dev(tmp_path, family):
     cfg = load_config(CONFIG)
+    cfg = cfg.model_copy(update={"model": cfg.model.model_copy(update={"pin": ModelPin()})})
     client = OpenAICompatClient(cfg.model.id, "http://127.0.0.1:9/v1", "k")
     with pytest.raises(ValueError, match="not pinned"):
         run_single_episode(cfg, Store(tmp_path), family.generate("queue_pop_front", "billing", 1), client,
@@ -156,10 +157,20 @@ def test_backend_swap_mid_episode_is_infra_error(tmp_path, family, monkeypatch):
 
 def test_props_required_outside_dev(tmp_path, family, monkeypatch):
     cfg = load_config(CONFIG)
-    pinned = cfg.model_copy(update={"model": cfg.model.model_copy(update={"pin": cfg.model.pin.model_copy(update={
+    pinned = cfg.model_copy(update={"model": cfg.model.model_copy(update={"props_url": "", "pin": cfg.model.pin.model_copy(update={
         "weights_sha256": "ab", "quantization": "q", "server": "s", "context_tokens": 1})})})
     monkeypatch.delenv("ELH_BACKEND_PROPS_URL", raising=False)
     with pytest.raises(ValueError, match="/props is required"):
         run_single_episode(pinned, Store(tmp_path), family.generate("queue_pop_front", "billing", 1),
                            OpenAICompatClient(cfg.model.id, "http://127.0.0.1:9/v1", "k"),
                            split="sealed_familiar", sandbox_backend="local")
+
+
+def test_props_checked_against_pin():
+    pin = load_config(CONFIG).model.pin
+    good = {"model_path": "/srv/models/" + pin.weights_file, "build_info": "b1-4da6337",
+            "default_generation_settings": {"n_ctx": pin.context_tokens}}
+    assert pin.props_mismatches(good) == []
+    swapped = {**good, "model_path": "/srv/models/other.gguf", "build_info": "b2-ffffff",
+               "default_generation_settings": {"n_ctx": 32768}}
+    assert len(pin.props_mismatches(swapped)) == 3

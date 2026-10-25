@@ -43,19 +43,29 @@ def sandbox_factory(cfg: ExperimentConfig, backend: str | None = None):
                    memory_mb=s.memory_mb, network=s.network)
 
 
-def capture_backend_props(cfg: ExperimentConfig, store: Store, split: str) -> str | None:
-    """Store the serving backend's /props verbatim and return its blob hash. Outside the dev split
-    a self-hosted model must have it, so every scored episode names the exact weights and flags."""
-    m = cfg.model
-    url = os.environ.get(m.props_url_env) if m.props_url_env else None
+def capture_props(store: Store, m, split: str, what: str = "backend") -> str | None:
+    """Fetch the serving backend's /props, check it against the pin and store it verbatim; returns
+    its blob hash. Outside the dev split a self-hosted model must have it, so every scored episode
+    names the exact weights and flags, and a backend swap is caught before the episode runs."""
+    url = m.props_url or (os.environ.get(m.props_url_env, "") if m.props_url_env else "")
     if not url:
         if split != "dev":
-            raise ValueError(f"backend /props is required outside the dev split; set {m.props_url_env or 'model.props_url_env'}")
+            raise ValueError(f"{what} /props is required outside the dev split; set props_url for {m.id}")
         return None
     try:
-        return store.put_blob("props", fetch_backend_props(url, os.environ.get(m.api_key_env)))
-    except OSError as exc:
-        raise InfraError(f"could not fetch backend /props from {url}: {exc}") from exc
+        raw = fetch_backend_props(url)
+        props = json.loads(raw)
+    except (OSError, ValueError) as exc:
+        raise InfraError(f"could not fetch {what} /props from {url}: {exc}") from exc
+    if m.pin.complete:
+        bad = m.pin.props_mismatches(props)
+        if bad:
+            raise InfraError(f"{what} {m.id} does not match its pin: " + "; ".join(bad))
+    return store.put_blob("props", raw)
+
+
+def capture_backend_props(cfg: ExperimentConfig, store: Store, split: str) -> str | None:
+    return capture_props(store, cfg.model, split)
 
 
 def _hindsight_url(cfg: ExperimentConfig) -> str:
@@ -154,6 +164,12 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
     props_sha = None
     if client.model_id != "scripted" and cfg.model.provider == "openai_compat":
         props_sha = capture_backend_props(cfg, store, split)
+    memory_props_sha = None
+    if isinstance(memory, HindsightMemory):
+        llm = cfg.memory_service.llm
+        if split not in READ_ONLY_SPLITS and client.model_id != "scripted" and not llm.pin.complete:
+            raise ValueError(f"memory LLM {llm.id} is not pinned; train episodes with a real model retain through it")
+        memory_props_sha = capture_props(store, llm, split if client.model_id != "scripted" else "dev", "memory LLM")
 
     memory = memory or NullMemory()
     if split in SNAPSHOT_SPLITS and not isinstance(memory, NullMemory) and getattr(memory, "snapshot_id", None) is None:
@@ -202,7 +218,7 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
         "trace_sha256": trace_sha, "final_workspace_sha256": ws_sha,
         "retrieved_memory_ids_json": json.dumps([it.memory_id for it in items]),
         "memory_snapshot_id": getattr(memory, "snapshot_id", None),
-        "backend_props_sha256": props_sha,
+        "backend_props_sha256": props_sha, "memory_props_sha256": memory_props_sha,
         "started_at": started, "finished_at": utcnow(),
     })
     for c in result.calls:

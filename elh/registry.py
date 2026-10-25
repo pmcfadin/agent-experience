@@ -29,6 +29,21 @@ class ModelPin(_Strict):
     def complete(self) -> bool:
         return bool(self.weights_sha256 and self.quantization and self.server and self.context_tokens)
 
+    def props_mismatches(self, props: dict) -> list[str]:
+        """Compare a llama.cpp /props document with the pin: weights file, build, per-request
+        context. Any difference means the backend is not the registered one."""
+        out = []
+        path = props.get("model_path") or ""
+        if self.weights_file and path.rsplit("/", 1)[-1] != self.weights_file:
+            out.append(f"model_path {path!r} != pinned {self.weights_file!r}")
+        build = props.get("build_info") or ""
+        if not build or build not in self.server:
+            out.append(f"build_info {build!r} is not the pinned server {self.server!r}")
+        n_ctx = (props.get("default_generation_settings") or {}).get("n_ctx")
+        if n_ctx != self.context_tokens:
+            out.append(f"per-request n_ctx {n_ctx} != pinned context_tokens {self.context_tokens}")
+        return out
+
 
 class ModelConfig(_Strict):
     provider: Literal["anthropic", "openai_compat"] = "anthropic"
@@ -41,8 +56,10 @@ class ModelConfig(_Strict):
     api_key_env: str = "ELH_MODEL_API_KEY"
     temperature: float | None = None
     top_p: float | None = None
-    # Env var holding the URL of the serving backend's llama.cpp /props. Fetched and stored with
-    # every episode; required outside the dev split.
+    # URL of the serving backend's llama.cpp /props (a read-only relay; not a secret), or the name
+    # of an env var holding it. Fetched, checked against the pin and stored with every episode;
+    # required outside the dev split.
+    props_url: str = ""
     props_url_env: str | None = None
     pin: ModelPin = ModelPin()
 
@@ -54,6 +71,8 @@ class MemoryLLMConfig(_Strict):
     id: str = "memory"
     base_url_env: str = "ELH_MODEL_BASE_URL"
     api_key_env: str = "ELH_MODEL_API_KEY"
+    props_url: str = ""
+    props_url_env: str | None = None
     pin: ModelPin = ModelPin()
 
 

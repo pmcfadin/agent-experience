@@ -172,12 +172,12 @@ def alias_lock(alias: str):
             fcntl.flock(fh, fcntl.LOCK_UN)
 
 
-def fetch_backend_props(url: str, api_key: str | None = None, timeout_s: float = 10) -> bytes:
-    """GET a llama.cpp /props document (model path, build, n_ctx, default sampling) verbatim."""
+def fetch_backend_props(url: str, timeout_s: float = 10) -> bytes:
+    """GET a llama.cpp /props document (model path, build, n_ctx, default sampling) verbatim.
+    No credentials: the relay serving it is read-only and must not see the gateway key."""
     import urllib.request
 
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"} if api_key else {})
-    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+    with urllib.request.urlopen(url, timeout=timeout_s) as resp:
         return resp.read()
 
 

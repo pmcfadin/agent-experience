@@ -1,23 +1,28 @@
 # Phase 0 registration, primary configuration (SPEC §1): the self-hosted model is the agent
-# and Hindsight's memory model. Dev only until every `pin` field is filled in.
+# and Hindsight's memory model. Both are pinned; each episode checks the backends' /props.
 name: phase0-local
-version: 3                      # v2: study aliases, UserSandbox, /props capture. v3: arm B (Hindsight)
+version: 4                      # v2: study aliases, UserSandbox, /props capture. v3: arm B (Hindsight)
+                                # v4: pins for both models, /props relay URLs
 model:
   provider: openai_compat
   id: study-qwen3-coder-30b-a3b   # dedicated study alias; one request at a time (client holds a lock)
   base_url_env: WINTERMUTE_MODEL_API_BASE   # from ~/.config/wintermute/model-api.env
   api_key_env: WINTERMUTE_MODEL_API_KEY
-  props_url_env: ELH_BACKEND_PROPS_URL      # backend llama.cpp /props; not reachable from dev yet
+  props_url: http://127.0.0.1:4120/coder/props   # wintermute-props-relay: read-only GET /props
   max_tokens_per_turn: 8192
   temperature: 0.7                # Qwen3-Coder recommended sampling; preregistered
   top_p: 0.8
   pin:                            # required before any non-dev split (controller enforces);
-                                  # values from wintermute-admin docs/local-model-api-pilot.md
-    weights_sha256: ""
-    weights_file: ""
-    quantization: ""
-    server: ""
-    context_tokens: 0
+                                  # facts from the sysadmin (docs/local-model-api-pilot.md), 2026-10-25,
+                                  # matched against /props; every episode re-checks file, build, n_ctx
+    weights_sha256: fadc3e5f8d42bf7e894a785b05082e47daee4df26680389817e2093056f088ad
+    weights_file: Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
+    quantization: Q4_K_M
+    server: >-
+      llama.cpp 4da6337767f973e2b4d0797e5b323d77d8565e4a (b1-4da6337) Vulkan;
+      --device Vulkan0 --n-gpu-layers 99 --ctx-size 65536 --parallel 1 --threads 8
+      --threads-batch 8 --batch-size 512 --ubatch-size 512 --jinja --no-webui --metrics
+    context_tokens: 65536
 prices_usd_per_mtok:
   # PLACEHOLDER shadow prices. Replace with values derived from measured GPU-seconds per token
   # and a fixed hardware rate before Phase 1; they change only by re-registering.
@@ -53,6 +58,16 @@ memory_service:
     id: study-gemma4-26b-a4b
     base_url_env: WINTERMUTE_MODEL_API_BASE
     api_key_env: WINTERMUTE_MODEL_API_KEY
+    props_url: http://127.0.0.1:4120/gemma/props
+    pin:
+      weights_sha256: 3eca3b8f6d7baf218a7dd6bba5fb59a56ee25fe2d567b6f5f589b4f697eca51d
+      weights_file: gemma-4-26B_q4_0-it.gguf      # plus gemma-4-26B-it-mmproj.gguf (--mmproj)
+      quantization: Q4_0 (QAT)
+      server: >-
+        llama.cpp 4da6337767f973e2b4d0797e5b323d77d8565e4a (b1-4da6337) Vulkan;
+        --device Vulkan0 --n-gpu-layers 99 --ctx-size 131072 --parallel 2 --threads 8
+        --threads-batch 8 --batch-size 512 --ubatch-size 512 --jinja --no-webui --metrics --mmproj
+      context_tokens: 65536     # per request: --ctx-size 131072 split over 2 slots
     # thinking off for every memory-LLM call (serve.sh): with it on, extraction stalls
   embedder: intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3 (onnx)
   reranker: cross-encoder/ms-marco-MiniLM-L6-v2@233902d25c440f23af6f7d6e94d2946bac0bee0a (onnx)
