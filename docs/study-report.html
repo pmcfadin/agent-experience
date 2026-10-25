@@ -1,0 +1,410 @@
+<title>Agent Experience Study</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single lab-notebook column; claims on the left margin, evidence beneath each. */
+:root {
+  --paper: #f5f6f3;
+  --sheet: #fbfbf9;
+  --ink: #1c2321;
+  --muted: #5a6662;
+  --rule: #d3d9d5;
+  --accent: #2c5a86;
+  --good: #2b7a4b;
+  --bad: #b1442d;
+  --warn: #9c6c10;
+  --tint-good: #e3f0e7;
+  --tint-bad: #f6e4df;
+  --tint-warn: #f4ecd9;
+  --tint-accent: #e2eaf3;
+  --display: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #131816; --sheet: #182019; --ink: #e2e8e4; --muted: #9ba7a2; --rule: #2d3733;
+    --accent: #8db2d8; --good: #6cc392; --bad: #e88d74; --warn: #d8b15a;
+    --tint-good: #1b2d22; --tint-bad: #36211c; --tint-warn: #302815; --tint-accent: #1c2733;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #131816; --sheet: #182019; --ink: #e2e8e4; --muted: #9ba7a2; --rule: #2d3733;
+  --accent: #8db2d8; --good: #6cc392; --bad: #e88d74; --warn: #d8b15a;
+  --tint-good: #1b2d22; --tint-bad: #36211c; --tint-warn: #302815; --tint-accent: #1c2733;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font: 400 16px/1.6 var(--body); padding-inline: 16px; padding-block: 40px 72px; }
+main { max-width: 780px; margin: 0 auto; display: grid; gap: 56px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.2; }
+h1 { font-size: clamp(2rem, 5vw, 2.7rem); font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 1.6rem; font-weight: 600; }
+h3 { font-size: 1.15rem; font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+section { display: grid; gap: 18px; }
+.eyebrow { font: 500 0.72rem/1.2 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.lede { font-size: 1.12rem; color: var(--ink); }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 22px; font: 400 0.8rem/1.4 var(--mono); color: var(--muted); }
+.muted { color: var(--muted); }
+code, .mono { font-family: var(--mono); font-size: 0.88em; }
+a { color: var(--accent); }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 0; }
+
+/* Bottom line */
+.verdict { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 22px 24px; display: grid; gap: 14px; }
+.verdict ul { margin: 0; padding-left: 1.1em; display: grid; gap: 8px; max-width: 68ch; }
+
+/* Primary hypothesis */
+.h1box { border-left: 3px solid var(--accent); padding: 4px 0 4px 20px; display: grid; gap: 10px; }
+.h1box blockquote { margin: 0; font: 400 1.25rem/1.5 var(--display); max-width: 60ch; }
+.formula { font: 400 0.9rem/1.6 var(--mono); background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 12px 16px; overflow-x: auto; white-space: nowrap; }
+
+/* Hypothesis ledger */
+.hyps { display: grid; gap: 0; border-top: 1px solid var(--rule); }
+.hyp { display: grid; grid-template-columns: 3.2rem minmax(0, 1fr); gap: 4px 16px; padding: 16px 0; border-bottom: 1px solid var(--rule); }
+.hyp .id { font: 600 1.05rem/1.3 var(--mono); color: var(--accent); }
+.hyp .claim { font-weight: 500; }
+.hyp .body { display: grid; gap: 6px; min-width: 0; }
+.hyp .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.pill { font: 500 0.72rem/1 var(--mono); letter-spacing: 0.04em; padding: 5px 8px; border-radius: 999px; white-space: nowrap; }
+.pill.untested { background: var(--tint-warn); color: var(--warn); }
+.pill.ready { background: var(--tint-accent); color: var(--accent); }
+.pill.blocked { background: var(--tint-bad); color: var(--bad); }
+.small { font-size: 0.9rem; }
+
+/* Tables */
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; background: var(--sheet); }
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font: 500 0.7rem/1.3 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td.num { text-align: right; white-space: nowrap; }
+.ok { color: var(--good); font-weight: 600; }
+.fail { color: var(--bad); font-weight: 600; }
+
+/* Charts */
+figure { margin: 0; display: grid; gap: 10px; }
+figcaption { font-size: 0.85rem; color: var(--muted); max-width: 68ch; }
+.chart { overflow-x: auto; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 12px 8px 4px; }
+.chart svg { display: block; min-width: 620px; width: 100%; height: auto; }
+.chart text { font-family: var(--mono); font-size: 11px; fill: var(--muted); }
+.chart .lab { fill: var(--ink); font-size: 11.5px; }
+.chart .grid { stroke: var(--rule); stroke-width: 1; }
+.chart .budget { stroke: var(--bad); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.chart .ref { stroke: var(--muted); stroke-width: 1; }
+.chart .bar-ok { fill: var(--good); }
+.chart .bar-fail { fill: var(--bad); }
+.chart .budgettext { fill: var(--bad); }
+
+.strips { display: grid; gap: 12px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 16px 18px; }
+.strip { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.cells { display: grid; grid-template-columns: repeat(15, minmax(0, 1fr)); gap: 3px; }
+.cells span { height: 18px; border-radius: 2px; }
+.cells .r { background: var(--rule); }
+.cells .l { background: var(--accent); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.82rem; color: var(--muted); }
+.sw { display: inline-block; width: 11px; height: 11px; border-radius: 2px; vertical-align: -1px; margin-right: 6px; }
+
+/* Findings */
+.findings { display: grid; gap: 28px; }
+.finding { display: grid; gap: 10px; }
+.finding .tag { font: 500 0.7rem/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; }
+.tag.for { color: var(--good); }
+.tag.against { color: var(--bad); }
+.tag.method { color: var(--accent); }
+.excerpt { font: 400 0.82rem/1.55 var(--mono); background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 12px 14px; overflow-x: auto; white-space: pre; color: var(--ink); }
+
+.twocol { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 20px 28px; }
+.twocol > div { min-width: 0; display: grid; gap: 8px; align-content: start; }
+.checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; font-size: 0.93rem; }
+.checklist li { padding-left: 1.4em; position: relative; }
+.checklist li::before { content: "✓"; position: absolute; left: 0; color: var(--good); font-weight: 600; }
+.checklist.open li::before { content: "○"; color: var(--warn); }
+
+ol.steps { margin: 0; padding-left: 1.3em; display: grid; gap: 12px; max-width: 70ch; }
+ol.steps li::marker { font-family: var(--mono); color: var(--accent); }
+
+footer { font: 400 0.78rem/1.6 var(--mono); color: var(--muted); display: grid; gap: 4px; }
+@media (max-width: 520px) {
+  .strip { grid-template-columns: 1fr auto; }
+  .strip .cells { grid-column: 1 / -1; }
+  .hyp { grid-template-columns: 1fr; }
+}
+
+/* Additions for the methods write-up */
+.papers { display: grid; gap: 0; border-top: 1px solid var(--rule); }
+.paper { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 22px 0; border-bottom: 1px solid var(--rule); }
+.paper .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+.paper .cite { font: 400 0.8rem/1.4 var(--mono); color: var(--muted); }
+.paper dl { margin: 0; display: grid; grid-template-columns: 8.5rem minmax(0, 1fr); gap: 8px 18px; font-size: 0.94rem; }
+.paper dt { font: 500 0.7rem/1.6 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding-top: 2px; }
+.paper dd { margin: 0; min-width: 0; max-width: 68ch; }
+.pill.done { background: var(--tint-good); color: var(--good); }
+.pill.run { background: var(--tint-accent); color: var(--accent); }
+.dev { color: var(--warn); font-weight: 600; }
+.note { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 16px 20px; display: grid; gap: 10px; }
+.note ul { margin: 0; padding-left: 1.1em; display: grid; gap: 6px; max-width: 68ch; }
+.toc { display: flex; flex-wrap: wrap; gap: 6px 18px; font: 400 0.82rem/1.5 var(--mono); }
+.toc a { text-decoration: none; }
+.toc a:hover, .toc a:focus-visible { text-decoration: underline; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 520px) { .paper dl { grid-template-columns: 1fr; gap: 2px 0; } .paper dd { margin-bottom: 8px; } }
+</style>
+
+<main>
+  <header style="display:grid;gap:14px">
+    <div class="eyebrow">Study write-up · Experiential Learning Harness</div>
+    <h1>Can AI agents become more experienced?</h1>
+    <p class="lede">A frozen coding agent fixes generated performance bugs. Four agents differ only in what they keep between tasks. This write-up covers the hypothesis, the six papers each part of the design comes from, how we built them, what the evidence says so far, and what runs next.</p>
+    <div class="meta"><span>Updated 2026-10-25</span><span>Agent: Qwen3-Coder 30B-A3B (Q4_K_M, local)</span><span>Memory LLM: Gemma 4 26B</span><span>Hindsight 1.1.0</span><span>200 tests passing</span></div>
+    <nav class="toc" aria-label="Sections">
+      <a href="#bottom">Bottom line</a><a href="#hyp">Hypotheses</a><a href="#arms">The four arms</a><a href="#papers">From papers to code</a><a href="#evidence">Evidence so far</a><a href="#lessons">What went wrong</a><a href="#next">Running and next</a><a href="#limits">Limits</a><a href="#decisions">Open decisions</a>
+    </nav>
+  </header>
+
+  <section id="bottom" class="verdict">
+    <div class="eyebrow">Bottom line</div>
+    <ul>
+      <li><strong>No evidence yet that memory helps.</strong> In the only valid comparison, the agent without memory and the agent with memory each fixed 9 of 10 new tickets. The difference in pass rate is 0 percentage points, with a 95% interval of −30 to +30.</li>
+      <li><strong>The first memory design couldn't have helped.</strong> The right lesson ("the attempt failed because it modified protected files") was in memory, but recall surfaced it in only 1 of 10 test episodes. We traced this to how we stored memories, not to Hindsight: the ticket text in each memory's context made recall rank by ticket similarity.</li>
+      <li><strong>All four arms are now built from the cited papers:</strong> Hindsight as its paper intends, MemRL's usefulness ranking, Learning on the Job's rules, Agent Workflow Memory's procedures, and GEPA's reflective optimisation, plus the evaluation metrics from Moves to Memory. Each deviation from a paper is stated below.</li>
+      <li><strong>The current tickets are too easy to show an effect.</strong> The agent without memory passes about 90% of them. A difficulty probe across the other four bug types runs next, and the following experiments will use the hard ones.</li>
+    </ul>
+  </section>
+
+  <section id="hyp">
+    <div class="eyebrow">What we are testing</div>
+    <h2>The hypotheses</h2>
+    <div class="h1box">
+      <div class="eyebrow">Primary hypothesis · H1</div>
+      <blockquote>After 200 training episodes, the continuous-learning agent (D) achieves at least 20% lower fully loaded cost per verified success on sealed, unseen tasks than the stateless agent (A), without losing more than a preregistered margin of success rate.</blockquote>
+      <div class="formula">cost per success = (inference + tool compute + memory service + reflection + validation + amortised learning) ÷ verified successes</div>
+    </div>
+    <div class="hyps">
+      <div class="hyp"><div class="id">H1</div><div class="body"><div class="claim">D is 20% cheaper per success than A on sealed tasks</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">All four arms are now built. A sealed test is not run until the protocol is locked.</span></div></div></div>
+      <div class="hyp"><div class="id">H2</div><div class="body"><div class="claim">The advantage grows across checkpoints</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Only single checkpoints so far. Hold rate between checkpoints is implemented.</span></div></div></div>
+      <div class="hyp"><div class="id">H3</div><div class="body"><div class="claim">Learning transfers to new combinations and causes</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Forward transfer is implemented; it needs sealed novel-combination and novel-cause tasks.</span></div></div></div>
+      <div class="hyp"><div class="id">H4</div><div class="body"><div class="claim">Utility ranking and validated procedures add value beyond retrieval</div><div class="row"><span class="pill run">Running</span><span class="small muted">Experiment 6 compares B and C now. D is queued.</span></div></div></div>
+      <div class="hyp"><div class="id">H5</div><div class="body"><div class="claim">New learning does not erode earlier ability</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Backward transfer, retention phases and automatic rollback are implemented; no retention run yet.</span></div></div></div>
+    </div>
+  </section>
+
+  <section id="arms">
+    <div class="eyebrow">Design</div>
+    <h2>The four arms</h2>
+    <p>Every arm runs the same frozen model, system prompt, tools, sandbox, budgets (40 turns, 600,000 tokens) and judge. They differ only in what is carried from one episode to the next. Memory is shown once, at the start of an episode, inside the first message.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Arm</th><th>What it keeps</th><th>Source</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td><strong>A</strong></td><td>Nothing. The baseline sees the same documentation and tools.</td><td>Proposal</td><td><span class="pill done">Built</span></td></tr>
+        <tr><td><strong>B</strong></td><td>A Hindsight memory bank. One record per verified training episode; the agent's own past attempts are recalled for each new ticket.</td><td>Hindsight</td><td><span class="pill done">Built</span></td></tr>
+        <tr><td><strong>C</strong></td><td>B, with recall candidates re-ranked by a learned usefulness score per past episode, updated from verified outcomes.</td><td>MemRL</td><td><span class="pill done">Built</span></td></tr>
+        <tr><td><strong>D</strong></td><td>C, plus a library of reusable procedures induced from passed episodes. A new library is promoted only if it wins on held-aside development tasks, and can be rolled back.</td><td>Agent Workflow Memory, GEPA</td><td><span class="pill done">Built</span></td></tr>
+      </tbody>
+    </table></div>
+    <p class="small muted">Learning on the Job's rule writing and agent-driven memory search are switches on any memory arm (B, C, D), so their effect can be measured by turning them on in one run and off in another.</p>
+  </section>
+
+  <section id="papers">
+    <div class="eyebrow">Research basis</div>
+    <h2>From papers to code</h2>
+    <p>Five agents read the papers your proposal cites, and their code where released, in parallel. Each wrote down the exact method: formulas, prompts, default settings and evaluation protocol. Six more agents then built each method in its own module, and I wired them together. Where we depart from a paper, the reason is given.</p>
+
+    <div class="papers">
+      <article class="paper">
+        <div class="head"><h3>Hindsight</h3><span class="cite">Latimer et al., ACL 2026 demo · arXiv 2512.12818 · vectorize-io/hindsight</span></div>
+        <dl>
+          <dt>The method</dt><dd>Memory organised by fact type (world facts, the agent's own experiences, observations), with retain, recall and reflect. Recall combines semantic, keyword, graph and time-based search, then a cross-encoder reranks. Reported 91.4 on LongMemEval-S and 89.6 on LoCoMo. It has no component ablations and does not cover learning from task outcomes.</dd>
+          <dt>What we found</dt><dd>Hindsight reranks each memory as "context: text". We had put the full ticket in the context, so the ticket filled the reranker's 512-token window and cut off the lesson. One protected-files lesson scored +0.78 with the ticket context and −9.32 on its own text.</dd>
+          <dt>What we built</dt><dd>Record format <code>lesson-v3</code>: a one-sentence outcome context with no ticket text, plus tags for outcome and failed checks. Recall can be limited to <code>experience</code> facts, the type the paper defines for what the agent did. Other additions: the full ranked candidate list with per-stage scores, bank missions, and a fingerprint that also covers context, metadata and mental models. <code>elh/memory/hindsight.py</code></dd>
+          <dt>Effect on recall</dt><dd>Read-only replay on experiment 1's memory: lessons reached the top 5 in 1/10 test tickets as run, 8/10 when recalling experience facts only, and 10/10 with a fixed second "past mistakes" query. That second query is our own idea, not the paper's, so the paper-faithful arm B uses only the experience filter.</dd>
+          <dt>Deviations</dt><dd>We don't call <code>reflect</code> during episodes: it took 43 s and about 44,000 tokens per call in a probe. It remains a possible ablation.</dd>
+        </dl>
+      </article>
+
+      <article class="paper">
+        <div class="head"><h3>MemRL</h3><span class="cite">Zhang et al., arXiv 2601.03192 · MemTensor/MemRL</span></div>
+        <dl>
+          <dt>The method</dt><dd>Each memory is an intent, an experience and a usefulness value Q. Recall happens in two phases: keep memories whose task similarity passes a threshold, take the top k1, then rank by 0.5·z(similarity) + 0.5·z(Q) and inject the top k2. After each episode, every injected memory is updated as Q ← Q + 0.3(r − Q).</dd>
+          <dt>How strong</dt><dd>One run per setting, with no intervals. Gains over the strongest baseline were +3.8 points (runtime) and +2.8 (transfer). The large gains come from re-solving the same tasks over 10 rounds; on fresh coding tasks the gain was about 1–2 points. Our sample sizes should not assume MemRL-sized effects.</dd>
+          <dt>What we built</dt><dd>A reranker over Hindsight's own candidate list, with Q kept per source episode, so C differs from B only in ranking. Q survives snapshot restores and is hashed into each snapshot; test episodes rank with a frozen copy. Every ranking decision is logged. <code>elh/learner/utility.py</code></dd>
+          <dt>Deviations</dt><dd><span class="dev">Reward:</span> a pass scores 1 − cost/budget, as the spec says, but a failure scores −1, as in MemRL. With the spec's reward, a failure scores 0 and Q can never fall, so memories linked to failures are never demoted. The spec's version stays available as a setting.<br><span class="dev">Similarity gate:</span> calibrated on our data (207 episode similarities, mean 0.865, sd 0.017). MemRL keeps about the top 20% of its whole store. Our candidates are already Hindsight's top list, about 14 episodes per ticket, so we set the gate at the 20th percentile (0.853). Otherwise about 3 episodes would remain for 5 slots.<br><span class="dev">Injection size:</span> one memory per selected episode, so C shows as many memories as B.<br>The code's undocumented extras (random exploration, a −0.8 exclusion floor) are off, as in the paper.</dd>
+        </dl>
+      </article>
+
+      <article class="paper">
+        <div class="head"><h3>Learning on the Job</h3><span class="cite">Tablan, Taylor &amp; Bernhem, arXiv 2607.22157</span></div>
+        <dl>
+          <dt>The method</dt><dd>After each episode, the agent reflects and writes one rule: "VERIFIED RULE: WHEN … THEN …" after a pass, "AVOID: …" after a failure. Each rule has a separate query field, phrased as the question a future agent would ask, which is what retrieval matches. A validator sends back rules that leave out key facts. The agent searches memory itself, once it has gathered information, and re-reads rules before acting. Reported 1.6× the no-memory baseline with verdict-only feedback, 2.6× with corrections.</dd>
+          <dt>Why it matters here</dt><dd>The authors' code notes that a single search on the opening message made a lesson unreachable, which is the failure we hit.</dd>
+          <dt>What we built</dt><dd>The rule writer, using the paper's reflection and rejection prompts adapted to tickets. The agent sees the judge's per-check verdict, the protected files it changed, and its time against the budget, but never the hidden tests or the reference fix. The validator requires the protected file names. There is also an optional <code>search_memory</code> tool; when it is off, every request is byte-identical to before (checked by a test). <code>elh/learner/rules.py</code></dd>
+          <dt>Deviations</dt><dd>We have no gold solution, so the validator can only require the protected-file names. The merge of two conflicting rules is not implemented. In a sanity call, one rule gave a cause the prompt forbids it to guess, and no check caught it.</dd>
+        </dl>
+      </article>
+
+      <article class="paper">
+        <div class="head"><h3>Agent Workflow Memory</h3><span class="cite">Wang et al., ICML 2025 · arXiv 2409.07429</span></div>
+        <dl>
+          <dt>The method</dt><dd>A model turns successful runs into short reusable workflows: a description plus steps, with specifics replaced by placeholders. The whole library is regenerated after each success and shown in full, with no retrieval. On WebArena, success rose from 23.5% to 35.5% and steps per task fell from 7.9 to 5.9. Neither paper version reports seeds or variance.</dd>
+          <dt>What we built</dt><dd>Induction from passed training episodes only, one per ticket type, with steps taken from the agent's own commands and trimmed outputs. It uses AWM's induction prompt verbatim with three domain substitutions. Libraries are versioned in a skills table with their source episodes and hashes, and injected at the top of arm D's memory block. <code>elh/learner/workflows.py</code></dd>
+          <dt>Added by the proposal</dt><dd>AWM promotes nothing; it just uses the new library. The proposal requires validation, so a candidate library runs against the current one on 6 held-aside development tasks, twice each. It is promoted only if mean reward improves, passes don't drop and protected-file breaks don't rise. It is rolled back automatically if a retention check drops.</dd>
+          <dt>Found in testing</dt><dd>On all 3 sanity calls the model copied the prompt's example workflows word for word, and a filter now drops those copies. Agents' real fixes often match the reference fix exactly, so those edits are shown as diffs and checked so that the reference text never leaks.</dd>
+        </dl>
+      </article>
+
+      <article class="paper">
+        <div class="head"><h3>GEPA</h3><span class="cite">Agrawal et al., ICLR 2026 · arXiv 2507.19457 · gepa 0.1.4</span></div>
+        <dl>
+          <dt>The method</dt><dd>Evolves a text prompt. A reflection model reads a few rollouts and their feedback, rewrites the text, and the rewrite is kept only if it scores better on those tasks. Candidates are chosen from a Pareto frontier across validation tasks. With Qwen3-8B it scored 54.85, against 48.91 for GRPO with 24,000 rollouts and 47.84 for MIPROv2. GEPA's coding-agent variant raised resolve rates from 55% to 82% and from 24% to 93%.</dd>
+          <dt>What we built</dt><dd>An adapter for the <code>gepa</code> package that optimises arm D's procedure text, scored with partial credit per check plus cost. A protected-file break scores 0. Feedback uses the judge's wording without reference timings, hidden inputs or the reference fix, and it runs on development tasks only. <code>elh/learner/gepa_opt.py</code></dd>
+          <dt>Deviations</dt><dd>GEPA's default reflection prompt asks the model to keep "niche domain facts", which would copy ticket specifics into the procedure. We replaced it with one that tells the model to generalise. Merge is off, since it hurt Qwen3-8B in the paper. A pilot costs about 150 rollouts plus a 40-rollout check, roughly 3 hours on our single GPU.</dd>
+        </dl>
+      </article>
+
+      <article class="paper">
+        <div class="head"><h3>When Continual Learning Moves to Memory</h3><span class="cite">Hu, Long &amp; Wang, arXiv 2604.27003</span></div>
+        <dl>
+          <dt>The method</dt><dd>Measures what memory does to an agent over time. Test tasks are split into those the baseline solves and those it fails. ΔRR measures whether memory breaks solved tasks; ΔNL whether it solves new ones. Forward and backward transfer are measured against a memory-enabled run that starts from scratch.</dd>
+          <dt>Its warnings</dt><dd>Raw trajectories cause negative transfer, worst on hard tasks (ΔNL −26). Fine-grained entries can collapse onto one item: 88.5% of searches returned the same top memory. The setting with the best forward transfer also forgot the most (−10).</dd>
+          <dt>What we built</dt><dd>ΔRR and ΔNL (hidden below 10 baseline failures, as in the paper), forward and backward transfer, hold rate (from Learning on the Job), a paired cluster bootstrap by task, and recall diagnostics: coverage, top-1 concentration, lesson reach and lesson rank. <code>elh/analysis.py</code></dd>
+        </dl>
+      </article>
+    </div>
+    <p class="small muted">Terminal-Bench was read for task design only. Our task format (hidden tests, reference solution, protected files) matches it. Two ideas are worth adopting: take the fastest of several timing runs to cut noise on a shared machine, and put canary strings in generated tasks.</p>
+  </section>
+
+  <section id="evidence">
+    <div class="eyebrow">Evidence so far</div>
+    <h2>What the experiments show</h2>
+    <p>Both experiments used one bug type, a job that pops items from the front of a Python list (<code>queue_pop_front</code>). Memory arms trained on 15 tickets across five themes. All arms were then tested on 10 new tickets in a sixth theme, against a frozen snapshot of the memory.</p>
+
+    <div class="findings">
+      <div class="finding">
+        <div class="tag against">Experiment 1 · void</div>
+        <h3>The first memory format stated failures as their opposite</h3>
+        <p>A failed protected-files check was written in the wording for the passing check: "FAILED: left the tests and harness untouched". Hindsight duly stored that the attempt "failed because it left the tests and harness untouched". Arm B then broke the protected-files rule in 3 of 10 test episodes, against 1 of 10 for arm A (A 9/10, B 7/10). We voided the result, fixed the wording (<code>lesson-v2</code>), and re-ran.</p>
+      </div>
+
+      <div class="finding">
+        <div class="tag method">Experiment 1, rerun</div>
+        <h3>A tie, with the right lesson stored but rarely recalled</h3>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Measure</th><th class="num">A · no memory</th><th class="num">B · memory</th></tr></thead>
+          <tbody>
+            <tr><td>Passed (of 10)</td><td class="num">9</td><td class="num">9</td></tr>
+            <tr><td>Broke the protected-files rule</td><td class="num">1</td><td class="num">0</td></tr>
+            <tr><td>Too slow on the large input</td><td class="num">0</td><td class="num">1</td></tr>
+            <tr><td>Agent GPU seconds per success</td><td class="num">38.7</td><td class="num">38.2</td></tr>
+          </tbody>
+        </table></div>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Paired comparison, B vs A</th><th>Result</th></tr></thead>
+          <tbody>
+            <tr><td>Same ticket: both passed / only A / only B</td><td>8 / 1 / 1 (McNemar p = 1.0)</td></tr>
+            <tr><td>Pass-rate difference, bootstrap 95% CI</td><td>+0% [−30%, +30%]</td></tr>
+            <tr><td>GPU-per-success ratio, bootstrap 95% CI</td><td>0.99× [0.61, 1.56]</td></tr>
+            <tr><td>ΔRR (tickets A solved that B broke)</td><td>−11% (1 of 9)</td></tr>
+            <tr><td>ΔNL (new tickets solved)</td><td>Not measurable: A failed only 1 ticket</td></tr>
+          </tbody>
+        </table></div>
+        <p>The bank held 85 memories, 6 of them correctly worded protected-files lessons. A lesson reached the agent in 1 of 10 test episodes, at rank 4. Test episodes used only 17 of the 85 memories, and 40% of them got the same memory at the top. Since the lesson almost never reached the agent, B's clean protected-files record can't be credited to memory.</p>
+      </div>
+
+      <div class="finding">
+        <div class="tag for">Diagnosis</div>
+        <h3>Recall ranked by ticket similarity because of how we stored memories</h3>
+        <figure>
+          <div class="chart">
+            <svg viewBox="0 0 640 170" role="img" aria-label="Test tickets where a protected-files lesson reached the top five: 1 of 10 as run, 1 with higher budget, 8 with experience-only recall, 10 with an added lesson query">
+              <line class="grid" x1="300" y1="14" x2="300" y2="150"/><line class="grid" x1="400" y1="14" x2="400" y2="150"/><line class="grid" x1="500" y1="14" x2="500" y2="150"/><line class="grid" x1="600" y1="14" x2="600" y2="150"/>
+              <line class="ref" x1="200" y1="14" x2="200" y2="150"/>
+              <text class="lab" x="190" y="34" text-anchor="end">As run (ticket context)</text>
+              <rect class="bar-fail" x="200" y="22" width="40" height="18"/><text x="248" y="36">1/10</text>
+              <text class="lab" x="190" y="66" text-anchor="end">Higher recall budget</text>
+              <rect class="bar-fail" x="200" y="54" width="40" height="18"/><text x="248" y="68">1/10</text>
+              <text class="lab" x="190" y="98" text-anchor="end">Experience facts only</text>
+              <rect class="bar-ok" x="200" y="86" width="320" height="18"/><text x="528" y="100">8/10</text>
+              <text class="lab" x="190" y="130" text-anchor="end">+ fixed lesson query</text>
+              <rect class="bar-ok" x="200" y="118" width="400" height="18"/><text x="608" y="132" text-anchor="end" style="fill:var(--sheet)">10/10</text>
+              <text x="200" y="164" text-anchor="middle">0</text><text x="400" y="164" text-anchor="middle">5</text><text x="600" y="164" text-anchor="middle">10</text>
+            </svg>
+          </div>
+          <figcaption>Test tickets (of 10) where a protected-files lesson reached the agent's top 5. Replayed read-only on experiment 1's frozen memory; the memory's fingerprint was unchanged after every call.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="lessons">
+    <div class="eyebrow">Method notes</div>
+    <h2>What went wrong, and what it taught us</h2>
+    <div class="twocol">
+      <div>
+        <h3>Bugs that would have biased results</h3>
+        <ul class="checklist">
+          <li>Failed checks described in their passing wording (experiment 1 voided).</li>
+          <li>Ticket text in the memory context made recall rank by ticket similarity.</li>
+          <li>A 500 KB scratch file in an episode diff caused about 40 memory-model calls; diffs now cover source files only.</li>
+          <li>Proposal formula for arm C's reward could never demote a memory linked to failures.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Safeguards now in place</h3>
+        <ul class="checklist">
+          <li>Model and memory LLM pinned by weights hash, build and context; checked before every episode.</li>
+          <li>Test episodes read a frozen snapshot of the memory, and must leave both its content hash and its learner hash unchanged.</li>
+          <li>Learners, rules and procedures never see hidden tests or the reference fix; tests check this.</li>
+          <li>Every earlier experiment setup keeps its exact hash, so old runs reproduce.</li>
+          <li>Each recall logs its full ranked candidate list, so "never retrieved" can be told from "retrieved but ignored".</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="next">
+    <div class="eyebrow">Running and next</div>
+    <h2>Experiments</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Experiment</th><th>Question</th><th>Arms</th><th class="num">Episodes</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td><strong>6</strong> papers-bc</td><td>Do Hindsight as intended (B) and MemRL ranking (C) beat no memory, on experiment 1's tickets?</td><td>A, B, C</td><td class="num">60</td><td><span class="pill run">Running</span></td></tr>
+        <tr><td><strong>Probe</strong></td><td>Which of the other four bug types does the agent without memory fail?</td><td>A</td><td class="num">12</td><td><span class="pill ready">Queued</span></td></tr>
+        <tr><td><strong>7</strong> arm D</td><td>Do validated procedures add to utility ranking?</td><td>A, B, C, D</td><td class="num">85 + up to 72 dev</td><td><span class="pill untested">Designed</span></td></tr>
+        <tr><td><strong>8</strong> rules</td><td>Do Learning on the Job's rules and agent search fix recall?</td><td>A, B + rules</td><td class="num">about 35</td><td><span class="pill untested">Planned</span></td></tr>
+      </tbody>
+    </table></div>
+    <p class="small muted">Experiments 7 and 8 will move to the bug types the probe shows are hard. Experiment 7 takes about 2–3 hours, depending on how many libraries reach the promotion check. This page will be updated with each result.</p>
+  </section>
+
+  <section id="limits">
+    <div class="eyebrow">Limits</div>
+    <h2>What this evidence cannot show yet</h2>
+    <div class="note"><ul>
+      <li><strong>Ten test tickets per arm.</strong> At a 90% pass rate, a 95% interval runs from about 60% to 98%. Only large effects are detectable.</li>
+      <li><strong>One bug type and one learning history.</strong> The proposal calls for several independent histories and stratified intervals.</li>
+      <li><strong>Placeholder prices.</strong> Cached input is priced at zero, although it is about 97% of input. Measured GPU time shows learning costs about 80–90% of inference; the placeholder ledger says 28%. Cost terms in rewards barely move.</li>
+      <li><strong>Small comparisons have weak power.</strong> Moves to Memory withholds ΔNL below 10 baseline failures, and the published effects are a few points on fresh tasks (MemRL). The sample sizes for the confirmatory study need a power analysis on pilot variance.</li>
+    </ul></div>
+  </section>
+
+  <section id="decisions">
+    <div class="eyebrow">Decisions</div>
+    <h2>Open decisions</h2>
+    <ol class="steps">
+      <li><strong>Prices from GPU time.</strong> Replace the placeholder shadow prices with prices derived from measured GPU seconds. This changes the registration.</li>
+      <li><strong>Arm C reward.</strong> Adopt "pass: 1 − cost, fail: −1" and amend the spec, or keep the spec's formula as primary and report the other as a sensitivity run.</li>
+      <li><strong>GEPA promotion check.</strong> Use a larger development panel when GEPA is the procedure source, since with 6 tasks only 1 is unseen by its search.</li>
+      <li><strong>Reflect and mental models.</strong> Test Hindsight's reflect, or a standing "lessons from failures" mental model, as an ablation of arm B.</li>
+    </ol>
+  </section>
+
+  <hr>
+  <footer>
+    <span>Code: /home/dev/projects/agent-experience · learners in elh/learner/, memory in elh/memory/hindsight.py, metrics in elh/analysis.py</span>
+    <span>Paper reports: session scratchpad papers/{hindsight,memrl,continual,awm,gepa}.md</span>
+    <span>Proposal: "Can AI Agents Become More Experienced?" v1.0, 2026-10-24</span>
+  </footer>
+</main>
