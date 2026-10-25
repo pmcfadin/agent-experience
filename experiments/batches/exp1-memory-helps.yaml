@@ -1,6 +1,6 @@
 # Does memory help on the cause it trained on? B trains on 15 queue_pop_front tickets across five
 # themes; then A and B both fix 10 new tickets of the same cause in the held-out theme (inventory).
-name: exp1-memory-helps
+name: exp1-memory-helps-r2
 base_config: experiments/phase0-local.yaml
 family: cpu_mem
 histories: 1

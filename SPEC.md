@@ -379,7 +379,13 @@ named, not shown; capped at 80 lines / 6000 chars); the ticket goes in Hindsight
 (ticket first) made recall return ticket restatements: on two real episodes and three probe
 tickets, top-5 recall held 12/15 restatements and 3/15 lessons; `lesson-v1` gave 5/15 and 10/15.
 That first format stays selectable as `record_format: ticket-v0` (ticket first, fixed context; never
-the oracle or reference timing) for experiments comparing the two formats. The
+the oracle or reference timing) for experiments comparing the two formats.
+**`lesson-v2` (2026-10-25, registration v6)** replaces `lesson-v1`, which described a failed check
+with its pass wording: a failed integrity check was stored as "failed because it left the tests and
+harness untouched", the opposite of what happened. In exp1 (first run) Hindsight extracted exactly
+that lesson and arm B broke integrity on 3/10 eval tickets against 1/10 for A, so that run's arm B
+result is void. v2 states passed and failed checks separately and names the protected files the
+agent changed. `lesson-v1` stays selectable only to reproduce old runs. The
 memory LLM's tokens from each retain are charged as `learning`. The controller waits until the
 bank has no active operations (consolidation runs in the background after a retain) before the
 next recall, so memory work never overlaps a timed episode.

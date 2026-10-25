@@ -85,9 +85,10 @@ class MemoryServiceConfig(_Strict):
     embedder: str = ""                 # repo@revision; files hashed in services/hindsight/models.lock.json
     reranker: str = ""
     # What one retained episode looks like (elh/memory/hindsight.py render_episode/render_context).
-    # lesson-v1: outcome, judge timings, the agent's summary and source diff; ticket as context.
+    # lesson-v2: outcome, judge timings, the agent's summary and source diff; ticket as context.
+    # lesson-v1: same, but a failed check was described by its pass wording (inverted lesson); do not use.
     # ticket-v0: the first format (ticket first, fixed context), kept for comparison experiments.
-    record_format: Literal["lesson-v1", "ticket-v0"] = "lesson-v1"
+    record_format: Literal["lesson-v2", "lesson-v1", "ticket-v0"] = "lesson-v2"
 
 
 class Price(_Strict):

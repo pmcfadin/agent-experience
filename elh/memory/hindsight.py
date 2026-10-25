@@ -32,7 +32,7 @@ ACTIVE_STATES = {"pending", "processing", "running", "queued"}
 
 class HindsightMemory:
     def __init__(self, base_url: str, bank_id: str, *, readonly: bool = False, timeout_s: float = 600,
-                 recall_max_tokens: int = 2048, record_format: str = "lesson-v1"):
+                 recall_max_tokens: int = 2048, record_format: str = "lesson-v2"):
         if record_format not in RECORD_FORMATS:
             raise ValueError(f"unknown record format {record_format!r}; known: {sorted(RECORD_FORMATS)}")
         self.base = base_url.rstrip("/") + f"/v1/default/banks/{bank_id}"
@@ -167,8 +167,16 @@ def restore_bank(base_url: str, archive: bytes, target_bank_id: str, **kw) -> Hi
     return target
 
 
+# lesson-v1 described every check by one phrase, so a failed integrity check read as "FAILED: left the
+# tests and harness untouched" and was stored as the opposite lesson. Kept only to reproduce v1 runs.
 CHECK_WORDS = {"integrity": "left the tests and harness untouched", "public_tests": "public tests",
                "correctness": "hidden correctness tests", "performance": "performance budget on the large input"}
+# lesson-v2: what a passed and a failed check each mean, stated plainly.
+CHECK_PASSED = {"integrity": "left protected files unchanged", "public_tests": "public tests passed",
+                "correctness": "hidden correctness tests passed", "performance": "fast enough on the large input"}
+CHECK_FAILED = {"integrity": "modified files the ticket says must not be changed",
+                "public_tests": "public tests failed", "correctness": "hidden correctness tests failed",
+                "performance": "too slow on the large input (over the time budget)"}
 OUTCOME_WORDS = {"submitted": "submitted its fix", "implicit_submit": "stopped without calling submit",
                  "budget_exhausted": "ran out of its turn/token budget before submitting"}
 MAX_DIFF_LINES = 80
@@ -207,15 +215,19 @@ def workspace_diff(before: dict[str, str], after: dict[str, str], max_lines: int
     return text
 
 
-def render_episode(ep: dict) -> str:
+def render_episode(ep: dict, *, version: int = 2) -> str:
     """The retained record leads with what happened and what was tried; the ticket goes in
     `render_context`, so extraction yields lessons rather than restatements of the ticket."""
     verdict = ep["verdict"]
-    failed = [CHECK_WORDS.get(k, k) for k, v in verdict["checks"].items() if not v]
-    passed = [CHECK_WORDS.get(k, k) for k, v in verdict["checks"].items() if v]
+    fail_words, pass_words = (CHECK_WORDS, CHECK_WORDS) if version == 1 else (CHECK_FAILED, CHECK_PASSED)
+    failed = [fail_words.get(k, k) for k, v in verdict["checks"].items() if not v]
+    passed = [pass_words.get(k, k) for k, v in verdict["checks"].items() if v]
     head = "PASSED: the fix was verified correct and fast enough." if verdict["passed"] else \
         f"FAILED: {', '.join(failed)}."
     lines = [f"Outcome of an attempt at a {ep['family']} ticket ({ep.get('title') or 'untitled'}): {head}"]
+    violations = verdict.get("detail", {}).get("integrity_violations") or []
+    if version >= 2 and violations:
+        lines.append(f"Protected files the agent changed (the ticket forbids this): {', '.join(violations)}.")
     if not verdict["passed"] and passed:
         lines.append(f"Checks that passed: {', '.join(passed)}.")
     q = verdict.get("detail", {}).get("quality") or {}
@@ -258,7 +270,8 @@ TICKET_V0_CONTEXT = "a coding-agent episode and the judge's verified result"
 
 # memory_service.record_format -> (content renderer, context renderer)
 RECORD_FORMATS = {
-    "lesson-v1": (render_episode, render_context),
+    "lesson-v2": (render_episode, render_context),
+    "lesson-v1": (lambda ep: render_episode(ep, version=1), render_context),
     "ticket-v0": (render_episode_ticket_v0, lambda ep: TICKET_V0_CONTEXT),
 }
 

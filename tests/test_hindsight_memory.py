@@ -91,7 +91,7 @@ def test_episode_record_has_feedback_not_oracle():
     family = get_family("cpu_mem")
     task = family.generate("queue_pop_front", "billing", 1)
     text = render_episode(_episode(task))
-    assert text.startswith("Outcome of an attempt") and "FAILED: performance budget" in text
+    assert text.startswith("Outcome of an attempt") and "FAILED: too slow on the large input" in text
     assert "3.00s against a budget of 3.00s" in text and "used a deque" in text and "a/job/core.py" in text
     assert task.prompt.strip() not in text and task.prompt.strip() in render_context(_episode(task))
     for t in (text, render_context(_episode(task))):
@@ -108,15 +108,17 @@ def test_workspace_diff_keeps_source_and_names_scratch_files():
     assert workspace_diff(before, {**before, "out.json": "{}"}).startswith("No source file was changed.")
 
 
-@pytest.mark.parametrize("fmt", ["lesson-v1", "ticket-v0"])
+@pytest.mark.parametrize("fmt", ["lesson-v2", "lesson-v1", "ticket-v0"])
 def test_retain_sends_the_configured_record_format(fmt):
     task = get_family("cpu_mem").generate("queue_pop_front", "billing", 1)
     ep = _episode(task)
     stub = _Stub([])
     HindsightMemory(stub.url, "b1", record_format=fmt).retain(ep)
     item = stub.requests[-1][2]["items"][0]
-    if fmt == "lesson-v1":
+    if fmt == "lesson-v2":
         assert (item["content"], item["context"]) == (render_episode(ep), render_context(ep))
+    elif fmt == "lesson-v1":
+        assert (item["content"], item["context"]) == (render_episode(ep, version=1), render_context(ep))
     else:
         assert item["content"] == render_episode_ticket_v0(ep)
         assert item["context"] == "a coding-agent episode and the judge's verified result"
@@ -138,11 +140,25 @@ def test_ticket_v0_record_is_the_original_ticket_first_format():
 
 def test_unknown_record_format_is_rejected():
     with pytest.raises(ValueError, match="record format"):
-        HindsightMemory("http://127.0.0.1:9", "b1", record_format="lesson-v2")
+        HindsightMemory("http://127.0.0.1:9", "b1", record_format="lesson-v9")
 
 
 def test_registry_record_format_values():
-    assert MemoryServiceConfig().record_format == "lesson-v1"
+    assert MemoryServiceConfig().record_format == "lesson-v2"
     assert MemoryServiceConfig(record_format="ticket-v0").record_format == "ticket-v0"
     with pytest.raises(ValidationError):
-        MemoryServiceConfig(record_format="lesson-v2")
+        MemoryServiceConfig(record_format="lesson-v9")
+
+
+def test_failed_integrity_is_stated_as_a_violation():
+    task = get_family("cpu_mem").generate("queue_pop_front", "billing", 1)
+    ep = _episode(task)
+    ep["verdict"] = {"passed": False, "checks": {"integrity": False, "public_tests": True, "correctness": True,
+                                                 "performance": True},
+                     "detail": {"integrity_violations": ["examples/sample_output.json"]}}
+    text = render_episode(ep)
+    assert "FAILED: modified files the ticket says must not be changed." in text
+    assert "examples/sample_output.json" in text and "untouched" not in text
+    assert "fast enough on the large input" in text  # passed checks keep their pass wording
+    # v1 is kept only to reproduce old runs; it states the failure with the pass wording.
+    assert "FAILED: left the tests and harness untouched" in render_episode(ep, version=1)
