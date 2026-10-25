@@ -1,0 +1,9 @@
+[project]
+name = "elh-hindsight"
+version = "0"
+description = "Pinned Hindsight server for the experiment (SPEC §10). Separate environment from the harness."
+requires-python = "==3.12.*"
+dependencies = ["hindsight-api-slim[embedded-db,local-onnx]==1.1.0"]
+
+[tool.uv]
+package = false

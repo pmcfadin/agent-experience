@@ -59,10 +59,12 @@ class MemoryLLMConfig(_Strict):
 
 class MemoryServiceConfig(_Strict):
     kind: Literal["hindsight"] = "hindsight"
+    base_url: str = ""                 # loopback URL of the dedicated server; not a secret
     base_url_env: str = "ELH_HINDSIGHT_URL"
     version: str = ""
     llm: MemoryLLMConfig = MemoryLLMConfig()
-    embedder: str = ""
+    embedder: str = ""                 # repo@revision; files hashed in services/hindsight/models.lock.json
+    reranker: str = ""
 
 
 class Price(_Strict):

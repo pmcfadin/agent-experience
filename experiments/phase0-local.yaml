@@ -1,7 +1,7 @@
 # Phase 0 registration, primary configuration (SPEC §1): the self-hosted model is the agent
 # and Hindsight's memory model. Dev only until every `pin` field is filled in.
 name: phase0-local
-version: 2                      # v2: study aliases, UserSandbox, /props capture
+version: 3                      # v2: study aliases, UserSandbox, /props capture. v3: arm B (Hindsight)
 model:
   provider: openai_compat
   id: study-qwen3-coder-30b-a3b   # dedicated study alias; one request at a time (client holds a lock)
@@ -22,6 +22,7 @@ prices_usd_per_mtok:
   # PLACEHOLDER shadow prices. Replace with values derived from measured GPU-seconds per token
   # and a fixed hardware rate before Phase 1; they change only by re-registering.
   study-qwen3-coder-30b-a3b: {input: 0.05, output: 0.20}
+  study-gemma4-26b-a4b: {input: 0.05, output: 0.20}   # memory LLM, charged as `learning`
 budgets:
   max_turns: 40
   max_total_tokens: 600000
@@ -35,7 +36,7 @@ sandbox:
   memory_mb: 2048
   network: none
 sandbox_cpu_usd_per_hour: 0.0
-arms: [A]
+arms: [A, B]
 histories: 1
 families: [cpu_mem]
 schedule:
@@ -45,11 +46,13 @@ amortization:
   sensitivity: [100, 500, 5000]
 memory_service:
   kind: hindsight
-  base_url_env: ELH_HINDSIGHT_URL
-  version: ""                     # pin when the dedicated instance is deployed
+  base_url: http://127.0.0.1:8901    # services/hindsight/serve.sh (dedicated, loopback only)
+  version: hindsight-api-slim==1.1.0 # services/hindsight/uv.lock
   llm:
     provider: openai_compat
     id: study-gemma4-26b-a4b
     base_url_env: WINTERMUTE_MODEL_API_BASE
     api_key_env: WINTERMUTE_MODEL_API_KEY
-  embedder: ""
+    # thinking off for every memory-LLM call (serve.sh): with it on, extraction stalls
+  embedder: intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3 (onnx)
+  reranker: cross-encoder/ms-marco-MiniLM-L6-v2@233902d25c440f23af6f7d6e94d2946bac0bee0a (onnx)

@@ -66,9 +66,11 @@ def cmd_run_episode(args) -> int:
     family = get_family(args.family)
     task = family.generate(args.cause, args.theme, args.seed)
     store = Store(args.runs_dir)
+    from elh.controller import memory_for
+
     episode_id, result, verdict = run_single_episode(
         cfg, store, task, _client(args.client, cfg, task, family), arm=args.arm, split=args.split,
-        sandbox_backend=args.sandbox)
+        memory=memory_for(cfg, args.arm, 0, args.split), sandbox_backend=args.sandbox)
     print(json.dumps({
         "episode_id": episode_id, "task_id": task.task_id, "outcome": result.outcome,
         "passed": verdict.passed, "checks": verdict.checks, "turns": result.turns,

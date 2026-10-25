@@ -359,6 +359,22 @@ contents and learner state hashes are unchanged afterwards.
 
 Each (history, arm) gets its own Hindsight bank: `elh-<run>-h<history>-<arm>`.
 
+**Deployment (2026-10-25).** `services/hindsight/` runs Hindsight natively in dev, in its own
+locked environment (`hindsight-api-slim==1.1.0`, `uv.lock`), started with `serve.sh`:
+loopback only (`127.0.0.1:8901`), embedded PostgreSQL instance `elh-hindsight` on port 8902 (data
+in `~/.pg0/instances/elh-hindsight`), one worker, MCP off. Memory LLM: `study-gemma4-26b-a4b`, one
+request at a time, **thinking off** (with it on, structured fact extraction spends its whole
+budget reasoning and retain stalls). Embedder `intfloat/multilingual-e5-small` and reranker
+`cross-encoder/ms-marco-MiniLM-L6-v2` run in-process on ONNX/CPU from local copies pinned by
+revision and sha256 (`models.lock.json`, `fetch_models.py`); `HF_HUB_OFFLINE=1` at run time.
+
+`HindsightMemory` (`elh/memory/hindsight.py`): recall queries with the ticket text and injects the
+top k; retain stores one record per `train` episode (ticket, the agent's own summary, the judge's
+checks and timings, never the oracle), tagged by family, with the episode id as document id. The
+memory LLM's tokens from each retain are charged as `learning`. The controller waits until the
+bank has no active operations (consolidation runs in the background after a retain) before the
+next recall, so memory work never overlaps a timed episode.
+
 ## 11. Controller and schedule
 
 For each history h (independent seed → independent task order):
@@ -399,7 +415,10 @@ model turned the `seen` list into a set but left `blocked` as a list, so the lar
 out; the verdict re-grades identically. Every call recorded the same backend identity. Then, on
 UserSandbox with the v2 registration: `queue_pop_front/telemetry/2` passed every check (30 turns,
 75 s, agent 0.97× the reference time) and re-grades identically; the 360-check family validation
-also passes on UserSandbox. Not yet verified: `/props` capture (§14).
+also passes on UserSandbox. Arm B: a scripted `train` episode retained into its bank (memory-LLM tokens
+in the ledger as `learning`), and a later read-only dev episode on a related ticket got five
+recalled memories while the bank's counts stayed unchanged. Recall mostly returns restatements of
+the earlier ticket; the useful verdict detail is thin, which is worth watching in the pilot. Not yet verified: `/props` capture (§14).
 
 ## 14. Open items needing the owner
 
@@ -412,8 +431,7 @@ also passes on UserSandbox. Not yet verified: `/props` capture (§14).
    gateway doesn't serve `/props`. Needs a route (e.g. a gateway passthrough or a dev proxy) to put
    in `ELH_BACKEND_PROPS_URL`. Non-dev splits refuse to run without it.
 4. ~~Confirmatory sandbox~~ (decided 2026-10-25: UserSandbox in dev, §5).
-5. Dedicated Hindsight: run natively in dev (owner decision 2026-10-25) as its own locked Python
-   environment with embedded PostgreSQL, bound to `127.0.0.1` on a non-default port (8888 is
-   taken), data under `runs/`, embedder and reranker pinned by revision, `study-gemma4-26b-a4b`
-   as its LLM. Not yet installed.
+5. ~~Dedicated Hindsight~~ (done 2026-10-25, §10). Still open: bank snapshots for checkpoints
+   (`export_snapshot`/`open_readonly`), and `train` episodes with the real model wait on item 2
+   (pin facts), since only the dev split may run unpinned.
 6. Optional: Anthropic credentials for the Sonnet comparison configuration.

@@ -12,6 +12,7 @@ from elh import __version__
 from elh.judge import Verdict, grade
 from elh.ledger import compute_entry, usage_entries
 from elh.memory.base import Memory, NullMemory, render_memory_block
+from elh.memory.hindsight import HindsightMemory, usage_to_ledger
 from elh.registry import ExperimentConfig
 from elh.runner.agent import EpisodeResult, run_episode
 from elh.runner.models import InfraError, ModelClient, fetch_backend_props
@@ -55,6 +56,21 @@ def capture_backend_props(cfg: ExperimentConfig, store: Store, split: str) -> st
         raise InfraError(f"could not fetch backend /props from {url}: {exc}") from exc
 
 
+def memory_for(cfg: ExperimentConfig, arm: str, history: int, split: str) -> Memory:
+    """Arm wiring (SPEC §10). One Hindsight bank per (run, history, arm); read-only off `train`."""
+    if arm == "A":
+        return NullMemory()
+    if arm == "B":
+        ms = cfg.memory_service
+        url = ms.base_url or os.environ.get(ms.base_url_env, "")
+        if not url:
+            raise ValueError(f"arm B needs memory_service.base_url or ${ms.base_url_env}")
+        mem = HindsightMemory(url, f"elh-{run_id_for(cfg)}-h{history}-{arm}", readonly=split in READ_ONLY_SPLITS)
+        mem.ensure_bank()
+        return mem
+    raise ValueError(f"arm {arm} is not implemented yet")
+
+
 def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, client: ModelClient, *,
                        arm: str = "A", split: str = "dev", history: int = 0, ordinal: int = 0,
                        checkpoint: int | None = None, memory: Memory | None = None,
@@ -74,6 +90,8 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
         props_sha = capture_backend_props(cfg, store, split)
 
     memory = memory or NullMemory()
+    if hasattr(memory, "wait_idle"):
+        memory.wait_idle()  # no background memory work may overlap a timed episode
     items = memory.recall(task, memory_k)
     make_sbx = sandbox_factory(cfg, sandbox_backend)
     episode_id = uuid.uuid4().hex
@@ -91,8 +109,6 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
         sbx.close()
 
     verdict = grade(task, final_ws, make_sbx)
-    if split not in READ_ONLY_SPLITS and result.outcome != "refused":
-        memory.retain({"episode_id": episode_id, "task": task.signature, "passed": verdict.passed})
 
     trace_sha = store.put_trace(result.trace + [{"event": "verdict", **verdict.to_dict()}])
     ws_sha = store.put_workspace(final_ws)
@@ -127,6 +143,16 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
     else:
         entries = []
     entries.append(compute_entry(cfg, usage.cpu_s))
+
+    if split not in READ_ONLY_SPLITS and result.outcome != "refused":
+        memory.retain({"episode_id": episode_id, "family": task.family, "prompt": task.prompt,
+                       "submit_summary": result.submit_summary, "verdict": verdict.to_dict(),
+                       "turns": result.turns, "tool_calls": result.tool_calls})
+        mem_usage = usage_to_ledger(getattr(memory, "last_usage", None))
+        if mem_usage:
+            entries += usage_entries(cfg, cfg.memory_service.llm.id, mem_usage, category="learning")
+        if hasattr(memory, "wait_idle"):
+            memory.wait_idle()
     for e in entries:
         store.insert("ledger", {"run_id": run_id, "episode_id": episode_id, "category": e.category,
                                 "component": e.component, "units": e.units, "unit": e.unit, "usd": e.usd})
