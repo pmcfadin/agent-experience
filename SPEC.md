@@ -261,6 +261,24 @@ message, capped at `memory_token_budget` tokens. Rationale: the exact items show
 are known (`retrieved_memory_ids`), and arms differ only in that block. A mid-episode `recall` tool
 is a planned ablation, not part of the primary comparison.
 
+**Agent-issued search (implemented, off by default, 2026-10-25).** `run_episode(..., search=fn)`
+adds a `search_memory(query)` tool, following "Learning on the Job" (arXiv 2607.22157, retrieval mode
+`nudge`, App. A.1–A.3 adapted). The system prompt advertises the tool, a `<memory_check>` reminder
+is appended to the first message (search after gathering data with "problem + intended solution";
+re-search when the situation changes; re-read VERIFIED RULEs before committing), and each call goes
+to the read-only `fn(query, k)`. Every call's query, returned ids and ranks are recorded in
+`EpisodeResult.memory_searches`. With `search=None` every request is byte-identical to before
+(`tests/test_memory_search_tool.py` pins the hashes). Search tokens are episode `inference`.
+
+**Rules (`elh/learner/rules.py`).** After a train episode the agent model reflects with its own
+conversation as history and writes one `memory_create(query, title, content)` rule: `VERIFIED
+RULE: … / WHEN … THEN …` on pass, `AVOID: … / WHEN … do NOT … -- verified wrong against the
+ground-truth outcome.` on fail (paper App. A.4–A.5, experience grade). It gets the judge's checks
+in lesson-v2 wording, protected-file violations, timing against the budget and the
+workspace-writing commands, never the oracle, reference or hidden inputs. The write-time validator (App. A.7)
+requires the protected files changed verbatim, with up to `max_retries` (2) bounces before the rule
+is accepted with its gaps. Reflection tokens are `learning`.
+
 ### 6.3 Model client
 
 `ModelClient.create(**request) -> Response` with two implementations: `AnthropicClient` (real API,
