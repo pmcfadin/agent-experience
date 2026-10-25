@@ -5,6 +5,7 @@ description = "Experiential Learning Harness: does a frozen-weight agent get mor
 requires-python = ">=3.12"
 dependencies = [
     "anthropic==2.3.0",  # pinned: part of the frozen harness config
+    "gepa==0.1.4",
     "openai==3.37.0",  # pinned: OpenAI-compatible client for the local model gateway
     "pydantic>=2.7",
     "pyyaml>=6.0",
