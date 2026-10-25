@@ -1,8 +1,10 @@
 """HindsightMemory: arm B's memory, backed by the dedicated Hindsight server (SPEC §10).
 
-One bank per (run, history, arm). Recall uses the ticket text as the query. Retain stores one
-post-episode record built only from what the agent may learn from: the judge's verified feedback
-(checks and timings), its own summary and code diff, with the ticket passed as extraction context;
+One bank per (run, history, arm). Recall uses the ticket text as the query (optionally restricted
+to fact types, plus a fixed pre-registered lesson query). Retain stores one post-episode record
+built only from what the agent may learn from: the judge's verified feedback (checks and timings),
+its own summary and code diff (and, in lesson-v3, a distilled WHEN/THEN rule), with the ticket
+passed as extraction context (lesson-v1/v2) or as metadata outside the reranked text (lesson-v3);
 never the hidden oracle.
 
 Hindsight consolidates in the background after a retain; `wait_idle()` blocks until that work is
@@ -28,21 +30,81 @@ from elh.runner.models import InfraError
 from elh.tasks.base import TaskInstance
 
 ACTIVE_STATES = {"pending", "processing", "running", "queued"}
+FACT_TYPES = {"world", "experience", "observation"}
 
 
 class HindsightMemory:
+    """Every option defaults to the behaviour of registration v6 (lesson-v2, one ticket-text recall
+    over all fact types), so existing registrations reproduce exactly.
+
+    Retain (record format, see RECORD_FORMATS):
+      record_format      "lesson-v2" (default), "lesson-v1", "ticket-v0" or "lesson-v3".
+      include_diff       lesson-v3 only: keep the agent's raw diff in the record (Moves-to-Memory
+                         finds raw trajectories transfer negatively, so this is an ablation switch).
+      ticket_metadata    lesson-v3 only: send the ticket as item `metadata` (returned with results and
+                         shown to the extraction LLM, never to the reranker) instead of omitting it.
+    Recall:
+      recall_types       fact types for the ticket query, e.g. ["experience"]; None = all types.
+      lesson_query       a fixed, pre-registered query whose results take the last `lesson_k` of the
+                         k slots (after the ticket results, without duplicates); None = off.
+      lesson_k           slots reserved for the lesson query (only with lesson_query).
+      lesson_types       fact types for the lesson query; None = recall_types.
+    Bank (applied by ensure_bank through PATCH /config, only when set and the bank is writable):
+      retain_mission, observations_mission, retain_extraction_mode.
+    Snapshots:
+      fingerprint_version  1 = v6 content hash (unit type/state/tags/text + document count, plus
+                         unit metadata, bank config overrides, mental models and directives when any
+                         exist, which no v6 bank has); 2 = also every unit's `context`, which the
+                         reranker scores. None = 2 for lesson-v3, else 1.
+    """
+
     def __init__(self, base_url: str, bank_id: str, *, readonly: bool = False, timeout_s: float = 600,
-                 recall_max_tokens: int = 2048, record_format: str = "lesson-v2"):
+                 recall_max_tokens: int = 2048, record_format: str = "lesson-v2",
+                 include_diff: bool = True, ticket_metadata: bool = True,
+                 recall_types: list[str] | None = None, lesson_query: str | None = None, lesson_k: int = 2,
+                 lesson_types: list[str] | None = None,
+                 retain_mission: str | None = None, observations_mission: str | None = None,
+                 retain_extraction_mode: str | None = None, fingerprint_version: int | None = None):
         if record_format not in RECORD_FORMATS:
             raise ValueError(f"unknown record format {record_format!r}; known: {sorted(RECORD_FORMATS)}")
+        if not include_diff and record_format != "lesson-v3":
+            raise ValueError(f"include_diff=False needs record_format lesson-v3, not {record_format!r}")
+        for types in (recall_types, lesson_types):
+            if types is not None and (not types or not set(types) <= FACT_TYPES):
+                raise ValueError(f"fact types must be a non-empty subset of {sorted(FACT_TYPES)}, got {types!r}")
+        if lesson_query is not None and (not lesson_query.strip() or lesson_k < 1):
+            raise ValueError("lesson_query needs non-empty text and lesson_k >= 1")
+        if fingerprint_version not in (None, 1, 2):
+            raise ValueError(f"unknown fingerprint_version {fingerprint_version!r}")
         self.base = base_url.rstrip("/") + f"/v1/default/banks/{bank_id}"
         self.bank_id = bank_id
         self.readonly = readonly
         self.timeout_s = timeout_s
         self.recall_max_tokens = recall_max_tokens
         self.record_format = record_format
+        self.include_diff = include_diff
+        self.ticket_metadata = ticket_metadata
+        self.recall_types = list(recall_types) if recall_types else None
+        self.lesson_query = lesson_query
+        self.lesson_k = lesson_k
+        self.lesson_types = list(lesson_types) if lesson_types else self.recall_types
+        self.bank_config = {k: v for k, v in (("retain_mission", retain_mission),
+                                               ("observations_mission", observations_mission),
+                                               ("retain_extraction_mode", retain_extraction_mode)) if v is not None}
+        self.fingerprint_version = fingerprint_version or (2 if record_format == "lesson-v3" else 1)
         self.last_usage: dict | None = None  # token usage of the last retain (memory LLM)
         self.snapshot_id: str | None = None    # set when this bank is a checkpoint snapshot
+
+    def options(self) -> dict:
+        """The constructor options (besides url, bank and readonly), so a restored copy behaves the same."""
+        return {"timeout_s": self.timeout_s, "recall_max_tokens": self.recall_max_tokens,
+                "record_format": self.record_format, "include_diff": self.include_diff,
+                "ticket_metadata": self.ticket_metadata, "recall_types": self.recall_types,
+                "lesson_query": self.lesson_query, "lesson_k": self.lesson_k, "lesson_types": self.lesson_types,
+                "retain_mission": self.bank_config.get("retain_mission"),
+                "observations_mission": self.bank_config.get("observations_mission"),
+                "retain_extraction_mode": self.bank_config.get("retain_extraction_mode"),
+                "fingerprint_version": self.fingerprint_version}
 
     # -- http --------------------------------------------------------------------------------
     def _raw(self, method: str, url: str, data: bytes | None = None, content_type: str = "application/json",
@@ -64,6 +126,12 @@ class HindsightMemory:
 
     def ensure_bank(self) -> None:
         self._call("PUT", "", {})
+        if self.bank_config and not self.readonly:
+            self._call("PATCH", "/config", {"updates": self.bank_config})
+            got = self._call("GET", "/config").get("overrides") or {}
+            wrong = {k for k, v in self.bank_config.items() if got.get(k) != v}
+            if wrong:
+                raise InfraError(f"hindsight bank {self.bank_id} did not take config {sorted(wrong)}")
 
     def exists(self) -> bool:
         try:
@@ -93,20 +161,57 @@ class HindsightMemory:
             time.sleep(poll_s)
 
     # -- contract ----------------------------------------------------------------------------
+    def _recall(self, query: str, types: list[str] | None) -> list[MemoryItem]:
+        """One recall, every result in Hindsight's ranked order (it packs results up to max_tokens)."""
+        body = {"query": query, "max_tokens": self.recall_max_tokens}
+        if types:
+            body["types"] = types
+        return [_item(r) for r in self._call("POST", "/memories/recall", body).get("results", [])]
+
     def recall(self, task: TaskInstance, k: int) -> list[MemoryItem]:
-        out = self._call("POST", "/memories/recall", {"query": task.prompt, "max_tokens": self.recall_max_tokens})
-        return [MemoryItem(memory_id=r["id"], text=r["text"]) for r in out.get("results", [])[:k]]
+        """Top k for the ticket. With a lesson query, the ticket fills the first k - lesson_k slots and
+        the lesson query the rest (skipping memories already chosen); short lists backfill from the
+        ticket results."""
+        ranked = self._recall(task.prompt, self.recall_types)
+        if not self.lesson_query:
+            return ranked[:k]
+        n_ticket = max(k - self.lesson_k, 0)
+        out = ranked[:n_ticket]
+        seen = {it.memory_id for it in out}
+        for it in self._recall(self.lesson_query, self.lesson_types):
+            if len(out) >= k:
+                break
+            if it.memory_id not in seen:
+                out.append(it)
+                seen.add(it.memory_id)
+        for it in ranked[n_ticket:]:
+            if len(out) >= k:
+                break
+            if it.memory_id not in seen:
+                out.append(it)
+                seen.add(it.memory_id)
+        return out
+
+    def recall_candidates(self, task: TaskInstance, n: int | None = None) -> list[MemoryItem]:
+        """The ticket query's full ranked list (first n; all when n is None), with document ids and
+        per-stage scores, for a learner that reranks relevance candidates (arm C)."""
+        ranked = self._recall(task.prompt, self.recall_types)
+        return ranked if n is None else ranked[:n]
+
+    def search(self, query: str, k: int) -> list[MemoryItem]:
+        """Top k for a free-text query (an agent-issued memory search), over recall_types."""
+        return self._recall(query, self.recall_types)[:k]
 
     def retain(self, episode: dict) -> list[str]:
         if self.readonly:
             raise RuntimeError(f"bank {self.bank_id} is read-only for this episode")
-        content, context = RECORD_FORMATS[self.record_format]
-        out = self._call("POST", "/memories", {"items": [{
-            "content": content(episode),
-            "context": context(episode),
-            "document_id": episode["episode_id"],
-            "tags": [f"family:{episode['family']}"],
-        }]})
+        if self.record_format == "lesson-v3":
+            item = lesson_v3_item(episode, include_diff=self.include_diff, ticket_metadata=self.ticket_metadata)
+        else:
+            content, context = RECORD_FORMATS[self.record_format]
+            item = {"content": content(episode), "context": context(episode),
+                    "tags": [f"family:{episode['family']}"]}
+        out = self._call("POST", "/memories", {"items": [{**item, "document_id": episode["episode_id"]}]})
         self.last_usage = out.get("usage")
         return [episode["episode_id"]]
 
@@ -124,16 +229,41 @@ class HindsightMemory:
     # -- snapshots ---------------------------------------------------------------------------
     def fingerprint(self) -> str:
         """Hash of what the bank holds: every memory unit's type, state, tags and text, plus the
-        document count. Ids, timestamps and similarity links are left out (a restore changes them)."""
+        document count. Ids, timestamps and similarity links are left out (a restore changes them).
+
+        Also hashed, but only when present so that v6 banks keep their recorded hash: unit metadata,
+        the bank's config overrides (missions, recall settings), mental models and directives.
+        Version 2 also hashes every unit's `context` (the reranker scores "{context}: {text}")."""
+        v2 = self.fingerprint_version >= 2
         units, offset = [], 0
         while True:
             page = self._call("GET", f"/memories/list?limit=100&offset={offset}").get("items", [])
-            units += [[u.get("fact_type"), u.get("state"), sorted(u.get("tags") or []), u.get("text")] for u in page]
+            for u in page:
+                row = [u.get("fact_type"), u.get("state"), sorted(u.get("tags") or []), u.get("text")]
+                if v2:
+                    row += [u.get("context") or "", u.get("metadata") or {}]
+                elif u.get("metadata"):
+                    row.append(u["metadata"])
+                units.append(row)
             if len(page) < 100:
                 break
             offset += 100
         docs = self._call("GET", "/stats").get("total_documents")
-        blob = json.dumps({"documents": docs, "units": sorted(units, key=json.dumps)}, sort_keys=True)
+        content: dict = {"documents": docs, "units": sorted(units, key=json.dumps)}
+        overrides = self._call("GET", "/config").get("overrides") or {}
+        if overrides or v2:
+            content["config"] = overrides
+        models = [[m.get("id"), m.get("name"), m.get("source_query"), m.get("content"), sorted(m.get("tags") or [])]
+                  for m in self._call("GET", "/mental-models").get("items", [])]
+        directives = [[d.get("name"), d.get("content"), d.get("priority"), d.get("is_active"), sorted(d.get("tags") or [])]
+                      for d in self._call("GET", "/directives").get("items", [])]
+        if models or v2:
+            content["mental_models"] = sorted(models, key=json.dumps)
+        if directives or v2:
+            content["directives"] = sorted(directives, key=json.dumps)
+        if v2:
+            content["fingerprint_version"] = 2
+        blob = json.dumps(content, sort_keys=True)
         return hashlib.sha256(blob.encode()).hexdigest()
 
     def export_snapshot(self) -> bytes:
@@ -144,8 +274,7 @@ class HindsightMemory:
         return self._raw("GET", self._root + meta["download_url"])
 
     def restore(self, archive: bytes, target_bank_id: str) -> "HindsightMemory":
-        return restore_bank(self._root, archive, target_bank_id, timeout_s=self.timeout_s,
-                            recall_max_tokens=self.recall_max_tokens)
+        return restore_bank(self._root, archive, target_bank_id, **self.options())
 
 
 # Hindsight records an import against an existing bank; this one only ever hosts those operations.
@@ -154,7 +283,7 @@ TRANSFER_BANK = "elh-transfer"
 
 def restore_bank(base_url: str, archive: bytes, target_bank_id: str, **kw) -> HindsightMemory:
     """Write a transfer archive into a new bank (which must not exist) and return it read-only."""
-    host = HindsightMemory(base_url, TRANSFER_BANK)
+    host = HindsightMemory(base_url, TRANSFER_BANK, timeout_s=kw.get("timeout_s", 600))
     host.ensure_bank()
     boundary = uuid.uuid4().hex
     body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"bank.zip\"\r\n"
@@ -215,16 +344,20 @@ def workspace_diff(before: dict[str, str], after: dict[str, str], max_lines: int
     return text
 
 
-def render_episode(ep: dict, *, version: int = 2) -> str:
+def render_episode(ep: dict, *, version: int = 2, include_diff: bool = True) -> str:
     """The retained record leads with what happened and what was tried; the ticket goes in
-    `render_context`, so extraction yields lessons rather than restatements of the ticket."""
+    `render_context`, so extraction yields lessons rather than restatements of the ticket.
+    Version 3 (lesson-v3) uses v2's wording but leaves out the ticket title, and may drop the diff."""
     verdict = ep["verdict"]
     fail_words, pass_words = (CHECK_WORDS, CHECK_WORDS) if version == 1 else (CHECK_FAILED, CHECK_PASSED)
     failed = [fail_words.get(k, k) for k, v in verdict["checks"].items() if not v]
     passed = [pass_words.get(k, k) for k, v in verdict["checks"].items() if v]
     head = "PASSED: the fix was verified correct and fast enough." if verdict["passed"] else \
         f"FAILED: {', '.join(failed)}."
-    lines = [f"Outcome of an attempt at a {ep['family']} ticket ({ep.get('title') or 'untitled'}): {head}"]
+    if version >= 3:
+        lines = [f"Outcome of an attempt at a {ep['family']} ticket: {head}"]
+    else:
+        lines = [f"Outcome of an attempt at a {ep['family']} ticket ({ep.get('title') or 'untitled'}): {head}"]
     violations = verdict.get("detail", {}).get("integrity_violations") or []
     if version >= 2 and violations:
         lines.append(f"Protected files the agent changed (the ticket forbids this): {', '.join(violations)}.")
@@ -239,14 +372,89 @@ def render_episode(ep: dict, *, version: int = 2) -> str:
     lines.append(f"The agent {OUTCOME_WORDS.get(ep.get('outcome'), ep.get('outcome') or 'finished')} after "
                  f"{ep['turns']} turns and {ep['tool_calls']} tool calls.")
     lines.append(f"What the agent said it changed: {(ep.get('submit_summary') or '(no summary)').strip()}")
-    diff = ep.get("diff")
-    lines.append(f"The agent's code change:\n{diff}" if diff else "The agent made no code change.")
+    if include_diff:
+        diff = ep.get("diff")
+        lines.append(f"The agent's code change:\n{diff}" if diff else "The agent made no code change.")
     return "\n\n".join(lines)
 
 
 def render_context(ep: dict) -> str:
     return (f"One coding agent's attempt at a performance ticket, with the result verified by an automated "
             f"judge. The ticket was:\n{ep['prompt'].strip()}")
+
+
+# lesson-v3 (2026-10-25). Hindsight 1.1.0 reranks every unit as "{context}: {text}" with a 512-token
+# cross-encoder, so lesson-v2's context (preamble + whole ticket) made recall rank by ticket
+# similarity and truncated the lesson itself. v3's context is one short sentence stating the
+# verified outcome (plus the rule's situation key when there is a rule); the ticket never enters
+# the reranked string (it goes in item metadata, or is omitted). Outcome tags are added at retain.
+RULE_HEADS = {"verified": "VERIFIED RULE", "avoid": "AVOID"}
+
+
+def _rule(ep: dict) -> dict | None:
+    rule = ep.get("rule")
+    if rule is None:
+        return None
+    if rule.get("kind") not in RULE_HEADS or not str(rule.get("when") or "").strip() \
+            or not str(rule.get("then") or "").strip():
+        raise ValueError(f"episode {ep.get('episode_id')}: rule needs kind in {sorted(RULE_HEADS)}, "
+                         f"non-empty when and then; got {rule!r}")
+    return rule
+
+
+def render_rule(rule: dict) -> str:
+    """Learning on the Job's one-rule-per-episode form: `VERIFIED RULE: WHEN … THEN …` (success) or
+    `AVOID: WHEN … THEN …` (failure, experience-grade feedback)."""
+    return f"{RULE_HEADS[rule['kind']]}: WHEN {rule['when'].strip()} THEN {rule['then'].strip()}"
+
+
+def situation_key(rule: dict) -> str:
+    """The rule's retrieval hook: its `query` (the question a future agent would ask), else its WHEN."""
+    return str(rule.get("query") or "").strip() or rule["when"].strip()
+
+
+def failed_checks(ep: dict) -> list[str]:
+    return [k for k, v in ep["verdict"]["checks"].items() if not v]
+
+
+def render_context_v3(ep: dict) -> str:
+    failed = failed_checks(ep)
+    result = "PASSED" if ep["verdict"]["passed"] else f"FAILED ({', '.join(failed) or 'not verified'})"
+    ctx = f"Verified result of a coding agent's attempt at a {ep['family']} performance ticket: {result}"
+    rule = _rule(ep)
+    return f"{ctx}. Situation: {situation_key(rule)}" if rule else ctx
+
+
+def render_episode_v3(ep: dict, *, include_diff: bool = True) -> str:
+    """The rule first (when a distiller produced one), with its situation key; then the v2 outcome
+    record without the ticket title, optionally without the raw diff."""
+    rule = _rule(ep)
+    lines = [render_rule(rule), f"Situation key: {situation_key(rule)}"] if rule else []
+    return "\n\n".join(lines + [render_episode(ep, version=3, include_diff=include_diff)])
+
+
+def lesson_v3_tags(ep: dict) -> list[str]:
+    tags = [f"family:{ep['family']}", f"outcome:{'passed' if ep['verdict']['passed'] else 'failed'}"]
+    tags += [f"failed-check:{c}" for c in failed_checks(ep)]
+    rule = _rule(ep)
+    return tags + ([f"rule:{rule['kind']}"] if rule else [])
+
+
+def lesson_v3_item(ep: dict, *, include_diff: bool = True, ticket_metadata: bool = True) -> dict:
+    """The retain item (without document_id). Metadata is returned with recall results and shown to
+    the extraction LLM, but is not part of the reranker's input."""
+    item = {"content": render_episode_v3(ep, include_diff=include_diff), "context": render_context_v3(ep),
+            "tags": lesson_v3_tags(ep)}
+    if ticket_metadata:
+        item["metadata"] = {"ticket": ep["prompt"].strip(),
+                            "outcome": "passed" if ep["verdict"]["passed"] else "failed"}
+    return item
+
+
+def _item(r: dict) -> MemoryItem:
+    scores = {k: v for k, v in (r.get("scores") or {}).items() if v is not None}
+    return MemoryItem(memory_id=r["id"], text=r["text"], score=float(scores.get("final") or 0.0),
+                      document_id=r.get("document_id"), scores=scores)
 
 
 def render_episode_ticket_v0(ep: dict) -> str:
@@ -268,8 +476,10 @@ def render_episode_ticket_v0(ep: dict) -> str:
 
 TICKET_V0_CONTEXT = "a coding-agent episode and the judge's verified result"
 
-# memory_service.record_format -> (content renderer, context renderer)
+# memory_service.record_format -> (content renderer, context renderer). lesson-v3's retain item
+# (tags, metadata, include_diff) is built by lesson_v3_item.
 RECORD_FORMATS = {
+    "lesson-v3": (render_episode_v3, render_context_v3),
     "lesson-v2": (render_episode, render_context),
     "lesson-v1": (lambda ep: render_episode(ep, version=1), render_context),
     "ticket-v0": (render_episode_ticket_v0, lambda ep: TICKET_V0_CONTEXT),

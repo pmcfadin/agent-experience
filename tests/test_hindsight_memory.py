@@ -8,8 +8,8 @@ import pytest
 
 from pydantic import ValidationError
 
-from elh.memory.hindsight import (HindsightMemory, render_context, render_episode, render_episode_ticket_v0,
-                                  usage_to_ledger, workspace_diff)
+from elh.memory.hindsight import (HindsightMemory, render_context, render_context_v3, render_episode,
+                                  render_episode_ticket_v0, render_episode_v3, usage_to_ledger, workspace_diff)
 from elh.registry import MemoryServiceConfig
 from elh.tasks.base import get_family
 
@@ -75,7 +75,7 @@ def test_recall_retain_and_idle_wait():
     method, path, body = stub.requests[2]
     assert path == "/v1/default/banks/b1/memories" and body["items"][0]["document_id"] == "e1"
     assert body["items"][0]["context"].endswith(task.prompt.strip())
-    assert stub.requests[1][2]["query"] == task.prompt
+    assert stub.requests[1][2] == {"query": task.prompt, "max_tokens": 2048}  # v6 recall request, unchanged
     assert usage_to_ledger(mem.last_usage) == {"input_tokens": 400, "output_tokens": 50,
                                                "cache_read_input_tokens": 600, "cache_creation_input_tokens": 0}
     assert not stub.op_states  # polled until no operation was active
@@ -108,7 +108,7 @@ def test_workspace_diff_keeps_source_and_names_scratch_files():
     assert workspace_diff(before, {**before, "out.json": "{}"}).startswith("No source file was changed.")
 
 
-@pytest.mark.parametrize("fmt", ["lesson-v2", "lesson-v1", "ticket-v0"])
+@pytest.mark.parametrize("fmt", ["lesson-v2", "lesson-v1", "ticket-v0", "lesson-v3"])
 def test_retain_sends_the_configured_record_format(fmt):
     task = get_family("cpu_mem").generate("queue_pop_front", "billing", 1)
     ep = _episode(task)
@@ -119,10 +119,15 @@ def test_retain_sends_the_configured_record_format(fmt):
         assert (item["content"], item["context"]) == (render_episode(ep), render_context(ep))
     elif fmt == "lesson-v1":
         assert (item["content"], item["context"]) == (render_episode(ep, version=1), render_context(ep))
+    elif fmt == "lesson-v3":
+        assert (item["content"], item["context"]) == (render_episode_v3(ep), render_context_v3(ep))
+        assert item["tags"] == ["family:cpu_mem", "outcome:failed", "failed-check:performance"]
+        assert item["metadata"]["ticket"] == task.prompt.strip() and task.prompt.strip() not in item["context"]
+        return
     else:
         assert item["content"] == render_episode_ticket_v0(ep)
         assert item["context"] == "a coding-agent episode and the judge's verified result"
-    assert item["document_id"] == "e1" and item["tags"] == ["family:cpu_mem"]
+    assert item["document_id"] == "e1" and item["tags"] == ["family:cpu_mem"] and "metadata" not in item
 
 
 def test_ticket_v0_record_is_the_original_ticket_first_format():
