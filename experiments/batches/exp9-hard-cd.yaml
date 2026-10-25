@@ -1,0 +1,32 @@
+# Arms C and D on exp8's hard tickets (quadratic_membership), where arm B beat A in both 8a and 8b.
+# Every memory arm runs exp8b's Learning on the Job settings (WHEN-THEN rule after each train
+# episode, search_memory during episodes), so B here repeats exp8b's B.
+# C: B + MemRL utility rerank (elh/learner/utility.py). D: C + AWM procedure library, promoted only
+#    if it beats the incumbent on the dev panel (as exp7-arm-d).
+# Utility calibration: doc-level max semantic similarity pooled over exp8b's 15 B train recalls
+#    (105 docs; train split only): mean 0.8535, sd 0.01762, delta 0.8378 = 20th percentile (the
+#    same top-80% deviation from MemRL's top-20% as exp6/exp7, since candidates are already
+#    Hindsight's relevance list).
+# Dev panel: 6 quadratic_membership tickets from train themes, seeds 3000+, never an eval cell.
+name: exp9-hard-cd
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  rules: {enabled: true}
+  utility: {k1: 10, k2: 5, delta: 0.8378, sim_mean: 0.8535, sim_std: 0.01762, units_per_doc: 1,
+            reward_mode: spec-signed}
+  workflows: {induce_every: 5, repeats: 2, margin: 0.0, max_library_tokens: 1500}
+  procedure_source: awm
+family: cpu_mem
+histories: 1
+arms: [A, B, C, D]
+phases:
+  - train:
+      tasks: {causes: [quadratic_membership], themes: [billing, logistics, telemetry, course_registration, network_flows], seeds: [1000, 1003]}
+  - eval:
+      label: after-15
+      tasks: {causes: [quadratic_membership], themes: [inventory], seeds: [2000, 2012]}
+dev:
+  tasks: {causes: [quadratic_membership], themes: [billing, logistics, telemetry], seeds: [3000, 3002]}
