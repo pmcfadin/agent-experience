@@ -40,6 +40,18 @@ CREATE TABLE IF NOT EXISTS memory_snapshots (
     bank_export_sha256 TEXT NOT NULL, content_sha256 TEXT NOT NULL, learner_state_sha256 TEXT,
     created_at TEXT NOT NULL, UNIQUE (run_id, history, arm, after_episode)
 );
+-- Arm D procedures (SPEC §9/§10; elh/learner/workflows.py). One row per workflow; a revision is
+-- one whole regenerated library of a (run, history, arm, family) stream and shares one status:
+-- candidate -> promoted | rejected; promoted -> superseded | rolled_back; superseded -> promoted
+-- (rollback only). Bodies and provenance are never rewritten; only status/validation/timestamps move.
+CREATE TABLE IF NOT EXISTS skills (
+    skill_id TEXT NOT NULL, revision INTEGER NOT NULL, run_id TEXT NOT NULL,
+    history INTEGER NOT NULL, arm TEXT NOT NULL, family TEXT NOT NULL, position INTEGER NOT NULL,
+    status TEXT NOT NULL, title TEXT, body TEXT NOT NULL, body_sha256 TEXT NOT NULL,
+    library_sha256 TEXT NOT NULL, source_episode_ids_json TEXT NOT NULL, induction_json TEXT,
+    validation_json TEXT, created_at TEXT NOT NULL, promoted_at TEXT, rolled_back_at TEXT,
+    PRIMARY KEY (run_id, history, arm, family, revision, skill_id)
+);
 CREATE TABLE IF NOT EXISTS ledger (
     entry_id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, episode_id TEXT,
     category TEXT NOT NULL, component TEXT NOT NULL, units REAL, unit TEXT, usd REAL NOT NULL
