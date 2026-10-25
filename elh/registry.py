@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from elh.learner.utility import UtilityConfig
 
@@ -88,6 +88,72 @@ class RulesConfig(_Strict):
     # None: the agent's own registered sampling (the paper reflects with the agent's llm_args).
     temperature: float | None = Field(None, ge=0.0, le=2.0)
     max_tokens: int = Field(2048, gt=0)
+
+
+class WorkflowConfig(BaseModel):  # arm D (AWM source and the dev gate); elh/learner/workflows.py
+    """Arm D's registered parameters. `induce_every` is AWM's "every n tasks" (AWM itself: 1)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    induce_every: int = Field(5, ge=1)            # M: induce after every M train episodes
+    repeats: int = Field(2, ge=1)                 # r: dev repeats per task for the gate (temp 0.7)
+    margin: float = Field(0.0, ge=0.0)            # paired mean reward must improve by MORE than this
+    max_library_tokens: int = Field(1500, ge=1)   # approx (chars/4); later workflows are dropped
+    rollback_margin: float = Field(0.0, ge=0.0)   # retention pass-rate/reward drop that triggers rollback
+    max_output_tokens: int = Field(2048, ge=1)    # AWM WebArena max_tokens
+    temperature: float = 0.0                      # AWM Mind2Web induction setting
+    samples_per_cell: int = Field(1, ge=1)        # AWM --num_samples default
+    max_prompt_tokens: int = Field(40_000, ge=1000)  # approx; observations shrink to fit
+
+
+class GepaConfig(BaseModel):  # arm D's GEPA source; elh/learner/gepa_opt.py
+    """One GEPA invocation. Defaults are the report's minimal pilot (papers/gepa.md §3.6):
+    |validation| = 10, 15 iterations at ~30% acceptance -> 10 + 90 + 45 ~ 145 rollouts, so
+    `max_metric_calls=150`; plus 2 x 20 rollouts for the paired promotion check."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    # GEPA (paper / gepa.optimize defaults unless noted)
+    max_metric_calls: int = 150                 # budget in rollouts (dev episodes), GEPA's own count
+    reflection_minibatch_size: int = 3          # paper App. E.4: "a minibatch size of 3"
+    candidate_selection_strategy: str = "pareto"  # Table 3: Pareto +12.44 vs SelectBest +6.05
+    frontier_type: str = "instance"
+    acceptance_criterion: str = "strict_improvement"
+    use_merge: bool = False                     # merge hurt Qwen3-8B (54.85 -> 52.40); no-op for 1 component
+    skip_perfect_score: bool = False            # deviation: 1.0 is unreachable with a cost term
+    seed: int = 0
+
+    # Score (report §3.4): integrity broken = 0; else partial credit per check; passes earn
+    # 1 - cost_weight * normalised_cost, so every pass outranks every failure.
+    cost_ref: float = 0.05                      # cost at which normalised cost saturates (same unit
+                                                # as run_dev_episode's cost; preregister ~2x median)
+    cost_weight: float = Field(0.4, ge=0.0, le=0.5)
+    credit_public_tests_failed: float = 0.05
+    credit_correctness_failed: float = 0.10
+    credit_performance_only: float = 0.30       # + perf_speed_bonus * clip(budget_s / agent_s)
+    perf_speed_bonus: float = 0.20
+
+    # Reflection
+    reflection_max_tokens: int = 4096
+    max_procedure_words: int = 400              # stated in the reflection prompt
+    max_ticket_chars: int = 1500
+    max_actions_chars: int = 6000
+
+    # Promotion (outside GEPA: its best-of-pool is selection-biased)
+    promotion_replicates: int = 1
+    promotion_min_delta: float = 0.0            # promote iff mean paired delta > this, no integrity regression
+
+    infra_retries: int = 1                      # an InfraError is retried, then raised (never scored 0)
+
+    @model_validator(mode="after")
+    def _check(self) -> "GepaConfig":
+        if self.candidate_selection_strategy not in ("pareto", "current_best", "epsilon_greedy", "top_k_pareto"):
+            raise ValueError(f"unknown candidate_selection_strategy {self.candidate_selection_strategy!r}")
+        if self.acceptance_criterion not in ("strict_improvement", "improvement_or_equal"):
+            raise ValueError(f"unknown acceptance_criterion {self.acceptance_criterion!r}")
+        if self.max_metric_calls < 1 or self.reflection_minibatch_size < 1 or self.cost_ref <= 0:
+            raise ValueError("max_metric_calls, reflection_minibatch_size and cost_ref must be positive")
+        return self
 
 
 class MemoryServiceConfig(_Strict):
@@ -182,6 +248,23 @@ class ExperimentConfig(_Strict):
     memory_service: MemoryServiceConfig | None = None
     utility: UtilityConfig | None = None   # arm C (MemRL-style utility ranking); required when C runs
     rules: RulesConfig | None = None       # Learning on the Job: one reflected rule per train episode
+    # Arm D = arm C + a procedure library shown first in the memory block (SPEC §10). The library
+    # comes from AWM induction over verified train successes (`workflows`) or from GEPA over dev
+    # episodes (`gepa`); either way a candidate is promoted only by the paired dev gate in `workflows`.
+    workflows: WorkflowConfig | None = None
+    gepa: GepaConfig | None = None
+    procedure_source: Literal["awm", "gepa"] = "awm"
+
+    @model_validator(mode="after")
+    def _arm_d(self) -> "ExperimentConfig":
+        if "D" in self.arms:
+            missing = [k for k in ("utility", "workflows") if getattr(self, k) is None]
+            if self.procedure_source == "gepa" and self.gepa is None:
+                missing.append("gepa")
+            if missing:
+                raise ValueError(f"arm D needs registration sections {missing} (utility: as arm C; workflows: "
+                                 "induction cadence and the dev promotion gate; gepa: when procedure_source is gepa)")
+        return self
 
     @property
     def config_hash(self) -> str:
@@ -198,7 +281,7 @@ class ExperimentConfig(_Strict):
 # Fields added after registrations were in use. Left out of the hash while at their default, so a
 # registration that doesn't use them keeps its hash (and its run id and banks).
 _LATE_FIELDS = {
-    "": {"utility": None, "rules": None},
+    "": {"utility": None, "rules": None, "workflows": None, "gepa": None, "procedure_source": "awm"},
     "memory_service": {"include_diff": True, "ticket_metadata": True, "recall_max_tokens": 2048,
                        "recall_types": None, "lesson_query": None, "lesson_k": 2, "lesson_types": None,
                        "retain_mission": None, "observations_mission": None, "retain_extraction_mode": None,

@@ -1,0 +1,29 @@
+# Arm D on exp1's tasks and order, next to exp6's arms (A, B as Hindsight intends, C = B + MemRL).
+# D: C (its own bank and utility table, same settings) + a procedure library shown first in the
+#    experience block (system prompt unchanged): AWM online induction from D's verified train
+#    successes every 5 train episodes (only when a new success joined the pool), each candidate
+#    promoted only if it beats the incumbent (none, at first) on the dev panel, paired, 2 repeats
+#    (SPEC §10; elh/learner/workflows.py). Eval episodes see the library pinned in D's snapshot.
+# Dev panel: 6 tickets from train cells (queue_pop_front in billing/logistics/telemetry), seeds
+#    3000+, never an eval cell; dev episodes read D's live bank read-only and are charged as learning.
+# memory_service and utility overrides are exp6-papers-bc's, so B and C here repeat exp6's arms.
+name: exp7-arm-d
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  utility: {k1: 10, k2: 5, delta: 0.8533, sim_mean: 0.8651, sim_std: 0.01716, units_per_doc: 1,
+            reward_mode: spec-signed}
+  workflows: {induce_every: 5, repeats: 2, margin: 0.0, max_library_tokens: 1500}
+  procedure_source: awm
+family: cpu_mem
+histories: 1
+arms: [A, B, C, D]
+phases:
+  - train:
+      tasks: {causes: [queue_pop_front], themes: [billing, logistics, telemetry, course_registration, network_flows], seeds: [1000, 1003]}
+  - eval:
+      label: after-15
+      tasks: {causes: [queue_pop_front], themes: [inventory], seeds: [2000, 2010]}
+dev:
+  tasks: {causes: [queue_pop_front], themes: [billing, logistics, telemetry], seeds: [3000, 3002]}

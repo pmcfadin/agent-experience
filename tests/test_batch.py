@@ -46,6 +46,8 @@ def test_bundled_experiments_load(path):
     steps = schedule(exp, cfg)
     assert {s.arm for s in steps if s.kind == "train"} == set(exp.arms) - {"A"}
     assert all(s.task.seed >= 2000 if s.kind == "eval" else 1000 <= s.task.seed < 2000 for s in steps)
+    assert all(3000 <= t.seed < 4000 for t in batch.dev_tasks(exp, cfg, 0))
+    assert (exp.dev is not None) == ("D" in exp.arms)
 
 
 def test_schedule_is_deterministic_and_differs_across_histories(tmp_path):

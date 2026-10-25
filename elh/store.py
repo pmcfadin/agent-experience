@@ -72,6 +72,10 @@ class Store:
         self.db.executescript(SCHEMA)
         self._add_columns("episodes", {"memory_props_sha256": "TEXT", "batch_id": "TEXT", "retrieval_json": "TEXT",
                                        "memory_searches_json": "TEXT", "rule_json": "TEXT"})
+        # Arm D: the procedure library revision a snapshot pins (NULL: none promoted yet, or not arm D).
+        self._add_columns("memory_snapshots", {"library_revision": "INTEGER"})
+        # Learning spend with no episode (arm D induction / GEPA reflection): which stream and why.
+        self._add_columns("ledger", {"history": "INTEGER", "arm": "TEXT", "purpose": "TEXT"})
 
     def _add_columns(self, table: str, cols: dict[str, str]) -> None:
         """Columns added after a store was created (CREATE TABLE IF NOT EXISTS keeps the old shape)."""

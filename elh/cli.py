@@ -120,8 +120,14 @@ def cmd_run_batch(args) -> int:
     family = get_family(exp.family)
     shared = _client("model", cfg, None, family) if args.client == "model" else None
     store = Store(args.runs_dir)
+    extra = {}
+    if args.client != "model":  # arm D's induction / reflection stand-ins (elh/runner/scripts.py)
+        from elh.runner.scripts import ScriptedInductionClient, scripted_reflection
+
+        extra = {"make_induction_client": ScriptedInductionClient,
+                 "make_reflection_client": lambda: scripted_reflection}
     results = run_batch(exp, cfg, store, lambda task: shared or _client(args.client, cfg, task, family),
-                        sandbox_backend=args.sandbox)
+                        sandbox_backend=args.sandbox, **extra)
     report(exp, store, results)
     return 0
 

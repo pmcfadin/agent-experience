@@ -10,6 +10,7 @@ from functools import partial
 
 from elh import __version__
 from elh.judge import Verdict, grade
+from elh.learner import workflows as wf
 from elh.learner.rules import write_rule
 from elh.learner.utility import UtilityLearner, episode_cost_usd
 from elh.ledger import compute_entry, usage_entries
@@ -85,12 +86,17 @@ def bank_id_for(cfg: ExperimentConfig, history: int, arm: str) -> str:
 def memory_for(cfg: ExperimentConfig, arm: str, history: int, split: str, *,
                store: Store | None = None, snapshot_id: str | None = None) -> Memory:
     """Arm wiring (SPEC §10). One Hindsight bank per (run, history, arm); read-only off `train`.
-    Checkpoint, sealed and retention episodes must name a snapshot; `dev` may read the live bank."""
+    Checkpoint, sealed and retention episodes must name a snapshot; `dev` may read the live bank.
+    Arm D is arm C's wiring (its own bank and utility table); its procedure library is not part of
+    the memory object except on a snapshot (pinned there): train and dev episodes load the library
+    promoted at the time they start (`run_single_episode`)."""
     if arm == "A":
         return NullMemory()
-    if arm in ("B", "C"):
-        if arm == "C" and cfg.utility is None:
-            raise ValueError("arm C needs a `utility` section in the registration (UtilityConfig)")
+    if arm in ("B", "C", "D"):
+        if arm in ("C", "D") and cfg.utility is None:
+            raise ValueError(f"arm {arm} needs a `utility` section in the registration (UtilityConfig)")
+        if arm == "D" and cfg.workflows is None:
+            raise ValueError("arm D needs a `workflows` section in the registration (WorkflowConfig)")
         if snapshot_id is not None:
             if split not in READ_ONLY_SPLITS:
                 raise ValueError(f"a snapshot is read-only; split {split!r} writes to memory")
@@ -102,20 +108,33 @@ def memory_for(cfg: ExperimentConfig, arm: str, history: int, split: str, *,
         mem = HindsightMemory(_hindsight_url(cfg), bank_id_for(cfg, history, arm), readonly=split in READ_ONLY_SPLITS,
                               **cfg.memory_service.hindsight_options())
         mem.ensure_bank()
-        if arm == "C":
+        if arm in ("C", "D"):
             if store is None:
-                raise ValueError("arm C keeps its utility table in the store; pass store")
+                raise ValueError(f"arm {arm} keeps its utility table in the store; pass store")
             learner = UtilityLearner.for_store(store, run_id_for(cfg), history, arm, cfg.utility)
             mem.learner = learner.readonly_view() if split in READ_ONLY_SPLITS else learner
         return mem
     raise ValueError(f"arm {arm} is not implemented yet")
 
 
+def _family_of(cfg: ExperimentConfig, family: str | None) -> str:
+    if family is not None:
+        return family
+    if len(cfg.families) != 1:
+        raise ValueError(f"arm D's library is per family; name one of {cfg.families}")
+    return cfg.families[0]
+
+
 def snapshot_memory(cfg: ExperimentConfig, store: Store, memory: Memory, *, history: int, arm: str,
-                    after_episode: int) -> str | None:
+                    after_episode: int, family: str | None = None) -> str | None:
     """Freeze a training bank after `after_episode` train episodes (SPEC §11): store its transfer
     archive as a blob, restore it into a snapshot bank, and check the copy holds the same memories.
-    Returns the snapshot id (None for arms without memory)."""
+    Returns the snapshot id (None for arms without memory).
+
+    Learner state: arm C records the utility table's state hash. Arm D records the hash of
+    `workflows.arm_d_state` (utility state hash + the library promoted now, stored as a "learner"
+    blob), so `learner_state_sha256` covers both, and pins the library revision in
+    `library_revision`."""
     if not isinstance(memory, HindsightMemory):
         return None
     if memory.readonly:
@@ -132,12 +151,20 @@ def snapshot_memory(cfg: ExperimentConfig, store: Store, memory: Memory, *, hist
     snap = memory.restore(archive, target)
     if snap.fingerprint() != live:
         raise InfraError(f"snapshot bank {target} does not hold the same memories as {memory.bank_id}")
+    learner = getattr(memory, "learner", None)
+    learner_sha = learner.snapshot(store) if learner is not None else None
+    library_revision = None
+    if arm == "D":
+        if learner_sha is None:
+            raise ValueError("arm D's training bank has no utility learner")
+        library_revision, lib = wf.promoted_library(store, run_id=run_id, history=history, arm=arm,
+                                                    family=_family_of(cfg, family))
+        learner_sha = store.put_blob("learner", wf.arm_d_state(learner_sha, library_revision, lib))
     store.insert("memory_snapshots", {
         "snapshot_id": snapshot_id, "run_id": run_id, "history": history, "arm": arm,
         "after_episode": after_episode, "source_bank_id": memory.bank_id, "bank_id": target,
-        "bank_export_sha256": archive_sha, "content_sha256": live,
-        "learner_state_sha256": learner.snapshot(store) if (learner := getattr(memory, "learner", None)) else None,
-        "created_at": utcnow()})
+        "bank_export_sha256": archive_sha, "content_sha256": live, "learner_state_sha256": learner_sha,
+        "library_revision": library_revision, "created_at": utcnow()})
     return snapshot_id
 
 
@@ -156,18 +183,56 @@ def open_snapshot(cfg: ExperimentConfig, store: Store, snapshot_id: str) -> Hind
     if mem.fingerprint() != row["content_sha256"]:
         raise InfraError(f"snapshot bank {row['bank_id']} no longer matches snapshot {snapshot_id}")
     mem.snapshot_id = snapshot_id
-    if row["learner_state_sha256"]:
-        mem.learner = UtilityLearner.load_snapshot(store, row["learner_state_sha256"], config=cfg.utility,
+    utility_sha = row["learner_state_sha256"]
+    if row["arm"] == "D":
+        mem.procedures = _pinned_library(store, row)
+        utility_sha = json.loads(store.get_blob("learner", row["learner_state_sha256"]))["utility_state_sha256"]
+    if utility_sha:
+        mem.learner = UtilityLearner.load_snapshot(store, utility_sha, config=cfg.utility,
                                                    run_id=row["run_id"], history=row["history"], arm=row["arm"])
     return mem
+
+
+def _pinned_library(store: Store, row) -> tuple[int | None, wf.WorkflowLibrary]:
+    """The procedure library an arm-D snapshot pinned, re-read from the store and checked against
+    the state recorded with the snapshot (revision and content hash)."""
+    if not row["learner_state_sha256"]:
+        raise InfraError(f"arm D snapshot {row['snapshot_id']} has no learner state")
+    state = json.loads(store.get_blob("learner", row["learner_state_sha256"]))
+    if state.get("format") != wf.ARM_D_STATE_FORMAT:
+        raise InfraError(f"snapshot {row['snapshot_id']}: learner state format {state.get('format')!r}")
+    lib_state = state["library"]
+    rev = lib_state["revision"]
+    if rev != row["library_revision"]:
+        raise InfraError(f"snapshot {row['snapshot_id']}: library revision {row['library_revision']} != "
+                         f"recorded state {rev}")
+    family = lib_state["family"]
+    lib = (wf.WorkflowLibrary(family) if rev is None else
+           wf.load_library(store, run_id=row["run_id"], history=row["history"], arm=row["arm"], family=family,
+                           revision=rev))
+    if lib.library_sha256 != lib_state["library_sha256"]:
+        raise InfraError(f"snapshot {row['snapshot_id']}: library revision {rev} no longer matches the snapshot")
+    return rev, lib
 
 
 def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, client: ModelClient, *,
                        arm: str = "A", split: str = "dev", history: int = 0, ordinal: int = 0,
                        checkpoint: int | None = None, memory: Memory | None = None,
                        sandbox_backend: str | None = None, memory_k: int = 5,
-                       batch_id: str | None = None) -> tuple[str, EpisodeResult, Verdict]:
+                       batch_id: str | None = None, charge_as: str = "inference",
+                       procedures: tuple[int | None, wf.WorkflowLibrary] | None = None,
+                       ) -> tuple[str, EpisodeResult, Verdict]:
+    """Run, grade and record one episode.
+
+    `charge_as="learning"` books the episode's model and sandbox spend as `learning` (dev episodes
+    run for arm D's promotion gate or GEPA). `procedures` = (revision, library) shows an explicit
+    arm-D library (a candidate under validation; dev split only). Otherwise arm D shows the library
+    promoted now (train, dev) or the one its snapshot pinned (checkpoint, sealed, retention)."""
     run_id = run_id_for(cfg)
+    if charge_as not in ("inference", "learning"):
+        raise ValueError(f"charge_as must be 'inference' or 'learning', not {charge_as!r}")
+    if procedures is not None and (arm != "D" or split != "dev"):
+        raise ValueError("an explicit procedure library is only for arm D's dev validation episodes")
     store.ensure_run(run_id, cfg.name, cfg.version, cfg.config_hash, json.dumps(cfg.model_dump(mode="json"), sort_keys=True),
                      git_rev(), __version__)
     if client.model_id != "scripted" and client.model_id != cfg.model.id:
@@ -200,6 +265,7 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
     if learner is not None and split not in READ_ONLY_SPLITS and learner.readonly:
         raise ValueError(f"split {split!r} updates the utility learner, but it is a read-only view")
     learner_guard = learner.state_sha256() if learner is not None and split in READ_ONLY_SPLITS else None
+    proc_rev, proc_lib = _procedures_for(cfg, store, memory, task, arm, split, history, procedures)
     if learner is not None:  # arm C: relevance candidates reranked by learned utility (MemRL)
         items = learner.rank(task, memory.recall_candidates(task))
         retrieval = {"ranker": "utility", **learner.last_trace.to_dict()}
@@ -208,6 +274,11 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
         retrieval = {"ranker": "service", "k": memory_k, "items": [_logged(it) for it in items]}
         if hasattr(memory, "recall_candidates"):  # read-only; shows where un-injected memories ranked
             retrieval["candidates"] = [_logged(it) for it in memory.recall_candidates(task, RETRIEVAL_LOG_DEPTH)]
+    if arm == "D":  # the procedures shown first in the experience block, by `skill_id@revision`
+        retrieval.update(procedure_ids=_procedure_ids(proc_lib, proc_rev), procedure_revision=proc_rev,
+                         procedure_library_sha256=proc_lib.library_sha256,
+                         procedure_source="explicit" if procedures is not None else
+                         "snapshot" if split in SNAPSHOT_SPLITS else "promoted")
     make_sbx = sandbox_factory(cfg, sandbox_backend)
     episode_id = uuid.uuid4().hex
     started = utcnow()
@@ -217,8 +288,11 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
         sbx.start(task.workspace)
         ms = cfg.memory_service
         search = memory.search if ms is not None and ms.agent_search and hasattr(memory, "search") else None
+        block = render_memory_block(items)
+        if arm == "D":
+            block = wf.experience_block(proc_lib, block)
         result = run_episode(task, sbx, client, cfg.budgets, cfg.model.max_tokens_per_turn,
-                             memory_block=render_memory_block(items), search=search, search_k=memory_k)
+                             memory_block=block, search=search, search_k=memory_k)
         final_ws = sbx.snapshot_workspace()
         usage = sbx.resource_usage()
         backend, image = sbx.backend, sbx.image
@@ -232,6 +306,8 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
             raise InfraError(f"read-only bank {memory.bank_id} changed during a {split} episode")
     if learner_guard is not None and learner.state_sha256() != learner_guard:
         raise InfraError(f"read-only utility learner changed during a {split} episode")
+    if arm == "D" and split in READ_ONLY_SPLITS and procedures is None:
+        _check_library_unchanged(cfg, store, memory, task, split, history, proc_rev, proc_lib)
 
     trace_sha = store.put_trace(result.trace + [{"event": "verdict", **verdict.to_dict()}])
     ws_sha = store.put_workspace(final_ws)
@@ -267,10 +343,10 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
         })
     if client.model_id != "scripted":
         # Priced under the registered model id: a gateway may report the served model by another name.
-        entries = [e for c in result.calls for e in usage_entries(cfg, cfg.model.id, c["usage"])]
+        entries = [e for c in result.calls for e in usage_entries(cfg, cfg.model.id, c["usage"], category=charge_as)]
     else:
         entries = []
-    entries.append(compute_entry(cfg, usage.cpu_s))
+    entries.append(compute_entry(cfg, usage.cpu_s, category="tool_compute" if charge_as == "inference" else charge_as))
 
     if split not in READ_ONLY_SPLITS and result.outcome != "refused":
         record = episode_record(episode_id, task, result, verdict, final_ws)
@@ -303,6 +379,39 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
 
 
 RETRIEVAL_LOG_DEPTH = 50
+
+
+def _procedures_for(cfg: ExperimentConfig, store: Store, memory, task: TaskInstance, arm: str, split: str,
+                    history: int, explicit) -> tuple[int | None, wf.WorkflowLibrary | None]:
+    if arm != "D":
+        return None, None
+    if explicit is not None:
+        return explicit
+    if split in SNAPSHOT_SPLITS:
+        pinned = getattr(memory, "procedures", None)
+        if pinned is None:
+            raise ValueError(f"arm D on split {split!r} needs the library pinned by its snapshot")
+        if pinned[1].workflows and pinned[1].family != task.family:
+            raise ValueError(f"snapshot library is for family {pinned[1].family}, task is {task.family}")
+        return pinned
+    return wf.promoted_library(store, run_id=run_id_for(cfg), history=history, arm=arm, family=task.family)
+
+
+def _check_library_unchanged(cfg, store, memory, task, split, history, rev, lib) -> None:
+    """Read-only arm-D episodes must leave the library as they found it: a snapshot's pinned
+    revision still re-reads to the same content; on dev, the promoted revision has not moved."""
+    if split in SNAPSHOT_SPLITS:
+        now = _pinned_library(store, store.snapshot(memory.snapshot_id))
+    else:
+        now = wf.promoted_library(store, run_id=run_id_for(cfg), history=history, arm="D", family=task.family)
+    if now[0] != rev or now[1].library_sha256 != lib.library_sha256:
+        raise InfraError(f"arm D procedure library changed during a {split} episode")
+
+
+def _procedure_ids(lib: wf.WorkflowLibrary, rev: int | None) -> list[str]:
+    if rev is None:  # an unrecorded library (a GEPA candidate inside its search)
+        return [f"{w.skill_id}@unrecorded" for w in lib.workflows]
+    return wf.procedure_ids(lib, rev)
 
 
 def _logged(it) -> dict:

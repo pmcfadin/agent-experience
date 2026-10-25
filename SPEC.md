@@ -145,7 +145,7 @@ combinations the agent has never seen (H3):
 | `sealed_novel_combo` | held-out (cause, theme) cells whose cause and theme each appear in train |
 | `sealed_novel_cause` | causes never seen in training (family shift) |
 | `retention` | fixed panel of train-split tasks re-measured at each checkpoint |
-| `dev` | used for SkillLearner validation and harness tuning; never reported |
+| `dev` | used for SkillLearner validation and harness tuning; never reported (seeds 3000–3999 in batch experiments, train cells only) |
 
 Seed ranges are disjoint per split (`seed = split_base + i`); `split_base` values for sealed splits
 are kept in a file outside the repository until the sealed test is run.
@@ -336,9 +336,11 @@ episodes(episode_id PK, run_id, history, arm, split, checkpoint, ordinal,
          started_at, finished_at)
 llm_calls(call_id PK, episode_id, turn, request_id, model, stop_reason,
           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, latency_s)
-ledger(entry_id PK, run_id, episode_id NULL, category, component, units, unit, usd)
+ledger(entry_id PK, run_id, episode_id NULL, category, component, units, unit, usd,
+       history NULL, arm NULL, purpose NULL)  -- last three: spend with no episode (arm D induction/reflection)
 memory_snapshots(snapshot_id PK, run_id, history, arm, after_episode, source_bank_id, bank_id,
-                 bank_export_sha256, content_sha256, learner_state_sha256, created_at)
+                 bank_export_sha256, content_sha256, learner_state_sha256, library_revision NULL,
+                 created_at)
 skills(skill_id, revision, run_id, history, status, body_sha256, source_episode_ids_json,
        validation_json, promoted_at, rolled_back_at)          -- Phase 2
 ```
@@ -369,7 +371,31 @@ Arm wiring:
 | A | `NullMemory` | none |
 | B | `HindsightMemory` (relevance recall) | none |
 | C | `HindsightMemory` | `UtilityLearner`: two-phase retrieval (relevance top-N → rerank by learned Q); Q updated from verified reward `r = passed × (1 − normalised_cost)` |
-| D | as C | + `SkillLearner`: every M episodes, reflect over clusters of successful traces → candidate procedure → validate on `dev` split episodes (charged as `learning`) → promote only if it beats the incumbent; versioned; auto-rollback if checkpoint retention drops |
+| D | as C (own bank `…-D`, own utility table) | + procedure library shown first inside the `<experience>` block (system prompt unchanged; `workflows.experience_block`). Source `procedure_source: awm` (default): every `workflows.induce_every` train episodes, if a verified success joined the pool, AWM regenerates the whole library from D's verified `train` successes, one sampled per (cause, theme) cell (`elh/learner/workflows.py`); `gepa`: GEPA, seeded with the incumbent's text, searches on dev episodes (`elh/learner/gepa_opt.py`). Either way the candidate is versioned (`skills`) and promoted only by the paired dev gate below; auto-rollback if the retention panel drops |
+
+**Arm D's dev validation loop (2026-10-25).** Registration: `workflows` (cadence, gate, caps;
+required), `utility` (as C; required), `gepa` (required when `procedure_source: gepa`). An experiment
+with arm D names a `dev` panel (train cells only, never a cell an eval or retention phase measures,
+seeds 3000–3999). After D's n-th train episode, when `should_induce` fires: AWM induces a candidate
+(its model calls are ledger rows `learning` with no episode, `purpose = awm_induction`), or GEPA runs
+on the dev panel split deterministically into reflection / validation / promotion pools (its dev
+episodes read a read-only view of D's live bank and utility table; reflection is `learning`,
+`purpose = gepa_reflection`). The gate then runs incumbent (the promoted library, or none) and
+candidate on the gate tasks × `workflows.repeats` (AWM: the whole dev panel; GEPA: only its
+promotion pool, which its search never saw), interleaved per task in a seeded order, as `dev`
+episodes charged as `learning` (`run_single_episode(charge_as="learning", procedures=…)`), with
+`checkpoint` = n. Rewards r = passed × (1 − tokens / `budgets.max_total_tokens`); `workflows.promote`
+(paired mean gain > `margin`, no fewer passes, no more integrity violations) is the one promotion
+rule for both sources (GEPA's internal paired check is skipped), and its decision and the episode
+ids are stored in `skills.validation_json`. Train and dev episodes show the library promoted when
+they start; checkpoint, sealed and retention episodes show the revision their snapshot pinned. Every
+D episode records `procedure_ids` (`skill_id@revision`), `procedure_revision` and the library hash in
+`retrieval_json` (`retrieved_memory_ids_json` stays memory items only). Rollback: after D's last
+episode of a `retention` phase, its panel is compared (paired by task) with the previous retention
+checkpoint by `workflows.rollback`; the promoted revision is rolled back only if the rule fires, the
+library differs between the two checkpoints and that revision is still the promoted one. Dev
+episodes are excluded from the analysis comparisons and reported in the arm D section (revisions,
+decisions, learning spend).
 
 Only `train` episodes call `retain`/`observe`. Checkpoint, sealed and retention episodes use
 `open_readonly(snapshot)`; the controller passes them a read-only view and asserts that bank
@@ -417,7 +443,12 @@ and recomputes similarity links, so banks are compared by a content fingerprint 
 unit's type, state, tags and text, plus the document count), recorded as `content_sha256`; the
 snapshot is refused unless the restored bank matches the live one. `open_snapshot` returns a
 read-only view, re-restoring from the archive if the bank is gone and refusing if its fingerprint
-has drifted. Checkpoint, sealed and retention episodes must name a snapshot (`--snapshot`); `dev`
+has drifted. Arm D's snapshot also pins its library: `library_revision`, and `learner_state_sha256`
+is the sha256 of a stored "learner" blob, canonical JSON `{format: arm-d-state-v1,
+utility_state_sha256, library: {family, revision, library_sha256, state_sha256}}`
+(`workflows.arm_d_state`), so the hash changes if the utility table or the library changes;
+`open_snapshot` restores both and re-checks the library against it, and read-only D episodes
+re-check that the library they showed is unchanged. Checkpoint, sealed and retention episodes must name a snapshot (`--snapshot`); `dev`
 may read the live bank read-only. Every read-only episode fingerprints the bank before recall and
 after grading and is an infra error if it changed; `episodes.memory_snapshot_id` records the
 snapshot used.

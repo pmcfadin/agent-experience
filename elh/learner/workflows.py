@@ -30,8 +30,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
-
+from elh.registry import WorkflowConfig  # noqa: F401  (re-export)
 from elh.store import Store, utcnow
 
 FORMAT_VERSION = "awm-v1"
@@ -219,20 +218,7 @@ PROCEDURE_HEADER = ("Workflows: reusable procedures distilled from your earlier 
 # --------------------------------------------------------------------------------------------
 
 
-class WorkflowConfig(BaseModel):
-    """Arm D's registered parameters. `induce_every` is AWM's "every n tasks" (AWM itself: 1)."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    induce_every: int = Field(5, ge=1)            # M: induce after every M train episodes
-    repeats: int = Field(2, ge=1)                 # r: dev repeats per task for the gate (temp 0.7)
-    margin: float = Field(0.0, ge=0.0)            # paired mean reward must improve by MORE than this
-    max_library_tokens: int = Field(1500, ge=1)   # approx (chars/4); later workflows are dropped
-    rollback_margin: float = Field(0.0, ge=0.0)   # retention pass-rate/reward drop that triggers rollback
-    max_output_tokens: int = Field(2048, ge=1)    # AWM WebArena max_tokens
-    temperature: float = 0.0                      # AWM Mind2Web induction setting
-    samples_per_cell: int = Field(1, ge=1)        # AWM --num_samples default
-    max_prompt_tokens: int = Field(40_000, ge=1000)  # approx; observations shrink to fit
+# WorkflowConfig lives in elh.registry (the registration file holds it); re-exported here.
 
 
 def approx_tokens(text: str) -> int:
@@ -592,6 +578,32 @@ def experience_block(library: WorkflowLibrary | None, memory_block: str = "") ->
     return "\n\n".join(p for p in (render_procedure_block(library), memory_block.strip()) if p)
 
 
+# GEPA optimises one free-text procedure (elh/learner/gepa_opt.py). It is stored and shown as a
+# one-workflow library under this title, so both procedure sources share versioning, snapshots,
+# rendering and the promotion gate.
+GEPA_TITLE = "Working procedure"
+
+
+def library_from_procedure(family: str, text: str) -> WorkflowLibrary:
+    """A GEPA procedure as a library: one workflow, its first non-blank line the description and the
+    rest its steps (blank lines dropped). Empty text is the empty library (no procedures shown)."""
+    lines = [ln.rstrip() for ln in text.strip().splitlines() if ln.strip()]
+    if not lines:
+        return WorkflowLibrary(family)
+    return WorkflowLibrary(family, (Workflow(GEPA_TITLE, lines[0].strip(), tuple(lines[1:])),))
+
+
+def procedure_text(library: WorkflowLibrary | None) -> str:
+    """The text GEPA is seeded with for an incumbent library: the procedure itself for a GEPA
+    library, the whole rendered library for an AWM one, "" when nothing is promoted."""
+    if library is None or not library.workflows:
+        return ""
+    if len(library.workflows) == 1 and library.workflows[0].title == GEPA_TITLE:
+        w = library.workflows[0]
+        return "\n".join([w.description, *w.steps])
+    return library.text
+
+
 # --------------------------------------------------------------------------------------------
 # Induction
 # --------------------------------------------------------------------------------------------
@@ -667,11 +679,12 @@ class Induction:
     dropped: list[dict]
     request_id: str | None = None
     served: dict = field(default_factory=dict)
+    extra: dict = field(default_factory=dict)   # source-specific provenance (GEPA: run summary)
 
     def provenance(self) -> dict:
         return {"format": FORMAT_VERSION, "model": self.model, "seed": self.seed, "usage": self.usage,
                 "prompt_sha256": self.prompt_sha256, "raw_output_sha256": _sha(self.raw_output),
-                "request_id": self.request_id, "served": self.served, "dropped": self.dropped}
+                "request_id": self.request_id, "served": self.served, "dropped": self.dropped, **self.extra}
 
 
 def _load_trace(store: Store, row) -> list[dict]:
@@ -831,10 +844,34 @@ def promoted_library(store: Store, *, run_id: str, history: int, arm: str, famil
     return rev, load_library(store, run_id=run_id, history=history, arm=arm, family=family, revision=rev)
 
 
+def library_state_sha256(revision: int | None, library: WorkflowLibrary) -> str:
+    return _sha(json.dumps({"revision": revision, "library_sha256": library.library_sha256}, sort_keys=True))
+
+
 def learner_state_sha256(store: Store, *, run_id: str, history: int, arm: str, family: str) -> str:
-    """For `memory_snapshots.learner_state_sha256`: freezes which library a snapshot carries."""
+    """Which library is promoted now (revision and content); the library half of arm D's
+    `memory_snapshots.learner_state_sha256` (see `arm_d_state`)."""
     rev, lib = promoted_library(store, run_id=run_id, history=history, arm=arm, family=family)
-    return _sha(json.dumps({"revision": rev, "library_sha256": lib.library_sha256}, sort_keys=True))
+    return library_state_sha256(rev, lib)
+
+
+ARM_D_STATE_FORMAT = "arm-d-state-v1"
+
+
+def arm_d_state(utility_state_sha256: str, revision: int | None, library: WorkflowLibrary) -> bytes:
+    """Arm D's learner state as canonical JSON: the utility table's state hash (itself a stored
+    "learner" blob, elh/learner/utility.py) and the promoted library (revision, content hash, and
+    `library_state_sha256` of the two). The controller stores these bytes as a "learner" blob; their
+    sha256 is the snapshot's `learner_state_sha256`, so it changes if either half changes, and the
+    blob says how to restore both."""
+    body = {"format": ARM_D_STATE_FORMAT, "utility_state_sha256": utility_state_sha256,
+            "library": {"family": library.family, "revision": revision, "library_sha256": library.library_sha256,
+                        "state_sha256": library_state_sha256(revision, library)}}
+    return json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+
+
+def arm_d_state_sha256(utility_state_sha256: str, revision: int | None, library: WorkflowLibrary) -> str:
+    return hashlib.sha256(arm_d_state(utility_state_sha256, revision, library)).hexdigest()
 
 
 def decide_candidate(store: Store, *, run_id: str, history: int, arm: str, family: str, revision: int,

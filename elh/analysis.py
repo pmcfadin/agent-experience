@@ -31,6 +31,12 @@ Continual-learning metrics (methods of the cited papers, adapted to arm A as the
   failed-check lessons into eval episodes (pluggable predicate).
 - Steps (Wang et al., "Agent Workflow Memory"): turns, as a paired difference on all tasks and on
   tasks both arms solved.
+
+Arm D (procedure library): `dev` episodes (the promotion gate, GEPA's search) are learning, not
+evaluation, so they are left out of every comparison above and reported in their own section: per
+(run, history) stream the library revisions with their status and gate decision, and the learning
+spend of the procedures: dev episodes (count, agent GPU-s, ledger tokens and USD, all `learning`)
+plus induction / reflection calls (ledger rows without an episode, by `purpose`).
 """
 
 from __future__ import annotations
@@ -875,6 +881,84 @@ def retrieval_diagnostics(eps: list[dict], *, bank_sizes: dict[str, int | None] 
     return out
 
 
+# -- arm D procedures ------------------------------------------------------------------------
+def procedure_summary(store: Store, eps: list[dict]) -> list[dict]:
+    """Per arm-D stream (run, history) of the selection: library revisions (status, size, source,
+    gate decision) and the procedures' learning spend (dev episodes + induction + reflection)."""
+    out = []
+    for run_id, history in sorted({(e["run_id"], e["history"]) for e in eps if e["arm"] == "D"}):
+        revs = []
+        for r in store.db.execute(
+                "SELECT revision, family, status, COUNT(*) AS n, MIN(created_at) AS created_at, "
+                "MAX(promoted_at) AS promoted_at, MAX(rolled_back_at) AS rolled_back_at, "
+                "MAX(validation_json) AS validation_json, MAX(induction_json) AS induction_json, "
+                "MAX(source_episode_ids_json) AS sources FROM skills WHERE run_id = ? AND history = ? "
+                "AND arm = 'D' GROUP BY revision, family, status ORDER BY revision", (run_id, history)):
+            v = _json_or_none(r["validation_json"]) or {}
+            ind = _json_or_none(r["induction_json"]) or {}
+            revs.append({"revision": r["revision"], "family": r["family"], "status": r["status"],
+                         "workflows": r["n"], "source": v.get("source") or ind.get("source") or "awm",
+                         "sources": len(_json_ids(r["sources"])),
+                         "after": v.get("after_train_episodes"), "incumbent": v.get("incumbent_revision"),
+                         "gate": {k: v.get(k) for k in ("n", "tasks", "incumbent_mean_reward", "candidate_mean_reward",
+                                                        "mean_paired_diff", "incumbent_passes", "candidate_passes",
+                                                        "candidate_integrity_violations", "margin")},
+                         "reasons": v.get("reasons") or [], "created_at": r["created_at"],
+                         "promoted_at": r["promoted_at"], "rolled_back_at": r["rolled_back_at"]})
+        dev = [e for e in eps if e["split"] == "dev" and e["run_id"] == run_id and e["history"] == history]
+        ids = [e["episode_id"] for e in dev]
+        dev_usd = dev_tokens = 0.0
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            row = store.db.execute(
+                f"SELECT COALESCE(SUM(usd), 0), COALESCE(SUM(CASE WHEN unit = 'tokens' THEN units END), 0) "
+                f"FROM ledger WHERE category = 'learning' AND episode_id IN ({','.join('?' * len(chunk))})",
+                chunk).fetchone()
+            dev_usd += row[0]
+            dev_tokens += row[1]
+        gpu = [e["agent_gpu_s"] for e in dev if e["agent_gpu_s"] is not None]
+        calls = {r["purpose"]: {"rows": r["n"], "tokens": r["tokens"], "usd": r["usd"]} for r in store.db.execute(
+            "SELECT purpose, COUNT(*) AS n, COALESCE(SUM(CASE WHEN unit = 'tokens' THEN units END), 0) AS tokens, "
+            "COALESCE(SUM(usd), 0) AS usd FROM ledger WHERE run_id = ? AND history = ? AND arm = 'D' "
+            "AND episode_id IS NULL AND category = 'learning' GROUP BY purpose", (run_id, history))}
+        promoted = [r["revision"] for r in revs if r["status"] == "promoted"]
+        out.append({"run_id": run_id, "history": history, "revisions": revs,
+                    "active_revision": promoted[-1] if promoted else None,
+                    "dev": {"episodes": len(dev), "passes": sum(e["passed"] for e in dev),
+                            "agent_gpu_s": sum(gpu) if len(gpu) == len(dev) and dev else None,
+                            "tokens": dev_tokens, "usd": dev_usd},
+                    "calls": calls,
+                    "learning_usd": dev_usd + sum(c["usd"] for c in calls.values())})
+    return out
+
+
+def _format_procedures(streams: list[dict]) -> list[str]:
+    out: list[str] = []
+    for st in streams:
+        out += ["", f"== arm D procedures: {st['run_id']} h{st['history']} (active revision "
+                    f"{_f(st['active_revision'], 'd')}) =="]
+        if st["revisions"]:
+            out += _table([[r["revision"], r["status"], r["source"], r["workflows"], r["sources"], _f(r["after"], "d"),
+                            _f(r["incumbent"], "d"),
+                            f"{_f(r['gate']['incumbent_mean_reward'], '.3f')}->{_f(r['gate']['candidate_mean_reward'], '.3f')}",
+                            f"{_f(r['gate']['incumbent_passes'], 'd')}->{_f(r['gate']['candidate_passes'], 'd')}"
+                            f"/{_f(r['gate']['n'], 'd')}", "; ".join(r["reasons"])]
+                           for r in st["revisions"]],
+                          ["rev", "status", "source", "workflows", "from eps", "after", "vs rev", "gate reward",
+                           "gate passes", "decision"])
+        else:
+            out.append("no candidate library yet")
+        d = st["dev"]
+        rows = [["dev episodes", d["episodes"], f"{d['passes']} passed", _f(d["agent_gpu_s"]), f"{d['tokens']:.0f}",
+                 f"{d['usd']:.4f}"]]
+        rows += [[p or "?", c["rows"], "ledger rows", "-", f"{c['tokens']:.0f}", f"{c['usd']:.4f}"]
+                 for p, c in sorted(st["calls"].items(), key=lambda kv: kv[0] or "")]
+        out += [""] + _table(rows, ["learning", "n", "", "agent GPU s", "tokens", "USD"])
+        out.append(f"procedure learning total: ${st['learning_usd']:.4f} (shadow prices; memory-LLM retain cost "
+                   "is reported with the train phase)")
+    return out
+
+
 def _block(eps: list[dict], *, resamples: int, seed: int, bank_sizes: dict, predicate: LessonPredicate,
            sources: dict) -> dict:
     base = _base_arm(eps)
@@ -894,7 +978,8 @@ def summarize_batch(store: Store, batch_prefix: str | None = None, *, run_id: st
     `read_traces` recovers injected memory texts from episode traces for the lesson predicate."""
     if batch_prefix is not None:
         batch_prefix = batch_prefix.rstrip("/") or batch_prefix
-    eps = load_episodes(store, batch_prefix, run_id)
+    everything = load_episodes(store, batch_prefix, run_id)
+    eps = [e for e in everything if e["split"] != "dev"]  # arm D's gate/search episodes: learning only
     trace = add_memory_trace(store, eps, fetch, memory_url)
     texts = attach_injected_texts(store, eps) if read_traces else 0
     bank_sizes = snapshot_bank_sizes(store, sorted({e["memory_snapshot_id"] for e in eps if e["memory_snapshot_id"]}))
@@ -904,6 +989,8 @@ def summarize_batch(store: Store, batch_prefix: str | None = None, *, run_id: st
     return {
         "selector": {"batch_prefix": batch_prefix, "run_id": run_id},
         "episodes": len(eps), "histories": histories,
+        "dev_episodes": len(everything) - len(eps),
+        "procedures": procedure_summary(store, everything),
         "memory_trace": trace,
         "bootstrap": {"resamples": resamples, "seed": seed, "cluster": "task"},
         "retrieval_source": {"episodes_with_injected_texts": texts, "bank_sizes": bank_sizes,
@@ -1044,10 +1131,15 @@ def format_summary(summary: dict) -> str:
                      f"tasks; retrieval: ids from the episode row, texts from {rs['episodes_with_injected_texts']} "
                      f"traces, {rs['rich_records']} rich retrieval records")
         lines += _format_transfer(summary["transfer"])
+    if summary.get("dev_episodes"):
+        lines.append(f"{summary['dev_episodes']} dev episodes (arm D gate / GEPA, charged as learning) are left out "
+                     "of the comparisons; see the arm D procedures section")
     lines += ["", "== pooled over histories =="] + _format_block(summary["pooled"])
     if len(summary["histories"]) > 1:
         for h, block in summary["per_history"].items():
             lines += ["", f"== history {h} =="] + _format_block(block)
+    if summary.get("procedures"):
+        lines += _format_procedures(summary["procedures"])
     return "\n".join(lines)
 
 

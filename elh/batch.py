@@ -12,6 +12,7 @@ arms and histories, and an ordered list of phases:
     phases:
       - train: {tasks: {causes: [queue_pop_front], themes: [billing, logistics], seeds: [1000, 1005]}}
       - eval:  {label: after-10, tasks: {causes: [queue_pop_front], themes: [inventory], seeds: [2000, 2010]}}
+    dev: {tasks: {causes: [queue_pop_front], themes: [billing], seeds: [3000, 3006]}}   # arm D only
 
 Each experiment registers its own run: config `name` = `<base name>-<experiment name>`, with the
 overrides applied and `arms`/`histories`/`families` taken from the experiment, so run ids and
@@ -21,11 +22,28 @@ has episodes from this experiment (rename it to run again; there is no resume).
 Phases run in order per history. `train`: learning arms (B...) only, split "train", against the live
 bank. `eval`: every arm, split "checkpoint", `checkpoint` = train episodes scheduled so far in that
 history; learning arms read a snapshot of their bank taken (or reused) at that point; within a phase
-arms are interleaved per task so backend drift hits them equally.
+arms are interleaved per task so backend drift hits them equally. `retention`: like `eval` but split
+"retention" and train cells only (SPEC §4.3); after arm D's last episode of a retention phase the
+rollback rule compares the panel with the previous retention phase (`retention_rollback`).
 
 Tasks expand as cause x theme x seed (seeds are a half-open range [start, end)), then a shuffle
 seeded by (schedule.seed, history, phase index): reproducible, but the order differs across
-histories. Seed convention: train tasks use seeds 1000+, eval tasks 2000+, so they never overlap.
+histories. Seed convention: train tasks use seeds 1000+, eval tasks 2000+, dev tasks 3000-3999, so
+they never overlap.
+
+Arm D (SPEC §10). The `dev` panel is required with arm D; its (cause, theme) cells must be train
+cells and no eval or retention cell. After each D train episode, if `workflows.should_induce` (every
+`induce_every` train episodes, and only when a verified success joined the pool since the last
+induction), a candidate library is made: `awm` induces it from the verified train successes
+(`workflows.induce`, charged as `learning`, ledger rows without an episode); `gepa` runs GEPA seeded
+with the incumbent's text on the dev panel split into reflection/validation/promotion pools, with
+dev episodes against a read-only view of the live bank and learner, reflection charged as
+`learning`. Then the paired dev gate: incumbent and candidate each run every gate task
+`workflows.repeats` times (AWM: the whole dev panel; GEPA: its promotion pool only, the tasks its
+search never saw), in a seeded order per task; `workflows.promote` decides and `decide_candidate`
+records it. That gate is the only promotion rule for both sources (GEPA's own paired check is
+skipped). Dev episodes are charged as `learning`, carry `checkpoint` = the train episodes done at
+that induction, and never write to memory or learner state.
 
 Every episode carries `batch_id = <experiment>/<history>` (the analysis convention, elh/analysis.py);
 the phase is recoverable from split + checkpoint.
@@ -33,12 +51,13 @@ the phase is recoverable from split + checkpoint.
 
 from __future__ import annotations
 
+import json
 import random
 import statistics
 import time
 from collections import defaultdict
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -46,12 +65,14 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from elh.controller import memory_for, open_snapshot, run_id_for, run_single_episode, snapshot_memory
+from elh.learner import workflows as wf
 from elh.memory.base import NullMemory
 from elh.registry import ExperimentConfig
 from elh.runner.models import InfraError
 from elh.tasks.base import TaskInstance, get_family
 
-KNOWN_ARMS = ("A", "B", "C")
+KNOWN_ARMS = ("A", "B", "C", "D")
+DEV_SEEDS = (3000, 4000)   # [start, end) every dev seed must fall in
 
 
 class _Strict(BaseModel):
@@ -70,29 +91,42 @@ class TaskSpec(_Strict):
             raise ValueError(f"seed range {list(v)} is empty; use [start, end)")
         return v
 
+    def cells(self) -> set[tuple[str, str]]:
+        return {(c, t) for c in self.causes for t in self.themes}
+
 
 class PhaseSpec(_Strict):
     label: str | None = None
     tasks: TaskSpec
 
 
+class DevSpec(_Strict):
+    """Arm D's dev panel: the tasks of the promotion gate (and of GEPA's search)."""
+
+    tasks: TaskSpec
+
+
+PHASE_KINDS = ("train", "eval", "retention")
+
+
 class Phase(_Strict):
     train: PhaseSpec | None = None
     eval: PhaseSpec | None = None
+    retention: PhaseSpec | None = None
 
     @model_validator(mode="after")
     def _one(self) -> "Phase":
-        if (self.train is None) == (self.eval is None):
-            raise ValueError("each phase is exactly one of `train` or `eval`")
+        if sum(getattr(self, k) is not None for k in PHASE_KINDS) != 1:
+            raise ValueError("each phase is exactly one of `train`, `eval` or `retention`")
         return self
 
     @property
     def kind(self) -> str:
-        return "train" if self.train is not None else "eval"
+        return next(k for k in PHASE_KINDS if getattr(self, k) is not None)
 
     @property
     def spec(self) -> PhaseSpec:
-        return self.train or self.eval
+        return getattr(self, self.kind)
 
 
 class Experiment(_Strict):
@@ -103,6 +137,7 @@ class Experiment(_Strict):
     histories: int = Field(1, ge=1)
     arms: list[str] = Field(min_length=1)
     phases: list[Phase] = Field(min_length=1)
+    dev: DevSpec | None = None
 
     @field_validator("arms")
     @classmethod
@@ -119,11 +154,14 @@ class Step:
 
     history: int
     phase: str        # label
-    kind: str         # train | eval
+    kind: str         # train | eval | retention
     arm: str
     task: TaskInstance
     after: int        # train episodes scheduled before this step in its history
-    ordinal: int      # train: position in the train stream; eval: position in the phase
+    ordinal: int      # train: position in the train stream; eval/retention: position in the phase
+
+
+SPLIT_OF_KIND = {"train": "train", "eval": "checkpoint", "retention": "retention"}
 
 
 def _set_dotted(d: dict, key: str, value: Any) -> None:
@@ -155,39 +193,74 @@ def load_experiment(path: str | Path) -> tuple[Experiment, ExperimentConfig]:
                 families=[exp.family])
     cfg = ExperimentConfig.model_validate(base)
     family = get_family(exp.family)
-    for ph in exp.phases:
-        t = ph.spec.tasks
+    specs = [ph.spec.tasks for ph in exp.phases] + ([exp.dev.tasks] if exp.dev else [])
+    for t in specs:
         unknown = [c for c in t.causes if c not in family.causes] + [x for x in t.themes if x not in family.themes]
         if unknown:
             raise ValueError(f"unknown causes/themes for family {exp.family}: {unknown}")
     labels = [label for label, _ in _labelled(exp)]
     if len(set(labels)) != len(labels):
         raise ValueError(f"phase labels must be unique: {labels}")
+    _check_cells(exp)
     return exp, cfg
 
 
+def _check_cells(exp: Experiment) -> None:
+    """SPEC §4.3 over (cause, theme) cells: retention and dev use train cells only; dev never uses a
+    cell an eval or retention phase measures; dev seeds stay in DEV_SEEDS. Arm D needs a dev panel."""
+    cells = {k: set() for k in PHASE_KINDS}
+    for ph in exp.phases:
+        cells[ph.kind] |= ph.spec.tasks.cells()
+    extra = cells["retention"] - cells["train"]
+    if extra:
+        raise ValueError(f"retention phases may only use train cells; not trained: {sorted(extra)}")
+    if exp.dev is None:
+        if "D" in exp.arms:
+            raise ValueError("arm D needs a `dev` section (the promotion gate's task panel)")
+        return
+    dev = exp.dev.tasks
+    if not (DEV_SEEDS[0] <= dev.seeds[0] and dev.seeds[1] <= DEV_SEEDS[1]):
+        raise ValueError(f"dev seeds {list(dev.seeds)} must lie in [{DEV_SEEDS[0]}, {DEV_SEEDS[1]})")
+    not_train = dev.cells() - cells["train"]
+    if not_train:
+        raise ValueError(f"the dev panel may only use train cells; not trained: {sorted(not_train)}")
+    measured = dev.cells() & (cells["eval"] | cells["retention"])
+    if measured:
+        raise ValueError(f"the dev panel uses cells an eval/retention phase measures: {sorted(measured)}")
+
+
 def _labelled(exp: Experiment) -> list[tuple[str, Phase]]:
-    """Phase labels; defaults are `train-<k>` (k-th train phase) and `after-<n>` (n = train episodes before it)."""
+    """Phase labels; defaults are `train-<k>` (k-th train phase), `after-<n>` (eval; n = train
+    episodes before it) and `retention-<n>`."""
     out, n_train, k = [], 0, 0
     for ph in exp.phases:
         t = ph.spec.tasks
         size = len(t.causes) * len(t.themes) * (t.seeds[1] - t.seeds[0])
         k += ph.kind == "train"
-        label = ph.spec.label or (f"train-{k}" if ph.kind == "train" else f"after-{n_train}")
-        out.append((label, ph))
+        default = {"train": f"train-{k}", "eval": f"after-{n_train}", "retention": f"retention-{n_train}"}[ph.kind]
+        out.append((ph.spec.label or default, ph))
         if ph.kind == "train":
             n_train += size
     return out
 
 
-def expand_tasks(family, spec: TaskSpec, *, seed: int, history: int, phase_index: int) -> list[TaskInstance]:
+def expand_tasks(family, spec: TaskSpec, *, seed: int, history: int, phase_index: int | str) -> list[TaskInstance]:
     tasks = [family.generate(c, th, s) for c in spec.causes for th in spec.themes for s in range(*spec.seeds)]
     random.Random(f"{seed}/h{history}/p{phase_index}").shuffle(tasks)
     return tasks
 
 
+def dev_tasks(exp: Experiment, cfg: ExperimentConfig, history: int) -> list[TaskInstance]:
+    """Arm D's dev panel for one history (same tasks in every history, order shuffled per history)."""
+    if exp.dev is None:
+        return []
+    return expand_tasks(get_family(exp.family), exp.dev.tasks, seed=cfg.schedule.seed, history=history,
+                        phase_index="dev")
+
+
 def schedule(exp: Experiment, cfg: ExperimentConfig) -> list[Step]:
-    """The full ordered episode list: per history, phases in order; arms interleaved per task."""
+    """The full ordered episode list: per history, phases in order; arms interleaved per task.
+    Arm D's dev episodes are not scheduled here: they run when an induction makes a candidate."""
     family = get_family(exp.family)
     learners = [a for a in exp.arms if a != "A"]
     steps: list[Step] = []
@@ -201,8 +274,27 @@ def schedule(exp: Experiment, cfg: ExperimentConfig) -> list[Step]:
                     n_train += 1
             else:
                 for j, task in enumerate(tasks):
-                    steps += [Step(h, label, "eval", a, task, n_train, j) for a in exp.arms]
+                    steps += [Step(h, label, ph.kind, a, task, n_train, j) for a in exp.arms]
     return steps
+
+
+def induction_points(exp: Experiment, cfg: ExperimentConfig) -> list[int]:
+    """Train-episode counts after which arm D may induce (each only if a new verified success joined
+    the pool since the last induction)."""
+    if "D" not in exp.arms or cfg.workflows is None:
+        return []
+    n = sum(1 for s in schedule(exp, cfg) if s.history == 0 and s.kind == "train" and s.arm == "D")
+    m = cfg.workflows.induce_every
+    return list(range(m, n + 1, m))
+
+
+def gate_tasks_per_induction(exp: Experiment, cfg: ExperimentConfig) -> int:
+    panel = len(dev_tasks(exp, cfg, 0))
+    if cfg.procedure_source == "gepa" and cfg.gepa is not None and panel:
+        from elh.learner.gepa_opt import split_dev_pools
+
+        return len(split_dev_pools([t.task_id for t in dev_tasks(exp, cfg, 0)], cfg.gepa, 0).promotion)
+    return panel
 
 
 def batch_id(exp: Experiment, step: Step) -> str:
@@ -210,7 +302,7 @@ def batch_id(exp: Experiment, step: Step) -> str:
 
 
 def print_schedule(exp: Experiment, cfg: ExperimentConfig, steps: list[Step], out=print) -> None:
-    out(f"experiment {exp.name}: run {run_id_for(cfg)}, {len(steps)} episodes")
+    out(f"experiment {exp.name}: run {run_id_for(cfg)}, {len(steps)} scheduled episodes")
     groups: dict[tuple, list[Step]] = defaultdict(list)
     for s in steps:
         groups[(s.history, s.phase, s.kind, s.arm)].append(s)
@@ -219,12 +311,64 @@ def print_schedule(exp: Experiment, cfg: ExperimentConfig, steps: list[Step], ou
         out(f"h{h} {label} ({kind}, {where}) arm {arm}: {len(ss)} tasks")
         for s in ss:
             out(f"    {s.task.task_id}")
+    if exp.dev is None:
+        return
+    panel = dev_tasks(exp, cfg, 0)
+    out(f"dev panel ({len(panel)} tasks, split dev, charged as learning; order shuffled per history):")
+    for t in sorted(panel, key=lambda t: t.task_id):
+        out(f"    {t.task_id}")
+    points = induction_points(exp, cfg)
+    if not points:
+        return
+    w = cfg.workflows
+    gate = gate_tasks_per_induction(exp, cfg)
+    per = 2 * gate * w.repeats
+    out(f"arm D ({cfg.procedure_source}): induction points after train episodes {points} per history "
+        f"(each only if a new verified success joined the pool)")
+    if cfg.procedure_source == "gepa":
+        out(f"  GEPA search: up to {cfg.gepa.max_metric_calls} dev episodes per induction")
+    out(f"  gate: {gate} tasks x {w.repeats} repeats x incumbent/candidate = {per} dev episodes per induction; "
+        f"up to {per * len(points) * exp.histories} in all")
+
+
+# --------------------------------------------------------------------------------------------
+# Running
+# --------------------------------------------------------------------------------------------
+
+
+@dataclass
+class _ArmD:
+    """Arm D's learning state across a batch, per history."""
+
+    make_induction_client: Callable[[], Any]
+    make_reflection_client: Callable[[], Any]
+    last_pool: dict[int, list[str]] = field(default_factory=dict)
+    inductions: dict[int, int] = field(default_factory=dict)
+    dev_seq: dict[int, int] = field(default_factory=dict)
+    _induction: Any = None
+    _reflection: Any = None
+
+    def induction_client(self):
+        if self._induction is None:
+            self._induction = self.make_induction_client()
+        return self._induction
+
+    def reflection_client(self):
+        if self._reflection is None:
+            self._reflection = self.make_reflection_client()
+        return self._reflection
 
 
 def run_batch(exp: Experiment, cfg: ExperimentConfig, store, make_client: Callable[[TaskInstance], Any], *,
-              sandbox_backend: str | None = None, out=print) -> list[dict]:
+              sandbox_backend: str | None = None, out=print,
+              make_induction_client: Callable[[], Any] | None = None,
+              make_reflection_client: Callable[[], Any] | None = None) -> list[dict]:
     """Run the schedule in order. An InfraError skips that episode; anything else stops the batch.
-    Returns one result dict per scheduled episode."""
+    Returns one result dict per scheduled episode, plus one per arm-D dev episode (kind "dev").
+
+    `make_induction_client()` gives AWM's induction model (default: the registered agent model,
+    `workflows.make_induction_client`); `make_reflection_client()` gives GEPA's reflection model
+    (default: the agent model's ModelClient). Both are built only when first needed."""
     run_id = run_id_for(cfg)
     prior = store.db.execute("SELECT COUNT(*) FROM episodes WHERE run_id = ? AND batch_id LIKE ?",
                              (run_id, f"{exp.name}/%")).fetchone()[0]
@@ -233,28 +377,32 @@ def run_batch(exp: Experiment, cfg: ExperimentConfig, store, make_client: Callab
                            "rename the experiment to run it again")
 
     steps = schedule(exp, cfg)
+    last_retention_d = {(s.history, s.phase): i for i, s in enumerate(steps) if s.kind == "retention" and s.arm == "D"}
+    armd = _ArmD(make_induction_client or (lambda: wf.make_induction_client(cfg.model)),
+                 make_reflection_client or _default_reflection_client(cfg))
     live: dict[tuple[int, str], Any] = {}        # (history, arm) -> training bank
     snaps: dict[tuple[int, str, int], str] = {}  # (history, arm, after) -> snapshot id
     results: list[dict] = []
     for n, s in enumerate(steps, 1):
+        split = SPLIT_OF_KIND[s.kind]
         if s.arm == "A":  # never scheduled for train phases
-            memory, split = NullMemory(), "checkpoint"
+            memory = NullMemory()
         elif s.kind == "train":
             if (s.history, s.arm) not in live:
                 live[s.history, s.arm] = memory_for(cfg, s.arm, s.history, "train", store=store)
-            memory, split = live[s.history, s.arm], "train"
+            memory = live[s.history, s.arm]
         else:
             key = (s.history, s.arm, s.after)
             if key not in snaps:
-                snaps[key] = _snapshot(cfg, store, live, run_id, *key)
-            memory, split = open_snapshot(cfg, store, snaps[key]), "checkpoint"
+                snaps[key] = _snapshot(cfg, store, live, run_id, *key, family=exp.family)
+            memory = open_snapshot(cfg, store, snaps[key])
         res = {"history": s.history, "phase": s.phase, "kind": s.kind, "arm": s.arm,
                "task_id": s.task.task_id, "passed": None, "turns": None, "wall_s": None, "error": None}
         t0 = time.monotonic()
         try:
             _, result, verdict = run_single_episode(
                 cfg, store, s.task, make_client(s.task), arm=s.arm, split=split, history=s.history,
-                ordinal=s.ordinal, checkpoint=s.after if s.kind == "eval" else None, memory=memory,
+                ordinal=s.ordinal, checkpoint=s.after if s.kind != "train" else None, memory=memory,
                 sandbox_backend=sandbox_backend, batch_id=batch_id(exp, s))
             res.update(passed=verdict.passed, turns=result.turns, wall_s=result.wall_s)
             out(f"[{n}/{len(steps)}] h{s.history} {s.phase} {s.arm} {s.task.task_id} "
@@ -264,10 +412,236 @@ def run_batch(exp: Experiment, cfg: ExperimentConfig, store, make_client: Callab
             out(f"[{n}/{len(steps)}] h{s.history} {s.phase} {s.arm} {s.task.task_id} "
                 f"INFRA ERROR after {time.monotonic() - t0:.1f}s: {exc}")
         results.append(res)
+        if s.arm == "D" and s.kind == "train":
+            results += learn_procedures(exp, cfg, store, make_client, armd, history=s.history,
+                                        done=s.ordinal + 1, sandbox_backend=sandbox_backend, out=out)
+        if last_retention_d.get((s.history, s.phase)) == n - 1:
+            d = retention_rollback(store, cfg, run_id=run_id, history=s.history, family=exp.family,
+                                   batch=batch_id(exp, s), checkpoint=s.after)
+            if d is not None:
+                out(f"h{s.history} {s.phase} arm D retention check: "
+                    f"{'ROLLED BACK' if d.promote else 'held'} ({'; '.join(d.reasons)})")
     return results
 
 
-def _snapshot(cfg: ExperimentConfig, store, live: dict, run_id: str, history: int, arm: str, after: int) -> str:
+def _default_reflection_client(cfg: ExperimentConfig) -> Callable[[], Any]:
+    def make():
+        from elh.runner.models import make_client
+
+        return make_client(cfg.model)
+    return make
+
+
+def _charge(store, cfg: ExperimentConfig, history: int, entries, purpose: str) -> None:
+    """Learning spend with no episode (induction, reflection): ledger rows tagged with the stream."""
+    for e in entries:
+        store.insert("ledger", {"run_id": run_id_for(cfg), "episode_id": None, "category": e.category,
+                                "component": e.component, "units": e.units, "unit": e.unit, "usd": e.usd,
+                                "history": history, "arm": "D", "purpose": purpose})
+
+
+def learn_procedures(exp: Experiment, cfg: ExperimentConfig, store, make_client, armd: _ArmD, *, history: int,
+                     done: int, sandbox_backend: str | None = None, out=print) -> list[dict]:
+    """Arm D's learning step after its `done`-th train episode of a history: maybe induce a
+    candidate, then run the paired dev gate and record the decision. Returns the dev results."""
+    w = cfg.workflows
+    run_id, fam = run_id_for(cfg), exp.family
+    pool = wf.eligible_pool(store, run_id, history, "D", fam)
+    pool_ids = [r["episode_id"] for r in pool]
+    if not wf.should_induce(done, pool_ids, armd.last_pool.get(history, []), w):
+        return []
+    armd.last_pool[history] = pool_ids
+    index = armd.inductions[history] = armd.inductions.get(history, 0) + 1
+    inc_rev, inc_lib = wf.promoted_library(store, run_id=run_id, history=history, arm="D", family=fam)
+    panel = dev_tasks(exp, cfg, history)
+    results: list[dict] = []
+    if cfg.procedure_source == "awm":
+        ind = wf.induce(store, pool, armd.induction_client(), cfg=w,
+                        seed=wf.induction_seed(run_id, history, "D", fam, index), family=fam)
+        _charge(store, cfg, history, wf.learning_entries(cfg, ind), "awm_induction")
+        rev = wf.record_candidate(store, ind, run_id=run_id, history=history)
+        gate = panel
+        out(f"h{history} arm D induction {index} after {done} train episodes: {len(pool)} verified successes, "
+            f"{len(ind.library)} workflows" + (f" -> candidate revision {rev}" if rev else " (empty; nothing to validate)"))
+    else:
+        rev, gate, gepa_results = _gepa_candidate(exp, cfg, store, make_client, armd, history=history, done=done,
+                                                  incumbent=inc_lib, sandbox_backend=sandbox_backend, out=out)
+        results += gepa_results
+        out(f"h{history} arm D GEPA {index} after {done} train episodes"
+            + (f" -> candidate revision {rev}" if rev else ": no candidate beyond the incumbent"))
+    if rev is None:
+        return results
+    cand_lib = wf.load_library(store, run_id=run_id, history=history, arm="D", family=fam, revision=rev)
+    sides = {"incumbent": (inc_rev, inc_lib), "candidate": (rev, cand_lib)}
+    view = memory_for(cfg, "D", history, "dev", store=store)
+    rows: dict[str, list] = {"incumbent": [], "candidate": []}
+    error = None
+    for k in range(w.repeats):
+        for task in gate:
+            order = ["incumbent", "candidate"]
+            random.Random(f"{cfg.schedule.seed}/h{history}/gate{index}/{k}/{task.task_id}").shuffle(order)
+            for role in order:
+                try:
+                    eid, _, _, res = _dev_episode(exp, cfg, store, make_client, armd, task, view, history=history,
+                                            done=done, procedures=sides[role], label=role,
+                                            sandbox_backend=sandbox_backend, out=out)
+                except InfraError as exc:
+                    error = f"{role} on {task.task_id}: {exc}"
+                    break
+                results.append(res)
+                rows[role].append(wf.dev_result_from_row(store.episode(eid), k, cfg.budgets.max_total_tokens))
+                rows.setdefault(f"{role}_ids", []).append(eid)
+            if error:
+                break
+        if error:
+            break
+    if error:
+        decision = wf.GateDecision(False, (f"validation incomplete: {error}",),
+                                   {"gate": "paired-dev-v1", "incomplete": True})
+    else:
+        decision = wf.promote(rows["incumbent"], rows["candidate"], w)
+    decision = wf.GateDecision(decision.promote, decision.reasons, {
+        **decision.stats, "source": cfg.procedure_source, "after_train_episodes": done, "induction": index,
+        "incumbent_revision": inc_rev, "gate_task_ids": [t.task_id for t in gate],
+        "incumbent_episode_ids": rows.get("incumbent_ids", []), "candidate_episode_ids": rows.get("candidate_ids", [])})
+    wf.decide_candidate(store, run_id=run_id, history=history, arm="D", family=fam, revision=rev, decision=decision)
+    st = decision.stats
+    out(f"h{history} arm D gate for revision {rev} vs {inc_rev if inc_rev is not None else 'none'}: "
+        f"{'PROMOTED' if decision.promote else 'rejected'} "
+        f"(mean reward {st.get('incumbent_mean_reward', float('nan')):.3f} -> "
+        f"{st.get('candidate_mean_reward', float('nan')):.3f}, passes {st.get('incumbent_passes', '-')} -> "
+        f"{st.get('candidate_passes', '-')}; {'; '.join(decision.reasons)})")
+    return results
+
+
+def _dev_episode(exp, cfg, store, make_client, armd: _ArmD, task: TaskInstance, view, *, history: int, done: int,
+                 procedures, label: str, sandbox_backend, out, retries: int = 1):
+    """One arm-D dev episode with an explicit library, charged as learning. An InfraError is retried
+    `retries` times, then raised."""
+    for attempt in range(retries + 1):
+        seq = armd.dev_seq[history] = armd.dev_seq.get(history, 0) + 1
+        try:
+            eid, result, verdict = run_single_episode(
+                cfg, store, task, make_client(task), arm="D", split="dev", history=history, ordinal=seq,
+                checkpoint=done, memory=view, sandbox_backend=sandbox_backend, batch_id=f"{exp.name}/{history}",
+                charge_as="learning", procedures=procedures)
+        except InfraError as exc:
+            out(f"  h{history} dev@{done} {label} {task.task_id} INFRA ERROR: {exc}")
+            if attempt == retries:
+                raise
+            continue
+        out(f"  h{history} dev@{done} {label} {task.task_id} passed={int(verdict.passed)} turns={result.turns} "
+            f"wall={result.wall_s:.1f}s")
+        return eid, result, verdict, {"history": history, "phase": f"dev@{done}-{label}", "kind": "dev",
+                                      "arm": "D", "task_id": task.task_id, "passed": verdict.passed,
+                                      "turns": result.turns, "wall_s": result.wall_s, "error": None}
+    raise AssertionError("unreachable")
+
+
+def _gepa_candidate(exp, cfg, store, make_client, armd: _ArmD, *, history: int, done: int, incumbent,
+                    sandbox_backend, out) -> tuple[int | None, list[TaskInstance], list[dict]]:
+    """GEPA seeded with the incumbent's text on the dev panel's reflection/validation pools; the
+    winner (if it differs from the seed) becomes a candidate revision, gated on the promotion pool."""
+    from elh.learner import gepa_opt as go
+    from elh.learner.utility import episode_cost_usd
+    from elh.memory.hindsight import workspace_diff
+
+    g, fam = cfg.gepa, exp.family
+    panel = {t.task_id: t for t in dev_tasks(exp, cfg, history)}
+    pools = go.split_dev_pools(list(panel), g, f"{cfg.schedule.seed}/h{history}/gepa-pools")
+    view = memory_for(cfg, "D", history, "dev", store=store)
+    results: list[dict] = []
+
+    def run_dev(task: TaskInstance, procedure: str) -> go.DevRollout:
+        lib = wf.library_from_procedure(fam, procedure)
+        eid, result, verdict, res = _dev_episode(
+            exp, cfg, store, make_client, armd, task, view, history=history, done=done, procedures=(None, lib),
+            label="gepa", sandbox_backend=sandbox_backend, out=out, retries=0)  # GEPA's adapter retries
+        results.append(res)
+        final_ws = store.get_workspace(store.episode(eid)["final_workspace_sha256"])
+        return go.DevRollout(verdict, result, episode_cost_usd(store.db, eid, ("learning",)), eid,
+                             workspace_diff(task.workspace, final_ws))
+
+    seed_text = wf.procedure_text(incumbent)
+    outcome = go.run_gepa(g, seed_text, pools, run_dev, armd.reflection_client(), tasks=panel,
+                          split_of=lambda _t: "dev", promotion_check=False)
+    _charge(store, cfg, history, go.reflection_ledger_entries(cfg, cfg.model.id, outcome.reflection_calls),
+            "gepa_reflection")
+    gate = [panel[t] for t in pools.promotion]
+    if go.text_sha(outcome.best_procedure.strip()) == go.text_sha(seed_text.strip()):
+        return None, gate, results
+    lib = wf.library_from_procedure(fam, outcome.best_procedure)
+    usage: dict[str, int] = {}
+    for c in outcome.reflection_calls:
+        for k, v in (c.get("usage") or {}).items():
+            usage[k] = usage.get(k, 0) + (v or 0)
+    ind = wf.Induction(
+        library=lib, raw_output=outcome.best_procedure,
+        prompt_sha256=go.text_sha(go.reflection_prompt(g)), source_episode_ids=outcome.source_episode_ids(),
+        usage=usage, model=cfg.model.id, seed=g.seed, dropped=[],
+        extra={"source": "gepa", "gepa": {
+            "best_idx": outcome.best_idx, "total_metric_calls": outcome.total_metric_calls,
+            "candidates": [{k: h[k] for k in ("idx", "sha256", "parents", "val_mean")} for h in outcome.history],
+            "pools": pools.model_dump(mode="json"), "gepa_version": go.GEPA_VERSION,
+            "seed_procedure_sha256": go.text_sha(seed_text)}})
+    return wf.record_candidate(store, ind, run_id=run_id_for(cfg), history=history), gate, results
+
+
+def retention_rollback(store, cfg: ExperimentConfig, *, run_id: str, history: int, family: str, batch: str,
+                       checkpoint: int) -> wf.GateDecision | None:
+    """Auto-rollback hook (SPEC §10), run after arm D's last episode of a retention phase.
+
+    Compares arm D's retention episodes at `checkpoint` with those of the most recent earlier
+    retention checkpoint of the same batch and history, paired by (task, repeat in run order) on the
+    tasks both measured, with `workflows.rollback`. Rolls back (`workflows.apply_rollback`) only when
+    the rule fires, the library pinned at this checkpoint differs from the earlier one, and it is
+    still the promoted revision. Returns the decision (None when there is no earlier panel)."""
+    rows = store.db.execute(
+        "SELECT * FROM episodes WHERE run_id = ? AND history = ? AND arm = 'D' AND split = 'retention' "
+        "AND batch_id = ? AND checkpoint <= ? ORDER BY started_at, episode_id",
+        (run_id, history, batch, checkpoint)).fetchall()
+    earlier = sorted({r["checkpoint"] for r in rows if r["checkpoint"] < checkpoint})
+    if not earlier:
+        return None
+    prev_ck = earlier[-1]
+
+    def results(ck: int) -> tuple[dict, set]:
+        seen: dict[str, int] = defaultdict(int)
+        out, revs = {}, set()
+        for r in (r for r in rows if r["checkpoint"] == ck):
+            out[(r["task_id"], seen[r["task_id"]])] = wf.dev_result_from_row(r, seen[r["task_id"]],
+                                                                             cfg.budgets.max_total_tokens)
+            seen[r["task_id"]] += 1
+            revs.add(json.loads(r["retrieval_json"] or "{}").get("procedure_revision"))
+        return out, revs
+
+    prev, prev_revs = results(prev_ck)
+    cur, cur_revs = results(checkpoint)
+    common = sorted(set(prev) & set(cur))
+    if not common:
+        return None
+    decision = wf.rollback([prev[k] for k in common], [cur[k] for k in common], cfg.workflows)
+    stats = {**decision.stats, "previous_checkpoint": prev_ck, "checkpoint": checkpoint,
+             "previous_revisions": sorted(prev_revs, key=str), "revisions": sorted(cur_revs, key=str)}
+    if not decision.promote:
+        return wf.GateDecision(False, decision.reasons, stats)
+    promoted = wf.promoted_revision(store, run_id=run_id, history=history, arm="D", family=family)
+    reasons = list(decision.reasons)
+    if len(cur_revs) != 1 or cur_revs == prev_revs:
+        reasons.append("not rolled back: the library did not change between the two checkpoints")
+        return wf.GateDecision(False, tuple(reasons), stats)
+    (cur_rev,) = cur_revs
+    if cur_rev is None or promoted != cur_rev:
+        reasons.append(f"not rolled back: revision {cur_rev} is no longer the promoted one ({promoted})")
+        return wf.GateDecision(False, tuple(reasons), stats)
+    now = wf.apply_rollback(store, run_id=run_id, history=history, arm="D", family=family,
+                            evidence={**decision.to_dict(), **stats})
+    return wf.GateDecision(True, tuple(reasons) + (f"revision {cur_rev} rolled back; active now: {now}",),
+                           {**stats, "active_revision": now})
+
+
+def _snapshot(cfg: ExperimentConfig, store, live: dict, run_id: str, history: int, arm: str, after: int, *,
+              family: str | None = None) -> str:
     """Snapshot id for (history, arm) after `after` train episodes: reused if one exists."""
     row = store.db.execute("SELECT snapshot_id FROM memory_snapshots WHERE run_id = ? AND history = ? "
                            "AND arm = ? AND after_episode = ?", (run_id, history, arm, after)).fetchone()
@@ -275,7 +649,8 @@ def _snapshot(cfg: ExperimentConfig, store, live: dict, run_id: str, history: in
         return row[0]
     if (history, arm) not in live:  # eval before any training: snapshot the (empty) bank
         live[history, arm] = memory_for(cfg, arm, history, "train", store=store)
-    return snapshot_memory(cfg, store, live[history, arm], history=history, arm=arm, after_episode=after)
+    return snapshot_memory(cfg, store, live[history, arm], history=history, arm=arm, after_episode=after,
+                           family=family)
 
 
 def summarize(results: list[dict]) -> list[str]:

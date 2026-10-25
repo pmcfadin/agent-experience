@@ -38,9 +38,10 @@ from dataclasses import dataclass, field
 from importlib.metadata import version as _pkg_version
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from elh.judge import Verdict
+from elh.registry import GepaConfig  # noqa: F401  (re-export)
 from elh.memory.hindsight import render_episode
 from elh.runner.agent import EpisodeResult
 from elh.runner.models import InfraError, ModelClient
@@ -65,54 +66,7 @@ def procedure_block(text: str) -> str:
 # Config
 # --------------------------------------------------------------------------------------------
 
-class GepaConfig(BaseModel):
-    """One GEPA invocation. Defaults are the report's minimal pilot (papers/gepa.md §3.6):
-    |validation| = 10, 15 iterations at ~30% acceptance -> 10 + 90 + 45 ~ 145 rollouts, so
-    `max_metric_calls=150`; plus 2 x 20 rollouts for the paired promotion check."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    # GEPA (paper / gepa.optimize defaults unless noted)
-    max_metric_calls: int = 150                 # budget in rollouts (dev episodes), GEPA's own count
-    reflection_minibatch_size: int = 3          # paper App. E.4: "a minibatch size of 3"
-    candidate_selection_strategy: str = "pareto"  # Table 3: Pareto +12.44 vs SelectBest +6.05
-    frontier_type: str = "instance"
-    acceptance_criterion: str = "strict_improvement"
-    use_merge: bool = False                     # merge hurt Qwen3-8B (54.85 -> 52.40); no-op for 1 component
-    skip_perfect_score: bool = False            # deviation: 1.0 is unreachable with a cost term
-    seed: int = 0
-
-    # Score (report §3.4): integrity broken = 0; else partial credit per check; passes earn
-    # 1 - cost_weight * normalised_cost, so every pass outranks every failure.
-    cost_ref: float = 0.05                      # cost at which normalised cost saturates (same unit
-                                                # as run_dev_episode's cost; preregister ~2x median)
-    cost_weight: float = Field(0.4, ge=0.0, le=0.5)
-    credit_public_tests_failed: float = 0.05
-    credit_correctness_failed: float = 0.10
-    credit_performance_only: float = 0.30       # + perf_speed_bonus * clip(budget_s / agent_s)
-    perf_speed_bonus: float = 0.20
-
-    # Reflection
-    reflection_max_tokens: int = 4096
-    max_procedure_words: int = 400              # stated in the reflection prompt
-    max_ticket_chars: int = 1500
-    max_actions_chars: int = 6000
-
-    # Promotion (outside GEPA: its best-of-pool is selection-biased)
-    promotion_replicates: int = 1
-    promotion_min_delta: float = 0.0            # promote iff mean paired delta > this, no integrity regression
-
-    infra_retries: int = 1                      # an InfraError is retried, then raised (never scored 0)
-
-    @model_validator(mode="after")
-    def _check(self) -> "GepaConfig":
-        if self.candidate_selection_strategy not in ("pareto", "current_best", "epsilon_greedy", "top_k_pareto"):
-            raise ValueError(f"unknown candidate_selection_strategy {self.candidate_selection_strategy!r}")
-        if self.acceptance_criterion not in ("strict_improvement", "improvement_or_equal"):
-            raise ValueError(f"unknown acceptance_criterion {self.acceptance_criterion!r}")
-        if self.max_metric_calls < 1 or self.reflection_minibatch_size < 1 or self.cost_ref <= 0:
-            raise ValueError("max_metric_calls, reflection_minibatch_size and cost_ref must be positive")
-        return self
+# GepaConfig lives in elh.registry (the registration file holds it); re-exported here.
 
 
 class DevPools(BaseModel):
@@ -144,6 +98,22 @@ class DevPools(BaseModel):
 
     def all_ids(self) -> list[str]:
         return self.reflection + self.validation + self.promotion
+
+
+def split_dev_pools(task_ids: Sequence[str], cfg: GepaConfig, seed: str | int) -> DevPools:
+    """Deterministic three-way split of a dev panel: the ids are sorted, shuffled with `seed`, then
+    reflection takes max(minibatch, ceil(n/3)), validation half the rest (rounded up), promotion the
+    remainder. Six tasks give 3/2/1. Raises if any pool would be empty."""
+    ids = sorted(set(task_ids))
+    random.Random(str(seed)).shuffle(ids)
+    n = len(ids)
+    n_ref = max(cfg.reflection_minibatch_size, -(-n // 3))
+    rest = n - n_ref
+    n_val = -(-rest // 2)
+    if n_ref > n or n_val < 1 or rest - n_val < 1:
+        raise ValueError(f"a dev panel of {n} tasks is too small for GEPA's three pools "
+                         f"(reflection needs {cfg.reflection_minibatch_size}, validation and promotion one each)")
+    return DevPools(reflection=ids[:n_ref], validation=ids[n_ref:n_ref + n_val], promotion=ids[n_ref + n_val:])
 
 
 def check_dev_only(pools: DevPools, split_of: Callable[[str], str]) -> None:
@@ -552,13 +522,17 @@ def run_gepa(config: GepaConfig, seed_procedure: str, pools: DevPools, run_dev_e
              reflect_client: ModelClient | Callable[[str | list[dict]], str], *,
              tasks: Mapping[str, TaskInstance], split_of: Callable[[str], str],
              on_reflection_usage: Callable[[dict, dict], None] | None = None,
-             run_dir: str | None = None, echo: bool = False) -> GepaOutcome:
+             run_dir: str | None = None, echo: bool = False, promotion_check: bool = True) -> GepaOutcome:
     """One GEPA invocation, warm-started from the incumbent `seed_procedure`.
 
     `run_dev_episode(task, procedure_text)` runs one dev episode with the procedure shown to the
     agent and returns `DevRollout` or `(verdict, result, cost)`. `reflect_client` is a ModelClient
     (wrapped in `ReflectionLM`) or any GEPA LanguageModel callable. `tasks` maps every pool id to
-    its TaskInstance; `split_of(task_id)` must say "dev" for all of them."""
+    its TaskInstance; `split_of(task_id)` must say "dev" for all of them.
+
+    `promotion_check=False` skips the paired check on the promotion pool (`promote` is then False
+    and `promotion` None): the batch runner gates every arm-D candidate, AWM or GEPA, with
+    `workflows.promote` on that pool instead, so there is one promotion rule."""
     import gepa
 
     check_dev_only(pools, split_of)
@@ -605,7 +579,7 @@ def run_gepa(config: GepaConfig, seed_procedure: str, pools: DevPools, run_dev_e
                         "discovered_at_metric_call": result.discovery_eval_counts[i]})
     best = result.best_candidate[COMPONENT]
     promotion = None
-    if text_sha(best) != text_sha(seed_procedure):
+    if promotion_check and text_sha(best) != text_sha(seed_procedure):
         promotion = paired_promotion_check(config, seed_procedure, best, pools.promotion, adapter)
     calls = getattr(lm, "calls", [])
     return GepaOutcome(
