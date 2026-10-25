@@ -363,6 +363,23 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
         <p>Every protected-file break in this experiment, in training and testing, was the same file, <code>examples/sample_output.json</code>. Every one came from the agent writing its verification output over the protected expected output. The recall fix worked: a protected-files lesson reached B in 9 of 10 test episodes, up from 1 of 10. It did not help. B passed 5 of the 9 episodes that saw the lesson, and in C's ticket 2003 the agent overwrote the file right after reading "failed because it modified protected files, specifically <code>examples/sample_output.json</code>".</p>
         <p>Three readings fit this, and the next experiments are designed to separate them. First, the memories prime the behaviour: the most frequent memories all stress "byte-for-byte output equivalence", which invites checking against the sample file. Second, a lesson that names what not to do, without saying what to do instead, does not change behaviour; Learning on the Job's WHEN–THEN rules exist for this reason. Third, it is noise: with 10 tickets, 3 of 10 against 0 of 10 is suggestive, not conclusive. C's recall also concentrated onto one memory in 80% of test episodes, the collapse Moves to Memory warns about.</p>
       </div>
+
+      <div class="finding">
+        <div class="tag method">Difficulty probe</div>
+        <h3>One bug type is hard for the agent without memory</h3>
+        <p>The agent without memory tried 3 new tickets of each of the four other bug types. The reference fix passes every validation check on these tickets, so failures are the agent's.</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Bug type</th><th class="num">Passed</th><th>How it failed</th></tr></thead>
+          <tbody>
+            <tr><td><code>quadratic_membership</code> (membership tests against a list)</td><td class="num fail">0 of 3</td><td>All too slow: about 3.01 s against a 3 s budget</td></tr>
+            <tr><td><code>nested_scan_join</code> (a join done by nested scans)</td><td class="num">2 of 3</td><td>Too slow, and ran out of turns</td></tr>
+            <tr><td><code>repeated_sort_min</code> (sorting to find a minimum)</td><td class="num ok">3 of 3</td><td>–</td></tr>
+            <tr><td><code>exponential_recursion</code> (recursion without memoisation)</td><td class="num ok">3 of 3</td><td>–</td></tr>
+            <tr><td><code>queue_pop_front</code> (experiments 1 and 6, for comparison)</td><td class="num">17 of 20</td><td>Protected-file breaks and too slow</td></tr>
+          </tbody>
+        </table></div>
+        <p>Quadratic-membership tickets give memory room to help: the baseline fails them, and the fix is a reusable idea. Experiments 8a and 8b use them.</p>
+      </div>
     </div>
   </section>
 
@@ -399,12 +416,13 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       <thead><tr><th>Experiment</th><th>Question</th><th>Arms</th><th class="num">Episodes</th><th>Status</th></tr></thead>
       <tbody>
         <tr><td><strong>6</strong> papers-bc</td><td>Do Hindsight as intended (B) and MemRL ranking (C) beat no memory, on experiment 1's tickets?</td><td>A, B, C</td><td class="num">60</td><td><span class="pill done">Done</span></td></tr>
-        <tr><td><strong>Probe</strong></td><td>Which of the other four bug types does the agent without memory fail?</td><td>A</td><td class="num">12</td><td><span class="pill run">Running</span></td></tr>
+        <tr><td><strong>Probe</strong></td><td>Which of the other four bug types does the agent without memory fail?</td><td>A</td><td class="num">12</td><td><span class="pill done">Done</span></td></tr>
         <tr><td><strong>7</strong> arm D</td><td>Do validated procedures add to utility ranking?</td><td>A, B, C, D</td><td class="num">85 + up to 72 dev</td><td><span class="pill untested">Designed</span></td></tr>
-        <tr><td><strong>8</strong> rules</td><td>Do Learning on the Job's WHEN–THEN rules and agent search turn the lesson into the right action?</td><td>A, B + rules</td><td class="num">about 35</td><td><span class="pill untested">Planned</span></td></tr>
+        <tr><td><strong>8a</strong> hard memory</td><td>On hard tickets, does Hindsight memory (as in experiment 6) help?</td><td>A, B</td><td class="num">39</td><td><span class="pill run">Running</span></td></tr>
+        <tr><td><strong>8b</strong> hard rules</td><td>Same tickets: do Learning on the Job's WHEN–THEN rules and agent memory search add to it?</td><td>A, B + rules</td><td class="num">39</td><td><span class="pill ready">Queued</span></td></tr>
       </tbody>
     </table></div>
-    <p class="small muted">Experiments 7 and 8 will move to the bug types the probe shows are hard. Experiment 7 takes about 2–3 hours, depending on how many libraries reach the promotion check. This page will be updated with each result.</p>
+    <p class="small muted">8a and 8b train on 15 quadratic-membership tickets across five themes and test on 12 in a sixth. They differ only in the rules and search, and arm A runs in both, which also measures its run-to-run noise. Experiment 7 (arm D) will move to the same tickets. Experiment 7 takes about 2–3 hours, depending on how many libraries reach the promotion check. This page will be updated with each result.</p>
   </section>
 
   <section id="limits">
