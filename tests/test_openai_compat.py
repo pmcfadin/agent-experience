@@ -9,7 +9,7 @@ import pytest
 
 from elh.controller import run_single_episode
 from elh.registry import load_config
-from elh.runner.models import OpenAICompatClient, to_openai_messages, to_openai_tools
+from elh.runner.models import InfraError, OpenAICompatClient, to_openai_messages, to_openai_tools
 from elh.runner.prompts import TOOLS
 from elh.store import Store
 from elh.tasks.base import get_family
@@ -45,8 +45,9 @@ def test_history_translates_to_chat_messages():
 class _Gateway:
     """Minimal OpenAI-compatible server that replays scripted assistant turns."""
 
-    def __init__(self, turns):
+    def __init__(self, turns, headers=None):
         self.turns = list(turns)
+        self.headers = headers or (lambda n: {})
         self.requests = []
         gw = self
 
@@ -69,6 +70,8 @@ class _Gateway:
                 self.send_response(200)
                 self.send_header("content-type", "application/json")
                 self.send_header("content-length", str(len(data)))
+                for k, v in gw.headers(len(gw.requests)).items():
+                    self.send_header(k, v)
                 self.end_headers()
                 self.wfile.write(data)
 
@@ -107,7 +110,7 @@ def test_episode_through_openai_compat_client(tmp_path, family):
     assert result.usage["cache_read_input_tokens"] == 4000 and result.usage["input_tokens"] == 800
     ledger = store.db.execute("SELECT component, usd FROM ledger WHERE episode_id = ? AND category = 'inference'",
                               (episode_id,)).fetchall()
-    assert {r["component"] for r in ledger} == {"pilot-coder:input", "pilot-coder:output", "pilot-coder:cache_read"}
+    assert {r["component"] for r in ledger} == {f"{cfg.model.id}:{k}" for k in ("input", "output", "cache_read")}
 
 
 def test_unpinned_local_model_refused_outside_dev(tmp_path, family):
@@ -115,4 +118,48 @@ def test_unpinned_local_model_refused_outside_dev(tmp_path, family):
     client = OpenAICompatClient(cfg.model.id, "http://127.0.0.1:9/v1", "k")
     with pytest.raises(ValueError, match="not pinned"):
         run_single_episode(cfg, Store(tmp_path), family.generate("queue_pop_front", "billing", 1), client,
+                           split="sealed_familiar", sandbox_backend="local")
+
+
+def _served(alias, deployment_id="dep-1"):
+    return lambda n: {"x-litellm-model-group": alias, "x-litellm-model-name": "openai/wintermute-coder",
+                      "x-litellm-model-id": deployment_id, "llm_provider-server": "llama.cpp"}
+
+
+def test_served_identity_recorded_and_alias_checked(tmp_path, family, monkeypatch):
+    monkeypatch.setenv("ELH_LOCK_DIR", str(tmp_path / "locks"))
+    cfg = load_config(CONFIG)
+    task = family.generate("queue_pop_front", "billing", 1)
+    gw = _Gateway([[("submit", {"summary": "x"})]], headers=_served(cfg.model.id))
+    store = Store(tmp_path)
+    episode_id, _, _ = run_single_episode(cfg, store, task, OpenAICompatClient(cfg.model.id, gw.url, "k"),
+                                          sandbox_backend="local")
+    served = json.loads(store.db.execute("SELECT served_json FROM llm_calls WHERE episode_id = ?",
+                                         (episode_id,)).fetchone()[0])
+    assert served["alias"] == cfg.model.id and served["deployment_id"] == "dep-1"
+
+    wrong = _Gateway([[("submit", {"summary": "x"})]], headers=_served("pilot-coder"))
+    with pytest.raises(InfraError, match="served alias"):
+        run_single_episode(cfg, store, task, OpenAICompatClient(cfg.model.id, wrong.url, "k"),
+                           sandbox_backend="local")
+
+
+def test_backend_swap_mid_episode_is_infra_error(tmp_path, family, monkeypatch):
+    monkeypatch.setenv("ELH_LOCK_DIR", str(tmp_path / "locks"))
+    cfg = load_config(CONFIG)
+    gw = _Gateway([[("bash", {"command": "ls"})], [("submit", {"summary": "x"})]],
+                  headers=lambda n: _served(cfg.model.id, f"dep-{n}")(n))
+    with pytest.raises(InfraError, match="backend changed"):
+        run_single_episode(cfg, Store(tmp_path), family.generate("queue_pop_front", "billing", 1),
+                           OpenAICompatClient(cfg.model.id, gw.url, "k"), sandbox_backend="local")
+
+
+def test_props_required_outside_dev(tmp_path, family, monkeypatch):
+    cfg = load_config(CONFIG)
+    pinned = cfg.model_copy(update={"model": cfg.model.model_copy(update={"pin": cfg.model.pin.model_copy(update={
+        "weights_sha256": "ab", "quantization": "q", "server": "s", "context_tokens": 1})})})
+    monkeypatch.delenv("ELH_BACKEND_PROPS_URL", raising=False)
+    with pytest.raises(ValueError, match="/props is required"):
+        run_single_episode(pinned, Store(tmp_path), family.generate("queue_pop_front", "billing", 1),
+                           OpenAICompatClient(cfg.model.id, "http://127.0.0.1:9/v1", "k"),
                            split="sealed_familiar", sandbox_backend="local")

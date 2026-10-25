@@ -14,13 +14,13 @@ Phase 0 code is implemented; see §13 for what has and has not been verified.
 
 | Item | Value | Notes |
 |---|---|---|
-| Agent model | **Self-hosted Qwen3 Coder 30B A3B** via the Wintermute OpenAI-compatible gateway (Decision, 2026-10-24) | Frozen by weights file hash, quantization, server build/flags and context size (`model.pin`); the controller refuses any non-dev split until the pin is complete. Should get its own gateway alias so changes to Hermes's defaults can't move it. `claude-sonnet-5-5` is kept as an optional comparison configuration (`experiments/phase0-sonnet.yaml`). |
+| Agent model | **Self-hosted Qwen3 Coder 30B A3B** via the Wintermute OpenAI-compatible gateway (Decision, 2026-10-24) | Frozen by weights file hash, quantization, server build/flags and context size (`model.pin`); the controller refuses any non-dev split until the pin is complete. Served through the dedicated alias `study-qwen3-coder-30b-a3b`, which takes one request at a time (the client holds a per-alias lock). The alias shares its backend unit with Hermes's aliases, so every response's backend identity (gateway deployment id, `system_fingerprint`) is recorded and a change mid-episode is an infrastructure error; the backend's `/props` is stored with every episode. `claude-sonnet-5-5` is kept as an optional comparison configuration (`experiments/phase0-sonnet.yaml`). |
 | Thinking / effort | n/a for the local model; Sonnet comparison: adaptive thinking, `effort: medium` | Any `reasoning_content` the gateway returns is kept in the trace and never sent back. |
 | Refusal fallbacks (Sonnet comparison) | **off** | Server-side fallback would silently switch models mid-episode and break the frozen-model control. A `refusal` stop ends the episode as `outcome=refused` and is reported separately. |
 | Sampling | local model: `temperature 0.7, top_p 0.8` (Qwen3-Coder recommended), preregistered | Model nondeterminism is handled by replicated learning histories, not by seeds. |
 | Agent tools | `bash` + `submit` (local model: function tools; Sonnet: Anthropic-defined `bash_20250124` + strict `submit`) | Identical across arms. Each bash call is a fresh process in the workspace (files persist, shell state does not); the system prompt says so. Memory never appears as a tool in v1 (see §6.2). |
-| Sandbox | rootless podman, one fresh container per episode | `LocalSandbox` exists for development only and is never used for confirmatory data (§5). |
-| Memory service | dedicated Hindsight instance for the experiment | Pinned version and embedder, isolated banks. Its LLM is the local `memory` alias (pinned the same way), charged as `learning`. Never the shared household instance. |
+| Sandbox | `UserSandbox`: a throwaway Unix user per sandbox in `dev`, with an nftables network block and systemd-scope CPU/memory/task limits (§5) | Containers don't run in `dev` (nesting stays off, by owner decision 2026-10-25). `LocalSandbox` exists for development only and is never used for confirmatory data. |
+| Memory service | dedicated Hindsight instance for the experiment | Pinned version and embedder, isolated banks. Its LLM is the `study-gemma4-26b-a4b` alias (pinned the same way), charged as `learning`. Never the shared household instance. |
 | Language / tooling | Python 3.12, `uv`, SQLite, JSONL traces | Parquet export for analysis. |
 
 ## 2. Repository layout
@@ -39,7 +39,8 @@ elh/
   sandbox/
     base.py                 Sandbox contract
     local.py                LocalSandbox (dev only)
-    podman.py               PodmanSandbox
+    user.py                 UserSandbox (confirmatory)
+    podman.py               PodmanSandbox (unused; kept for a host with containers)
   runner/
     agent.py                manual tool-use loop; budgets; trace capture
     models.py               ModelClient: AnthropicClient, ScriptedClient (tests / dry runs)
@@ -65,15 +66,16 @@ name: phase0-local
 version: 1
 model:
   provider: openai_compat         # or: anthropic
-  id: pilot-coder
-  base_url_env: ELH_MODEL_BASE_URL  # env var NAMES only; values live in a private env file
-  api_key_env: ELH_MODEL_API_KEY
+  id: study-qwen3-coder-30b-a3b
+  base_url_env: WINTERMUTE_MODEL_API_BASE  # env var NAMES only; values live in a private env file
+  api_key_env: WINTERMUTE_MODEL_API_KEY
+  props_url_env: ELH_BACKEND_PROPS_URL     # llama.cpp /props of the serving backend
   max_tokens_per_turn: 8192
   temperature: 0.7
   top_p: 0.8
   pin: {weights_sha256: "...", weights_file: "...", quantization: "...", server: "...", context_tokens: 65536}
 prices_usd_per_mtok:            # pinned; ledger never looks prices up live (shadow prices for local)
-  pilot-coder: {input: 0.05, output: 0.20}
+  study-qwen3-coder-30b-a3b: {input: 0.05, output: 0.20}
 budgets:                        # identical for every arm
   max_turns: 40
   max_total_tokens: 400000
@@ -204,7 +206,7 @@ class Sandbox(Protocol):
     def close(self) -> None: ...
 ```
 
-- **PodmanSandbox** (confirmatory): one container per episode from a pinned image digest,
+- **UserSandbox** (confirmatory, see below). **PodmanSandbox** (unused in dev): one container per episode from a pinned image digest,
   `--network none`, CPU/memory limits from the registry, read-only rootfs except `/workspace` and
   `/tmp`. The judge runs in a **fresh** container that receives the agent's final workspace, so the
   agent cannot leave processes running or tamper with grading.
@@ -214,10 +216,26 @@ class Sandbox(Protocol):
   environment, timeouts. No isolation guarantee; rows produced with it are tagged
   `sandbox=local` and the analysis refuses to include them.
 
-**Environment blocker (2026-10-24):** the `dev` Incus container cannot create nested user
-namespaces (`unshare -U` → EPERM; podman → `cannot clone: Permission denied`). The podman backend
-needs `security.nesting=true` (and possibly `security.syscalls.intercept.mknod/setxattr`) on the dev
-container, which is an owner/host action.
+**Environment decision (2026-10-25):** the `dev` Incus container cannot create nested user
+namespaces, and the owner is keeping nesting off; podman has been removed from dev. `wm-test`
+leases were considered and rejected: test leases are capped at 30 minutes, the same as one
+episode's wall-clock budget. Instead, the owner approved isolating episodes in `dev` itself:
+
+- **UserSandbox** (`elh sandbox-setup` once, as root via sudo; rerun after a reboot because the
+  nftables table isn't persistent). A pool of system users `elhsbx0..N`; each sandbox locks one,
+  owns a fresh `0700` directory under `/var/lib/elh-sandbox/`, and runs each command through
+  `sudo systemd-run --scope` as that user with `MemoryMax`, `MemorySwapMax=0`, `CPUQuota` and
+  `TasksMax`, a scrubbed environment, and the workspace as cwd. An nftables `meta skuid` rule
+  rejects every socket the pool users open, loopback included. `/home/dev` is `0750`, so the
+  harness, oracle sources and credentials are unreadable. After every command all the user's
+  processes are SIGKILLed; a sandbox refuses to start (infra error) if its user has processes that
+  survive a kill or if its network rule is missing. Closing removes the directory and the user's
+  files in `/tmp`, `/var/tmp` and `/dev/shm`. The judge gets its own fresh sandbox (usually another
+  pool user). Tested in `tests/test_user_sandbox.py`.
+- Weaker than a container: the pool users share the kernel, the process table (they can see other
+  processes' command lines, not their files or environment) and the dev container's performance.
+  Timing-sensitive grading shares the host with the model backends and with Hindsight, so
+  Hindsight work runs strictly between episodes.
 
 ## 6. Agent runner
 
@@ -365,7 +383,7 @@ sequential (learning depends on order).
 
 | Phase | Deliverable | Exit criterion |
 |---|---|---|
-| 0 | registry, cpu_mem family + validator, Local/Podman sandboxes, judge, agent loop, ledger, store, CLI | `validate-family cpu_mem` passes; one real Sonnet 5.5 episode runs end-to-end in podman, with its trace, ledger rows and verdict; re-generating the task and re-grading the stored final workspace reproduces the verdict |
+| 0 | registry, cpu_mem family + validator, Local/Podman sandboxes, judge, agent loop, ledger, store, CLI | `validate-family cpu_mem` passes; one real episode with the registered model runs end-to-end in the confirmatory sandbox, with its trace, ledger rows and verdict; re-generating the task and re-grading the stored final workspace reproduces the verdict |
 | 1 | Hindsight adapter (dedicated instance), arms A/B/basic C, second family, checkpoints, analysis v1 | 50-episode pilot with an interpretable learning curve and variance estimates → power analysis |
 | 2 | SkillLearner, all four arms, four families, preregistration, sealed run | protocol locked; sealed test completed |
 
@@ -374,17 +392,28 @@ sequential (learning depends on order).
 Verified on the LocalSandbox: task generation is deterministic; generator validation (§4.4) runs
 for every cause × theme; scripted reference / wrong-fix / no-op agents produce the designed
 verdicts end to end; stored episodes re-grade to identical verdicts; the Anthropic client's request
-and response handling were checked against a local stub. Not yet verified: any real model call (no
-API key in the environment) and the podman backend (blocked, §5).
+and response handling were checked against a local stub. 
+2026-10-25: first real episode (dev split, LocalSandbox) with `study-qwen3-coder-30b-a3b` on
+`quadratic_membership/inventory/1`: 28 turns, 146 s, submitted, failed only `performance`. The
+model turned the `seen` list into a set but left `blocked` as a list, so the large input still timed
+out; the verdict re-grades identically. Every call recorded the same backend identity. Then, on
+UserSandbox with the v2 registration: `queue_pop_front/telemetry/2` passed every check (30 turns,
+75 s, agent 0.97× the reference time) and re-grades identically; the 360-check family validation
+also passes on UserSandbox. Not yet verified: `/props` capture (§14).
 
 ## 14. Open items needing the owner
 
-1. Enable `security.nesting=true` on the `dev` Incus container (podman blocker, §5).
-2. Local model access for `claude-dev`: the gateway answers `403 LAN access only` from dev (the
-   Incus bridge isn't on the LAN subnet) and the service directory doesn't list `claude-dev`. Needs a
-   dev-loopback proxy (or bridge allowance), a key for `claude-dev` in a private env file
-   (`ELH_MODEL_BASE_URL`, `ELH_MODEL_API_KEY`), and the directory entry updated.
-3. A dedicated gateway alias for the study model and the `memory` model, plus the pin facts
-   (weights file + sha256, quantization, llama.cpp build and flags, context size).
-4. Dedicated Hindsight: deploy (podman in dev once nesting works) with the local `memory` model.
-5. Optional: Anthropic credentials for the Sonnet comparison configuration.
+1. ~~Local model access from dev~~ (done 2026-10-25: dev loopback, `claude-dev` key in
+   `~/.config/wintermute/model-api.env`, aliases `study-qwen3-coder-30b-a3b` and
+   `study-gemma4-26b-a4b`). The directory's `model-api` entry still lists only hermes and randy.
+2. Pin facts: they're in `docs/local-model-api-pilot.md` in `wintermute/wintermute-admin`, which
+   `claude-dev` can't read without a Forgejo token. Needs a token, or the facts pasted in.
+3. Backend `/props`: the backend (`127.0.0.1:8002` on the host) isn't reachable from dev and the
+   gateway doesn't serve `/props`. Needs a route (e.g. a gateway passthrough or a dev proxy) to put
+   in `ELH_BACKEND_PROPS_URL`. Non-dev splits refuse to run without it.
+4. ~~Confirmatory sandbox~~ (decided 2026-10-25: UserSandbox in dev, §5).
+5. Dedicated Hindsight: run natively in dev (owner decision 2026-10-25) as its own locked Python
+   environment with embedded PostgreSQL, bound to `127.0.0.1` on a non-default port (8888 is
+   taken), data under `runs/`, embedder and reranker pinned by revision, `study-gemma4-26b-a4b`
+   as its LLM. Not yet installed.
+6. Optional: Anthropic credentials for the Sonnet comparison configuration.

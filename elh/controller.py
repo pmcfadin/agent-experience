@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import uuid
 from functools import partial
@@ -13,7 +14,7 @@ from elh.ledger import compute_entry, usage_entries
 from elh.memory.base import Memory, NullMemory, render_memory_block
 from elh.registry import ExperimentConfig
 from elh.runner.agent import EpisodeResult, run_episode
-from elh.runner.models import ModelClient
+from elh.runner.models import InfraError, ModelClient, fetch_backend_props
 from elh.sandbox.base import make_sandbox
 from elh.store import Store, utcnow
 from elh.tasks.base import TaskInstance, get_family
@@ -39,12 +40,27 @@ def sandbox_factory(cfg: ExperimentConfig, backend: str | None = None):
                    memory_mb=s.memory_mb, network=s.network)
 
 
+def capture_backend_props(cfg: ExperimentConfig, store: Store, split: str) -> str | None:
+    """Store the serving backend's /props verbatim and return its blob hash. Outside the dev split
+    a self-hosted model must have it, so every scored episode names the exact weights and flags."""
+    m = cfg.model
+    url = os.environ.get(m.props_url_env) if m.props_url_env else None
+    if not url:
+        if split != "dev":
+            raise ValueError(f"backend /props is required outside the dev split; set {m.props_url_env or 'model.props_url_env'}")
+        return None
+    try:
+        return store.put_blob("props", fetch_backend_props(url, os.environ.get(m.api_key_env)))
+    except OSError as exc:
+        raise InfraError(f"could not fetch backend /props from {url}: {exc}") from exc
+
+
 def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, client: ModelClient, *,
                        arm: str = "A", split: str = "dev", history: int = 0, ordinal: int = 0,
                        checkpoint: int | None = None, memory: Memory | None = None,
                        sandbox_backend: str | None = None, memory_k: int = 5) -> tuple[str, EpisodeResult, Verdict]:
     run_id = run_id_for(cfg)
-    store.ensure_run(run_id, cfg.name, cfg.config_hash, json.dumps(cfg.model_dump(mode="json"), sort_keys=True),
+    store.ensure_run(run_id, cfg.name, cfg.version, cfg.config_hash, json.dumps(cfg.model_dump(mode="json"), sort_keys=True),
                      git_rev(), __version__)
     if client.model_id != "scripted" and client.model_id != cfg.model.id:
         raise ValueError(f"client model {client.model_id} != registered model {cfg.model.id}")
@@ -52,6 +68,10 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
             and split != "dev" and not cfg.model.pin.complete):
         raise ValueError("self-hosted model is not pinned (model.pin in the registration file); "
                          "only the dev split may run against an unpinned model")
+
+    props_sha = None
+    if client.model_id != "scripted" and cfg.model.provider == "openai_compat":
+        props_sha = capture_backend_props(cfg, store, split)
 
     memory = memory or NullMemory()
     items = memory.recall(task, memory_k)
@@ -89,6 +109,7 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
         "wall_s": result.wall_s, "sandbox_cpu_s": usage.cpu_s,
         "trace_sha256": trace_sha, "final_workspace_sha256": ws_sha,
         "retrieved_memory_ids_json": json.dumps([it.memory_id for it in items]), "memory_snapshot_id": None,
+        "backend_props_sha256": props_sha,
         "started_at": started, "finished_at": utcnow(),
     })
     for c in result.calls:
@@ -98,6 +119,7 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
             "stop_reason": c["stop_reason"], "input_tokens": cu.get("input_tokens"),
             "output_tokens": cu.get("output_tokens"), "cache_read_tokens": cu.get("cache_read_input_tokens"),
             "cache_write_tokens": cu.get("cache_creation_input_tokens"), "latency_s": c["latency_s"],
+            "served_json": json.dumps(c.get("served") or {}, sort_keys=True),
         })
     if client.model_id != "scripted":
         # Priced under the registered model id: a gateway may report the served model by another name.

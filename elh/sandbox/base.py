@@ -48,6 +48,10 @@ def make_sandbox(backend: str, **kwargs) -> Sandbox:
         from elh.sandbox.local import LocalSandbox
 
         return LocalSandbox(**kwargs)
+    if backend == "user":
+        from elh.sandbox.user import UserSandbox
+
+        return UserSandbox(**kwargs)
     if backend == "podman":
         from elh.sandbox.podman import PodmanSandbox
 

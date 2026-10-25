@@ -89,6 +89,14 @@ def cmd_regrade(args) -> int:
     return 0 if same else 1
 
 
+def cmd_sandbox_setup(args) -> int:
+    from elh.sandbox.user import setup
+
+    users = setup(args.users)
+    print(f"{len(users)} pool users: {', '.join(users)}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="elh")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -102,6 +110,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--sandbox", default="local")
     p.add_argument("--workers", type=int, default=6)
     p.set_defaults(fn=cmd_validate_family)
+
+    p = sub.add_parser("sandbox-setup", help="create the UserSandbox pool users and network block (sudo)")
+    p.add_argument("--users", type=int, default=8)
+    p.set_defaults(fn=cmd_sandbox_setup)
 
     p = sub.add_parser("show-task", help="print a task's ticket; optionally write its workspace")
     p.add_argument("family")

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
+import os
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Protocol
 
 import anthropic
@@ -18,6 +22,7 @@ class ModelResponse:
     model: str
     request_id: str | None = None
     latency_s: float = 0.0
+    served: dict = field(default_factory=dict)  # backend identity as reported by the gateway
 
 
 class InfraError(RuntimeError):
@@ -144,6 +149,38 @@ def to_openai_messages(system: str, messages: list[dict]) -> list[dict]:
     return out
 
 
+# Gateway response headers that identify what actually served a request (LiteLLM over llama.cpp).
+SERVED_HEADERS = {"x-litellm-model-group": "alias", "x-litellm-model-name": "deployment",
+                  "x-litellm-model-id": "deployment_id", "x-litellm-model-api-base": "api_base",
+                  "llm_provider-server": "server", "x-litellm-version": "gateway_version"}
+
+# Fields that must not change within an episode; a change means the backend was swapped mid-run.
+IDENTITY_FIELDS = ("alias", "deployment", "deployment_id", "system_fingerprint")
+
+
+@contextmanager
+def alias_lock(alias: str):
+    """Hold an exclusive per-alias lock for one request: each study alias serves one request at a
+    time, so concurrent workers queue here instead of queueing (and timing out) at the gateway."""
+    lock_dir = Path(os.environ.get("ELH_LOCK_DIR", Path.home() / ".cache" / "elh" / "locks"))
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    with open(lock_dir / f"{alias.replace('/', '_')}.lock", "w") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def fetch_backend_props(url: str, api_key: str | None = None, timeout_s: float = 10) -> bytes:
+    """GET a llama.cpp /props document (model path, build, n_ctx, default sampling) verbatim."""
+    import urllib.request
+
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"} if api_key else {})
+    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+        return resp.read()
+
+
 FINISH_TO_STOP = {"stop": "end_turn", "tool_calls": "tool_use", "length": "max_tokens",
                   "content_filter": "refusal", "function_call": "tool_use"}
 
@@ -171,11 +208,12 @@ class OpenAICompatClient:
             kwargs["temperature"] = self.temperature
         if self.top_p is not None:
             kwargs["top_p"] = self.top_p
-        t0 = time.perf_counter()
         try:
-            raw = self.client.chat.completions.with_raw_response.create(
-                model=self.model_id, messages=to_openai_messages(system, messages),
-                tools=to_openai_tools(tools), max_tokens=max_tokens, **kwargs)
+            with alias_lock(self.model_id):
+                t0 = time.perf_counter()
+                raw = self.client.chat.completions.with_raw_response.create(
+                    model=self.model_id, messages=to_openai_messages(system, messages),
+                    tools=to_openai_tools(tools), max_tokens=max_tokens, **kwargs)
         except openai.BadRequestError as exc:
             if "context" in str(exc).lower() or "too long" in str(exc).lower():
                 raise ContextLimitError(str(exc)) from exc
@@ -185,6 +223,11 @@ class OpenAICompatClient:
             raise InfraError(f"{type(exc).__name__}: {exc}") from exc
         resp = raw.parse()
         latency = time.perf_counter() - t0
+        served = {v: raw.headers[k] for k, v in SERVED_HEADERS.items() if k in raw.headers}
+        served["system_fingerprint"] = getattr(resp, "system_fingerprint", None)
+        if served.get("alias", self.model_id) != self.model_id:
+            raise InfraError(f"gateway served alias {served['alias']!r} != pinned {self.model_id!r}")
+        timings = getattr(resp, "timings", None) or (resp.model_extra or {}).get("timings")
 
         choice = resp.choices[0]
         msg = choice.message
@@ -217,8 +260,11 @@ class OpenAICompatClient:
             "cache_read_input_tokens": cached,
             "cache_creation_input_tokens": 0,
         }
+        if timings:
+            served["timings"] = timings
         return ModelResponse(content=content, stop_reason=stop, usage=usage, model=resp.model or self.model_id,
-                             request_id=raw.headers.get("x-request-id") or resp.id, latency_s=latency)
+                             request_id=raw.headers.get("x-litellm-call-id") or raw.headers.get("x-request-id")
+                             or resp.id, latency_s=latency, served=served)
 
 
 def make_client(model_cfg) -> "ModelClient":

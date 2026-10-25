@@ -1,16 +1,18 @@
 # Phase 0 registration, primary configuration (SPEC §1): the self-hosted model is the agent
 # and Hindsight's memory model. Dev only until every `pin` field is filled in.
 name: phase0-local
-version: 1
+version: 2                      # v2: study aliases, UserSandbox, /props capture
 model:
   provider: openai_compat
-  id: pilot-coder                 # TODO: a dedicated alias for the study, so Hermes changes can't move it
-  base_url_env: ELH_MODEL_BASE_URL
-  api_key_env: ELH_MODEL_API_KEY
+  id: study-qwen3-coder-30b-a3b   # dedicated study alias; one request at a time (client holds a lock)
+  base_url_env: WINTERMUTE_MODEL_API_BASE   # from ~/.config/wintermute/model-api.env
+  api_key_env: WINTERMUTE_MODEL_API_KEY
+  props_url_env: ELH_BACKEND_PROPS_URL      # backend llama.cpp /props; not reachable from dev yet
   max_tokens_per_turn: 8192
   temperature: 0.7                # Qwen3-Coder recommended sampling; preregistered
   top_p: 0.8
-  pin:                            # required before any non-dev split (controller enforces)
+  pin:                            # required before any non-dev split (controller enforces);
+                                  # values from wintermute-admin docs/local-model-api-pilot.md
     weights_sha256: ""
     weights_file: ""
     quantization: ""
@@ -19,7 +21,7 @@ model:
 prices_usd_per_mtok:
   # PLACEHOLDER shadow prices. Replace with values derived from measured GPU-seconds per token
   # and a fixed hardware rate before Phase 1; they change only by re-registering.
-  pilot-coder: {input: 0.05, output: 0.20}
+  study-qwen3-coder-30b-a3b: {input: 0.05, output: 0.20}
 budgets:
   max_turns: 40
   max_total_tokens: 600000
@@ -27,8 +29,8 @@ budgets:
   bash_timeout_seconds: 120
   tool_output_chars: 12000
 sandbox:
-  backend: podman
-  image: localhost/elh-cpu-mem:dev   # replace with a pinned digest once podman works in dev
+  backend: user                   # UserSandbox (SPEC §5); `elh sandbox-setup` first
+  image: host-python
   cpus: 2
   memory_mb: 2048
   network: none
@@ -47,7 +49,7 @@ memory_service:
   version: ""                     # pin when the dedicated instance is deployed
   llm:
     provider: openai_compat
-    id: memory
-    base_url_env: ELH_MODEL_BASE_URL
-    api_key_env: ELH_MODEL_API_KEY
+    id: study-gemma4-26b-a4b
+    base_url_env: WINTERMUTE_MODEL_API_BASE
+    api_key_env: WINTERMUTE_MODEL_API_KEY
   embedder: ""

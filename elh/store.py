@@ -10,7 +10,8 @@ from pathlib import Path
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
-    run_id TEXT PRIMARY KEY, name TEXT NOT NULL, config_hash TEXT NOT NULL, config_json TEXT NOT NULL,
+    run_id TEXT PRIMARY KEY, name TEXT NOT NULL, version INTEGER NOT NULL, config_hash TEXT NOT NULL,
+    config_json TEXT NOT NULL,
     git_rev TEXT, harness_version TEXT, started_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS episodes (
@@ -23,13 +24,13 @@ CREATE TABLE IF NOT EXISTS episodes (
     input_tokens INTEGER, output_tokens INTEGER, cache_read_tokens INTEGER, cache_write_tokens INTEGER,
     wall_s REAL, sandbox_cpu_s REAL,
     trace_sha256 TEXT, final_workspace_sha256 TEXT,
-    retrieved_memory_ids_json TEXT, memory_snapshot_id TEXT,
+    retrieved_memory_ids_json TEXT, memory_snapshot_id TEXT, backend_props_sha256 TEXT,
     started_at TEXT, finished_at TEXT
 );
 CREATE TABLE IF NOT EXISTS llm_calls (
     episode_id TEXT NOT NULL, turn INTEGER NOT NULL, request_id TEXT, model TEXT, stop_reason TEXT,
     input_tokens INTEGER, output_tokens INTEGER, cache_read_tokens INTEGER, cache_write_tokens INTEGER,
-    latency_s REAL, PRIMARY KEY (episode_id, turn)
+    latency_s REAL, served_json TEXT, PRIMARY KEY (episode_id, turn)
 );
 CREATE TABLE IF NOT EXISTS ledger (
     entry_id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, episode_id TEXT,
@@ -83,7 +84,7 @@ class Store:
         with self.db:
             self.db.execute(f"INSERT INTO {table} ({cols}) VALUES ({marks})", list(row.values()))
 
-    def ensure_run(self, run_id: str, name: str, config_hash: str, config_json: str,
+    def ensure_run(self, run_id: str, name: str, version: int, config_hash: str, config_json: str,
                    git_rev: str | None, harness_version: str) -> None:
         existing = self.db.execute("SELECT config_hash FROM runs WHERE run_id = ?", (run_id,)).fetchone()
         if existing:
@@ -91,12 +92,12 @@ class Store:
                 raise RuntimeError(f"run {run_id} was registered with a different config; "
                                    "registration files are immutable once a run starts")
             return
-        clash = self.db.execute("SELECT run_id FROM runs WHERE name = ? AND config_hash != ?",
-                                (name, config_hash)).fetchone()
+        clash = self.db.execute("SELECT run_id FROM runs WHERE name = ? AND version = ? AND config_hash != ?",
+                                (name, version, config_hash)).fetchone()
         if clash:
             raise RuntimeError(f"experiment name {name!r} already ran under a different config "
-                               f"(run {clash['run_id']}); bump `name`/`version` instead of editing it")
-        self.insert("runs", {"run_id": run_id, "name": name, "config_hash": config_hash,
+                               f"(run {clash['run_id']}); bump `version` (or `name`) instead of editing it")
+        self.insert("runs", {"run_id": run_id, "name": name, "version": version, "config_hash": config_hash,
                              "config_json": config_json, "git_rev": git_rev,
                              "harness_version": harness_version, "started_at": utcnow()})
 

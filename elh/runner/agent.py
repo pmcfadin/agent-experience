@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass, field
 
 from elh.registry import Budgets
-from elh.runner.models import ContextLimitError, ModelClient
+from elh.runner.models import IDENTITY_FIELDS, ContextLimitError, InfraError, ModelClient
 from elh.runner.prompts import SYSTEM_PROMPT, TOOLS, first_user_message
 from elh.sandbox.base import ExecResult, Sandbox
 from elh.tasks.base import TaskInstance
@@ -58,6 +58,7 @@ def run_episode(task: TaskInstance, sandbox: Sandbox, client: ModelClient, budge
     first = first_user_message(task, sandbox.workdir, memory_block)
     messages: list[dict] = [{"role": "user", "content": first}]
     result = EpisodeResult(outcome="budget_exhausted")
+    identity: dict | None = None
     result.trace.append({"event": "episode_start", "task_id": task.task_id, "task_hash": task.content_hash,
                          "model": client.model_id, "system": SYSTEM_PROMPT, "tools": TOOLS,
                          "first_message": first})
@@ -75,14 +76,21 @@ def run_episode(task: TaskInstance, sandbox: Sandbox, client: ModelClient, budge
         except ContextLimitError:
             result.budget_reason = "context"
             break
+        seen = {k: resp.served.get(k) for k in IDENTITY_FIELDS}
+        if identity is None:
+            identity = seen
+        elif seen != identity:
+            raise InfraError(f"backend changed mid-episode: {identity} -> {seen}")
         result.turns = turn + 1
         for k in result.usage:
             result.usage[k] += resp.usage.get(k) or 0
         result.calls.append({"turn": turn, "request_id": resp.request_id, "model": resp.model,
-                             "stop_reason": resp.stop_reason, "usage": resp.usage, "latency_s": resp.latency_s})
+                             "stop_reason": resp.stop_reason, "usage": resp.usage, "latency_s": resp.latency_s,
+                             "served": resp.served})
         result.trace.append({"event": "response", "turn": turn, "request_id": resp.request_id,
                              "stop_reason": resp.stop_reason, "usage": resp.usage,
-                             "latency_s": round(resp.latency_s, 3), "content": resp.content})
+                             "latency_s": round(resp.latency_s, 3), "served": resp.served,
+                             "content": resp.content})
         messages.append({"role": "assistant", "content": resp.content})
 
         if resp.stop_reason == "refusal":

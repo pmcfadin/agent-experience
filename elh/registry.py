@@ -41,6 +41,9 @@ class ModelConfig(_Strict):
     api_key_env: str = "ELH_MODEL_API_KEY"
     temperature: float | None = None
     top_p: float | None = None
+    # Env var holding the URL of the serving backend's llama.cpp /props. Fetched and stored with
+    # every episode; required outside the dev split.
+    props_url_env: str | None = None
     pin: ModelPin = ModelPin()
 
 

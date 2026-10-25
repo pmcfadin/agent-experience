@@ -93,6 +93,7 @@ def test_scripted_episode_end_to_end_and_replay(tmp_path, cfg, family, kind, exp
 
 def test_registration_is_immutable(tmp_path, cfg):
     store = Store(tmp_path)
-    store.ensure_run("r1", cfg.name, cfg.config_hash, "{}", None, "0")
+    store.ensure_run("r1", cfg.name, 1, cfg.config_hash, "{}", None, "0")
     with pytest.raises(RuntimeError):
-        store.ensure_run("r2", cfg.name, "different-hash", "{}", None, "0")
+        store.ensure_run("r2", cfg.name, 1, "different-hash", "{}", None, "0")
+    store.ensure_run("r3", cfg.name, 2, "different-hash", "{}", None, "0")  # a new version is a new registration
