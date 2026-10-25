@@ -319,8 +319,8 @@ episodes(episode_id PK, run_id, history, arm, split, checkpoint, ordinal,
 llm_calls(call_id PK, episode_id, turn, request_id, model, stop_reason,
           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, latency_s)
 ledger(entry_id PK, run_id, episode_id NULL, category, component, units, unit, usd)
-memory_snapshots(snapshot_id PK, run_id, history, arm, after_episode, bank_export_sha256,
-                 learner_state_sha256, created_at)
+memory_snapshots(snapshot_id PK, run_id, history, arm, after_episode, source_bank_id, bank_id,
+                 bank_export_sha256, content_sha256, learner_state_sha256, created_at)
 skills(skill_id, revision, run_id, history, status, body_sha256, source_episode_ids_json,
        validation_json, promoted_at, rolled_back_at)          -- Phase 2
 ```
@@ -360,7 +360,8 @@ contents and learner state hashes are unchanged afterwards.
 Each (history, arm) gets its own Hindsight bank: `elh-<run>-h<history>-<arm>`.
 
 **Deployment (2026-10-25).** `services/hindsight/` runs Hindsight natively in dev, in its own
-locked environment (`hindsight-api-slim==1.1.0`, `uv.lock`), started with `serve.sh`:
+locked environment (`hindsight-api-slim==1.1.0`, `uv.lock`), started by `serve.sh` under the systemd
+user unit `elh-hindsight` (`install-service.sh`; lingering keeps it up; `journalctl --user -u elh-hindsight`):
 loopback only (`127.0.0.1:8901`), embedded PostgreSQL instance `elh-hindsight` on port 8902 (data
 in `~/.pg0/instances/elh-hindsight`), one worker, MCP off. Memory LLM: `study-gemma4-26b-a4b`, one
 request at a time, **thinking off** (with it on, structured fact extraction spends its whole
@@ -374,6 +375,20 @@ checks and timings, never the oracle), tagged by family, with the episode id as 
 memory LLM's tokens from each retain are charged as `learning`. The controller waits until the
 bank has no active operations (consolidation runs in the background after a retain) before the
 next recall, so memory work never overlaps a timed episode.
+
+**Snapshots (2026-10-25).** `snapshot_memory` (CLI `elh snapshot --arm B --after n`) waits for the
+training bank to go idle, exports it with Hindsight's bank transfer (data and bank config, no
+audit/LLM history), stores the archive as a content-addressed blob (`runs/snapshots/`) and
+restores it into the snapshot bank `elh-<run>-h<history>-<arm>-e<n>` (re-embedding only, no LLM
+call; imports run against the empty host bank `elh-transfer`). A restore gives memories new ids
+and recomputes similarity links, so banks are compared by a content fingerprint (every memory
+unit's type, state, tags and text, plus the document count), recorded as `content_sha256`; the
+snapshot is refused unless the restored bank matches the live one. `open_snapshot` returns a
+read-only view, re-restoring from the archive if the bank is gone and refusing if its fingerprint
+has drifted. Checkpoint, sealed and retention episodes must name a snapshot (`--snapshot`); `dev`
+may read the live bank read-only. Every read-only episode fingerprints the bank before recall and
+after grading and is an infra error if it changed; `episodes.memory_snapshot_id` records the
+snapshot used.
 
 ## 11. Controller and schedule
 
@@ -431,7 +446,6 @@ the earlier ticket; the useful verdict detail is thin, which is worth watching i
    gateway doesn't serve `/props`. Needs a route (e.g. a gateway passthrough or a dev proxy) to put
    in `ELH_BACKEND_PROPS_URL`. Non-dev splits refuse to run without it.
 4. ~~Confirmatory sandbox~~ (decided 2026-10-25: UserSandbox in dev, §5).
-5. ~~Dedicated Hindsight~~ (done 2026-10-25, §10). Still open: bank snapshots for checkpoints
-   (`export_snapshot`/`open_readonly`), and `train` episodes with the real model wait on item 2
-   (pin facts), since only the dev split may run unpinned.
+5. ~~Dedicated Hindsight~~ and ~~checkpoint snapshots~~ (done 2026-10-25, §10). `train` episodes
+   with the real model wait on item 2 (pin facts), since only the dev split may run unpinned.
 6. Optional: Anthropic credentials for the Sonnet comparison configuration.

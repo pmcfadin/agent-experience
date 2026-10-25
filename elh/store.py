@@ -32,6 +32,13 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     input_tokens INTEGER, output_tokens INTEGER, cache_read_tokens INTEGER, cache_write_tokens INTEGER,
     latency_s REAL, served_json TEXT, PRIMARY KEY (episode_id, turn)
 );
+CREATE TABLE IF NOT EXISTS memory_snapshots (
+    snapshot_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(run_id),
+    history INTEGER NOT NULL, arm TEXT NOT NULL, after_episode INTEGER NOT NULL,
+    source_bank_id TEXT NOT NULL, bank_id TEXT NOT NULL,
+    bank_export_sha256 TEXT NOT NULL, content_sha256 TEXT NOT NULL, learner_state_sha256 TEXT,
+    created_at TEXT NOT NULL, UNIQUE (run_id, history, arm, after_episode)
+);
 CREATE TABLE IF NOT EXISTS ledger (
     entry_id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, episode_id TEXT,
     category TEXT NOT NULL, component TEXT NOT NULL, units REAL, unit TEXT, usd REAL NOT NULL
@@ -105,6 +112,12 @@ class Store:
         row = self.db.execute("SELECT * FROM episodes WHERE episode_id = ?", (episode_id,)).fetchone()
         if row is None:
             raise KeyError(episode_id)
+        return row
+
+    def snapshot(self, snapshot_id: str) -> sqlite3.Row:
+        row = self.db.execute("SELECT * FROM memory_snapshots WHERE snapshot_id = ?", (snapshot_id,)).fetchone()
+        if row is None:
+            raise KeyError(snapshot_id)
         return row
 
     def run_config_json(self, run_id: str) -> str:

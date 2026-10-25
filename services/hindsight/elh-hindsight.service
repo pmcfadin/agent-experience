@@ -1,0 +1,18 @@
+# systemd user unit for the experiment's Hindsight server (SPEC §10).
+# Install: services/hindsight/install-service.sh  (links this file into ~/.config/systemd/user)
+[Unit]
+Description=ELH dedicated Hindsight server (127.0.0.1:8901)
+After=network.target
+
+[Service]
+Type=exec
+ExecStart=%h/projects/agent-experience/services/hindsight/serve.sh
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=10
+# Embedded PostgreSQL is a child process; stop it with the server.
+KillMode=control-group
+TimeoutStopSec=60
+
+[Install]
+WantedBy=default.target

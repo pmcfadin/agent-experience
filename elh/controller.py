@@ -12,7 +12,7 @@ from elh import __version__
 from elh.judge import Verdict, grade
 from elh.ledger import compute_entry, usage_entries
 from elh.memory.base import Memory, NullMemory, render_memory_block
-from elh.memory.hindsight import HindsightMemory, usage_to_ledger
+from elh.memory.hindsight import HindsightMemory, restore_bank, usage_to_ledger
 from elh.registry import ExperimentConfig
 from elh.runner.agent import EpisodeResult, run_episode
 from elh.runner.models import InfraError, ModelClient, fetch_backend_props
@@ -22,6 +22,8 @@ from elh.tasks.base import TaskInstance, get_family
 
 # Splits whose episodes may never write to memory or learner state (SPEC §10).
 READ_ONLY_SPLITS = {"checkpoint", "sealed_familiar", "sealed_novel_combo", "sealed_novel_cause", "retention", "dev"}
+# Read-only splits that are scored against a frozen snapshot, never the live training bank.
+SNAPSHOT_SPLITS = READ_ONLY_SPLITS - {"dev"}
 
 
 def run_id_for(cfg: ExperimentConfig) -> str:
@@ -56,19 +58,83 @@ def capture_backend_props(cfg: ExperimentConfig, store: Store, split: str) -> st
         raise InfraError(f"could not fetch backend /props from {url}: {exc}") from exc
 
 
-def memory_for(cfg: ExperimentConfig, arm: str, history: int, split: str) -> Memory:
-    """Arm wiring (SPEC §10). One Hindsight bank per (run, history, arm); read-only off `train`."""
+def _hindsight_url(cfg: ExperimentConfig) -> str:
+    ms = cfg.memory_service
+    url = ms.base_url or os.environ.get(ms.base_url_env, "")
+    if not url:
+        raise ValueError(f"arm B needs memory_service.base_url or ${ms.base_url_env}")
+    return url
+
+
+def bank_id_for(cfg: ExperimentConfig, history: int, arm: str) -> str:
+    return f"elh-{run_id_for(cfg)}-h{history}-{arm}"
+
+
+def memory_for(cfg: ExperimentConfig, arm: str, history: int, split: str, *,
+               store: Store | None = None, snapshot_id: str | None = None) -> Memory:
+    """Arm wiring (SPEC §10). One Hindsight bank per (run, history, arm); read-only off `train`.
+    Checkpoint, sealed and retention episodes must name a snapshot; `dev` may read the live bank."""
     if arm == "A":
         return NullMemory()
     if arm == "B":
-        ms = cfg.memory_service
-        url = ms.base_url or os.environ.get(ms.base_url_env, "")
-        if not url:
-            raise ValueError(f"arm B needs memory_service.base_url or ${ms.base_url_env}")
-        mem = HindsightMemory(url, f"elh-{run_id_for(cfg)}-h{history}-{arm}", readonly=split in READ_ONLY_SPLITS)
+        if snapshot_id is not None:
+            if split not in READ_ONLY_SPLITS:
+                raise ValueError(f"a snapshot is read-only; split {split!r} writes to memory")
+            if store is None:
+                raise ValueError("opening a snapshot needs the store")
+            return open_snapshot(cfg, store, snapshot_id)
+        if split in SNAPSHOT_SPLITS:
+            raise ValueError(f"split {split!r} must run against a memory snapshot (snapshot_id)")
+        mem = HindsightMemory(_hindsight_url(cfg), bank_id_for(cfg, history, arm), readonly=split in READ_ONLY_SPLITS)
         mem.ensure_bank()
         return mem
     raise ValueError(f"arm {arm} is not implemented yet")
+
+
+def snapshot_memory(cfg: ExperimentConfig, store: Store, memory: Memory, *, history: int, arm: str,
+                    after_episode: int) -> str | None:
+    """Freeze a training bank after `after_episode` train episodes (SPEC §11): store its transfer
+    archive as a blob, restore it into a snapshot bank, and check the copy holds the same memories.
+    Returns the snapshot id (None for arms without memory)."""
+    if not isinstance(memory, HindsightMemory):
+        return None
+    if memory.readonly:
+        raise ValueError(f"bank {memory.bank_id} is a read-only view; snapshot the training bank")
+    run_id = run_id_for(cfg)
+    snapshot_id = f"{run_id}-h{history}-{arm}-e{after_episode}"
+    target = f"{memory.bank_id}-e{after_episode}"
+    memory.wait_idle()
+    live = memory.fingerprint()
+    archive = memory.export_snapshot()
+    if memory.fingerprint() != live:
+        raise InfraError(f"bank {memory.bank_id} changed while it was being exported")
+    archive_sha = store.put_blob("snapshots", archive)
+    snap = memory.restore(archive, target)
+    if snap.fingerprint() != live:
+        raise InfraError(f"snapshot bank {target} does not hold the same memories as {memory.bank_id}")
+    store.insert("memory_snapshots", {
+        "snapshot_id": snapshot_id, "run_id": run_id, "history": history, "arm": arm,
+        "after_episode": after_episode, "source_bank_id": memory.bank_id, "bank_id": target,
+        "bank_export_sha256": archive_sha, "content_sha256": live, "learner_state_sha256": None,
+        "created_at": utcnow()})
+    return snapshot_id
+
+
+def open_snapshot(cfg: ExperimentConfig, store: Store, snapshot_id: str) -> HindsightMemory:
+    """Read-only view of a snapshot bank. If the bank is gone it is restored again from the stored
+    archive; either way its contents must match the hash recorded when the snapshot was taken."""
+    row = store.snapshot(snapshot_id)
+    if row["run_id"] != run_id_for(cfg):
+        raise ValueError(f"snapshot {snapshot_id} belongs to run {row['run_id']}, not {run_id_for(cfg)}")
+    url = _hindsight_url(cfg)
+    mem = HindsightMemory(url, row["bank_id"], readonly=True)
+    if not mem.exists():
+        archive = store.get_blob("snapshots", row["bank_export_sha256"])
+        mem = restore_bank(url, archive, row["bank_id"])
+    if mem.fingerprint() != row["content_sha256"]:
+        raise InfraError(f"snapshot bank {row['bank_id']} no longer matches snapshot {snapshot_id}")
+    mem.snapshot_id = snapshot_id
+    return mem
 
 
 def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, client: ModelClient, *,
@@ -90,8 +156,14 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
         props_sha = capture_backend_props(cfg, store, split)
 
     memory = memory or NullMemory()
+    if split in SNAPSHOT_SPLITS and not isinstance(memory, NullMemory) and getattr(memory, "snapshot_id", None) is None:
+        raise ValueError(f"split {split!r} must run against a memory snapshot")
+    if split not in READ_ONLY_SPLITS and getattr(memory, "readonly", False):
+        raise ValueError(f"split {split!r} retains, but bank {memory.bank_id} is read-only")
     if hasattr(memory, "wait_idle"):
         memory.wait_idle()  # no background memory work may overlap a timed episode
+    # Read-only episodes must leave the bank exactly as they found it (SPEC §10).
+    guard = memory.fingerprint() if split in READ_ONLY_SPLITS and hasattr(memory, "fingerprint") else None
     items = memory.recall(task, memory_k)
     make_sbx = sandbox_factory(cfg, sandbox_backend)
     episode_id = uuid.uuid4().hex
@@ -109,6 +181,10 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
         sbx.close()
 
     verdict = grade(task, final_ws, make_sbx)
+    if guard is not None:
+        memory.wait_idle()
+        if memory.fingerprint() != guard:
+            raise InfraError(f"read-only bank {memory.bank_id} changed during a {split} episode")
 
     trace_sha = store.put_trace(result.trace + [{"event": "verdict", **verdict.to_dict()}])
     ws_sha = store.put_workspace(final_ws)
@@ -124,7 +200,8 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
         "cache_read_tokens": u["cache_read_input_tokens"], "cache_write_tokens": u["cache_creation_input_tokens"],
         "wall_s": result.wall_s, "sandbox_cpu_s": usage.cpu_s,
         "trace_sha256": trace_sha, "final_workspace_sha256": ws_sha,
-        "retrieved_memory_ids_json": json.dumps([it.memory_id for it in items]), "memory_snapshot_id": None,
+        "retrieved_memory_ids_json": json.dumps([it.memory_id for it in items]),
+        "memory_snapshot_id": getattr(memory, "snapshot_id", None),
         "backend_props_sha256": props_sha,
         "started_at": started, "finished_at": utcnow(),
     })

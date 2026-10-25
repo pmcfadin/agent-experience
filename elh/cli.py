@@ -68,9 +68,10 @@ def cmd_run_episode(args) -> int:
     store = Store(args.runs_dir)
     from elh.controller import memory_for
 
+    memory = memory_for(cfg, args.arm, args.history, args.split, store=store, snapshot_id=args.snapshot)
     episode_id, result, verdict = run_single_episode(
         cfg, store, task, _client(args.client, cfg, task, family), arm=args.arm, split=args.split,
-        memory=memory_for(cfg, args.arm, 0, args.split), sandbox_backend=args.sandbox)
+        history=args.history, checkpoint=args.checkpoint, memory=memory, sandbox_backend=args.sandbox)
     print(json.dumps({
         "episode_id": episode_id, "task_id": task.task_id, "outcome": result.outcome,
         "passed": verdict.passed, "checks": verdict.checks, "turns": result.turns,
@@ -89,6 +90,19 @@ def cmd_regrade(args) -> int:
     print(json.dumps({"reproduced": same, "recorded": {"passed": recorded["passed"], "checks": recorded["checks"]},
                       "regraded": {"passed": verdict.passed, "checks": verdict.checks}}, indent=2))
     return 0 if same else 1
+
+
+def cmd_snapshot(args) -> int:
+    from elh.controller import memory_for, snapshot_memory
+    from elh.store import Store
+
+    cfg = load_config(args.config)
+    store = Store(args.runs_dir)
+    live = memory_for(cfg, args.arm, args.history, "train", store=store)
+    sid = snapshot_memory(cfg, store, live, history=args.history, arm=args.arm, after_episode=args.after)
+    row = store.snapshot(sid)
+    print(json.dumps({k: row[k] for k in row.keys()}, indent=2))
+    return 0
 
 
 def cmd_sandbox_setup(args) -> int:
@@ -117,6 +131,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--users", type=int, default=8)
     p.set_defaults(fn=cmd_sandbox_setup)
 
+    p = sub.add_parser("snapshot", help="freeze an arm's training bank for checkpoint episodes")
+    p.add_argument("--config", required=True)
+    p.add_argument("--runs-dir", default="runs")
+    p.add_argument("--arm", default="B")
+    p.add_argument("--history", type=int, default=0)
+    p.add_argument("--after", type=int, required=True, help="number of train episodes the bank has seen")
+    p.set_defaults(fn=cmd_snapshot)
+
     p = sub.add_parser("show-task", help="print a task's ticket; optionally write its workspace")
     p.add_argument("family")
     p.add_argument("cause")
@@ -138,6 +160,9 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--seed", type=int, required=True)
             p.add_argument("--arm", default="A")
             p.add_argument("--split", default="dev")
+            p.add_argument("--history", type=int, default=0)
+            p.add_argument("--snapshot", help="snapshot id (required for checkpoint, sealed and retention splits)")
+            p.add_argument("--checkpoint", type=int, help="checkpoint this episode belongs to")
             p.add_argument("--client", default="scripted-reference",
                            choices=["model", "scripted-reference", "scripted-wrong", "scripted-noop"])
         else:
