@@ -168,10 +168,11 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <section id="bottom" class="verdict">
     <div class="eyebrow">Bottom line</div>
     <ul>
-      <li><strong>No evidence yet that memory helps.</strong> In the only valid comparison, the agent without memory and the agent with memory each fixed 9 of 10 new tickets. The difference in pass rate is 0 percentage points, with a 95% interval of −30 to +30.</li>
+      <li><strong>So far, memory has hurt, not helped.</strong> In experiment 6 the agent without memory fixed 8 of 10 new tickets, the Hindsight arm 6 and the MemRL arm 5. The MemRL arm also cost 1.6× as much GPU time per success (95% interval 1.12–3.44), the first difference whose interval excludes no effect. In the earlier rerun, memory and no memory tied at 9 of 10.</li>
+      <li><strong>The harm has one main mechanism.</strong> 6 of the memory arms' 8 extra failures are the same mistake: while checking that output is unchanged, the agent ran <code>python run.py examples/sample_input.json examples/sample_output.json</code> and overwrote the protected expected output. The arm without memory made this mistake 0 times in 10. The memories it saw stress "byte-for-byte output equivalence", and a lesson naming the file did not stop it.</li>
       <li><strong>The first memory design couldn't have helped.</strong> The right lesson ("the attempt failed because it modified protected files") was in memory, but recall surfaced it in only 1 of 10 test episodes. We traced this to how we stored memories, not to Hindsight: the ticket text in each memory's context made recall rank by ticket similarity.</li>
       <li><strong>All four arms are now built from the cited papers:</strong> Hindsight as its paper intends, MemRL's usefulness ranking, Learning on the Job's rules, Agent Workflow Memory's procedures, and GEPA's reflective optimisation, plus the evaluation metrics from Moves to Memory. Each deviation from a paper is stated below.</li>
-      <li><strong>The current tickets are too easy to show an effect.</strong> The agent without memory passes about 90% of them. A difficulty probe across the other four bug types runs next, and the following experiments will use the hard ones.</li>
+      <li><strong>Next: test whether rules that say what to do fix the harm.</strong> Learning on the Job's WHEN–THEN rules are designed for exactly this case. A difficulty probe across the other four bug types is running, so the next experiments can use tickets the agent without memory often fails.</li>
     </ul>
   </section>
 
@@ -187,7 +188,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       <div class="hyp"><div class="id">H1</div><div class="body"><div class="claim">D is 20% cheaper per success than A on sealed tasks</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">All four arms are now built. A sealed test is not run until the protocol is locked.</span></div></div></div>
       <div class="hyp"><div class="id">H2</div><div class="body"><div class="claim">The advantage grows across checkpoints</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Only single checkpoints so far. Hold rate between checkpoints is implemented.</span></div></div></div>
       <div class="hyp"><div class="id">H3</div><div class="body"><div class="claim">Learning transfers to new combinations and causes</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Forward transfer is implemented; it needs sealed novel-combination and novel-cause tasks.</span></div></div></div>
-      <div class="hyp"><div class="id">H4</div><div class="body"><div class="claim">Utility ranking and validated procedures add value beyond retrieval</div><div class="row"><span class="pill run">Running</span><span class="small muted">Experiment 6 compares B and C now. D is queued.</span></div></div></div>
+      <div class="hyp"><div class="id">H4</div><div class="body"><div class="claim">Utility ranking and validated procedures add value beyond retrieval</div><div class="row"><span class="pill blocked">Against, so far</span><span class="small muted">Experiment 6: C passed 5/10 against B's 6/10, and its recall collapsed onto one memory in 80% of test episodes. D is queued.</span></div></div></div>
       <div class="hyp"><div class="id">H5</div><div class="body"><div class="claim">New learning does not erode earlier ability</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Backward transfer, retention phases and automatic rollback are implemented; no retention run yet.</span></div></div></div>
     </div>
   </section>
@@ -335,6 +336,33 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
           <figcaption>Test tickets (of 10) where a protected-files lesson reached the agent's top 5. Replayed read-only on experiment 1's frozen memory; the memory's fingerprint was unchanged after every call.</figcaption>
         </figure>
       </div>
+
+      <div class="finding">
+        <div class="tag against">Experiment 6 · arms built from the papers</div>
+        <h3>Memory arms did worse, mostly by overwriting a protected file</h3>
+        <p>Same tickets and order as experiment 1. B used Hindsight as its paper intends (outcome context, experience-only recall). C added MemRL's usefulness ranking. During training, C passed 14 of 15 and B 11 of 15.</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Measure (10 test tickets)</th><th class="num">A · none</th><th class="num">B · Hindsight</th><th class="num">C · MemRL</th></tr></thead>
+          <tbody>
+            <tr><td>Passed</td><td class="num">8</td><td class="num">6</td><td class="num">5</td></tr>
+            <tr><td>Broke the protected-files rule</td><td class="num">0</td><td class="num fail">3</td><td class="num fail">3</td></tr>
+            <tr><td>Too slow on the large input</td><td class="num">2</td><td class="num">1</td><td class="num">2</td></tr>
+            <tr><td>Ran out of budget</td><td class="num">2</td><td class="num">0</td><td class="num">3</td></tr>
+            <tr><td>Agent GPU seconds per success</td><td class="num">43.2</td><td class="num">56.0</td><td class="num">69.7</td></tr>
+            <tr><td>A protected-files lesson reached the agent</td><td class="num">–</td><td class="num">9 of 10</td><td class="num">2 of 10</td></tr>
+            <tr><td>Share of episodes with the same top memory</td><td class="num">–</td><td class="num">40%</td><td class="num">80%</td></tr>
+          </tbody>
+        </table></div>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Paired, against A</th><th>Pass-rate difference [95% CI]</th><th>GPU-per-success ratio [95% CI]</th><th>McNemar p</th></tr></thead>
+          <tbody>
+            <tr><td>B</td><td>−20% [−60%, +20%]</td><td>1.30× [0.71, 2.69]</td><td>0.625</td></tr>
+            <tr><td>C</td><td>−30% [−60%, 0%]</td><td>1.61× [1.12, 3.44]</td><td>0.250</td></tr>
+          </tbody>
+        </table></div>
+        <p>Every protected-file break in this experiment, in training and testing, was the same file, <code>examples/sample_output.json</code>. Every one came from the agent writing its verification output over the protected expected output. The recall fix worked: a protected-files lesson reached B in 9 of 10 test episodes, up from 1 of 10. It did not help. B passed 5 of the 9 episodes that saw the lesson, and in C's ticket 2003 the agent overwrote the file right after reading "failed because it modified protected files, specifically <code>examples/sample_output.json</code>".</p>
+        <p>Three readings fit this, and the next experiments are designed to separate them. First, the memories prime the behaviour: the most frequent memories all stress "byte-for-byte output equivalence", which invites checking against the sample file. Second, a lesson that names what not to do, without saying what to do instead, does not change behaviour; Learning on the Job's WHEN–THEN rules exist for this reason. Third, it is noise: with 10 tickets, 3 of 10 against 0 of 10 is suggestive, not conclusive. C's recall also concentrated onto one memory in 80% of test episodes, the collapse Moves to Memory warns about.</p>
+      </div>
     </div>
   </section>
 
@@ -370,10 +398,10 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <div class="tablewrap"><table>
       <thead><tr><th>Experiment</th><th>Question</th><th>Arms</th><th class="num">Episodes</th><th>Status</th></tr></thead>
       <tbody>
-        <tr><td><strong>6</strong> papers-bc</td><td>Do Hindsight as intended (B) and MemRL ranking (C) beat no memory, on experiment 1's tickets?</td><td>A, B, C</td><td class="num">60</td><td><span class="pill run">Running</span></td></tr>
-        <tr><td><strong>Probe</strong></td><td>Which of the other four bug types does the agent without memory fail?</td><td>A</td><td class="num">12</td><td><span class="pill ready">Queued</span></td></tr>
+        <tr><td><strong>6</strong> papers-bc</td><td>Do Hindsight as intended (B) and MemRL ranking (C) beat no memory, on experiment 1's tickets?</td><td>A, B, C</td><td class="num">60</td><td><span class="pill done">Done</span></td></tr>
+        <tr><td><strong>Probe</strong></td><td>Which of the other four bug types does the agent without memory fail?</td><td>A</td><td class="num">12</td><td><span class="pill run">Running</span></td></tr>
         <tr><td><strong>7</strong> arm D</td><td>Do validated procedures add to utility ranking?</td><td>A, B, C, D</td><td class="num">85 + up to 72 dev</td><td><span class="pill untested">Designed</span></td></tr>
-        <tr><td><strong>8</strong> rules</td><td>Do Learning on the Job's rules and agent search fix recall?</td><td>A, B + rules</td><td class="num">about 35</td><td><span class="pill untested">Planned</span></td></tr>
+        <tr><td><strong>8</strong> rules</td><td>Do Learning on the Job's WHEN–THEN rules and agent search turn the lesson into the right action?</td><td>A, B + rules</td><td class="num">about 35</td><td><span class="pill untested">Planned</span></td></tr>
       </tbody>
     </table></div>
     <p class="small muted">Experiments 7 and 8 will move to the bug types the probe shows are hard. Experiment 7 takes about 2–3 hours, depending on how many libraries reach the promotion check. This page will be updated with each result.</p>
