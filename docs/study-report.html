@@ -168,9 +168,10 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <section id="bottom" class="verdict">
     <div class="eyebrow">Bottom line</div>
     <ul>
+      <li><strong>Three independent learning histories confirm memory's gain on hard tickets, and show it depends on what the first episodes happen to teach.</strong> In experiment 13 (36 test tickets per arm), A fixed 6, B 26 and C 23. B won 21 paired tickets and lost 1; C won 18 and lost 1 (McNemar p &lt; 0.001 for both; B used 0.21× A's GPU time per success, 95% interval 0.07–0.35). Per history, B fixed 11, 12 and 3 of 12. In the third history, no stored rule mentioned the ticket's second slow lookup, and the agents fixed only the first one.</li>
+      <li><strong>MemRL's ranking (C) does not beat plain memory (B).</strong> Over three histories, B beat C on 6 paired tickets and lost 3 (p = 0.51). Over experiments 10, 11 and 13 together, B fixed 46 of 60 test tickets and C 43.</li>
       <li><strong>Memory with verbatim rules beats no memory on hard tickets, and the result replicated on fresh tickets.</strong> Across experiments 10 and 11 (24 test tickets), arm B fixed 20 and the agent without memory 7. B won 14 paired tickets and lost 1. Experiment 11 alone: B 12/12 against A 3/12 (McNemar p = 0.004; gain +75%, 95% interval +50% to +100%; 0.26× the GPU time per success, interval 0.08–0.53).</li>
       <li><strong>On a bug type the agent already handles, memory gives no pass-rate gain, but C made fixes cheaper.</strong> On <code>nested_scan_join</code> (experiment 12), A fixed 9 of 12, B 9 and C 10. C used 0.67× A's GPU time per success (95% interval 0.44–0.93), and both memory arms took about 8 fewer turns.</li>
-      <li><strong>MemRL's ranking (arm C) did not beat plain memory once replicated.</strong> C fixed 12/12 in experiment 10 but 8/12 in experiment 11, where B fixed 12/12. Pooled, B and C both fixed 20 of 24. Both beat A, but nothing yet shows C adding to B.</li>
       <li><strong>Procedures (arm D) did not add to C.</strong> D fixed 10 of 12 (p = 0.070 against A), and plain memory with rules (B) fixed 8 of 12 (p = 0.22). D's promotion check kept one of three procedures it tried, and it rejected the first for making protected-file breaks more frequent.</li>
       <li><strong>Our first version of Learning on the Job was unfaithful, and fixing it is part of this result.</strong> Hindsight had been paraphrasing each rule into facts, so in experiment 8b no rule wording ever reached the agent. Rules are now stored verbatim, with no model rewrite, and two memory slots are reserved for them, as the paper intends. Experiment 10 is the first run with this storage.</li>
       <li><strong>On hard tickets, memory helped in both earlier runs too.</strong> On quadratic-membership tickets, which the agent without memory almost always fails, the Hindsight arm fixed 5 of 12 against 1 of 12 (experiment 8a), and 7 of 12 against 3 of 12 with rules added (8b). Pooled over both runs, memory won 11 paired tickets and lost 3 (McNemar p = 0.057). It also used less wall time per episode (89–111 s against 138–179 s).</li>
@@ -193,7 +194,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       <div class="hyp"><div class="id">H1</div><div class="body"><div class="claim">D is 20% cheaper per success than A on sealed tasks</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">All four arms are now built. A sealed test is not run until the protocol is locked.</span></div></div></div>
       <div class="hyp"><div class="id">H2</div><div class="body"><div class="claim">The advantage grows across checkpoints</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Only single checkpoints so far. Hold rate between checkpoints is implemented.</span></div></div></div>
       <div class="hyp"><div class="id">H3</div><div class="body"><div class="claim">Learning transfers to new combinations and causes</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Forward transfer is implemented; it needs sealed novel-combination and novel-cause tasks.</span></div></div></div>
-      <div class="hyp"><div class="id">H4</div><div class="body"><div class="claim">Utility ranking and validated procedures add value beyond retrieval</div><div class="row"><span class="pill blocked">Not supported so far</span><span class="small muted">Hard tickets, two independent runs: C 12/12 then 8/12; B 8/12 then 12/12 (20/24 each). D 10/12 in one run, below C. Easy tickets (experiment 6): C 5/10, B 6/10.</span></div></div></div>
+      <div class="hyp"><div class="id">H4</div><div class="body"><div class="claim">Utility ranking and validated procedures add value beyond retrieval</div><div class="row"><span class="pill blocked">Not supported so far</span><span class="small muted">Hard tickets, five learning histories: B 46/60, C 43/60. In experiment 13, B beat C on 6 paired tickets and lost 3 (p = 0.51). D 10/12 in one run, below C. Easy tickets (experiment 6): C 5/10, B 6/10.</span></div></div></div>
       <div class="hyp"><div class="id">H5</div><div class="body"><div class="claim">New learning does not erode earlier ability</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Backward transfer, retention phases and automatic rollback are implemented; no retention run yet.</span></div></div></div>
     </div>
   </section>
@@ -496,6 +497,26 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
         </table></div>
         <p>Every failure here was a protected-file break or wrong output, never a slow fix, so the cause-specific rule had nothing to correct. This matches the pattern across all experiments: memory raises pass rates only where the agent without memory fails, and otherwise mostly shortens the work. C's cost ratio is the only interval here that excludes no effect, and it rests on one history.</p>
       </div>
+      <div class="finding">
+        <div class="tag method">Experiment 13 · three histories</div>
+        <h3>Memory's gain held over three histories, but one history learned an incomplete lesson</h3>
+        <p>Arms A, B and C on fresh <code>quadratic_membership</code> tickets: 15 training and 12 test tickets, run three times. Each history shuffles the training order and starts from empty memory banks.</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Measure</th><th class="num">A · none</th><th class="num">B · memory + rules</th><th class="num">C · + MemRL</th></tr></thead>
+          <tbody>
+            <tr><td>Training tickets passed, per history (of 15)</td><td class="num">–</td><td class="num">10 · 7 · 3</td><td class="num">9 · 8 · 3</td></tr>
+            <tr><td>Test tickets passed, per history (of 12)</td><td class="num">2 · 3 · 1</td><td class="num">11 · 12 · 3</td><td class="num">11 · 10 · 2</td></tr>
+            <tr><td>Test tickets passed, pooled (of 36)</td><td class="num">6</td><td class="num">26</td><td class="num">23</td></tr>
+            <tr><td>Paired wins / losses against A (McNemar p)</td><td class="num">–</td><td class="num">21 / 1 (&lt;0.001)</td><td class="num">18 / 1 (&lt;0.001)</td></tr>
+            <tr><td>Pass-rate gain against A [95% CI]</td><td class="num">–</td><td class="num">+56% [+42, +67]</td><td class="num">+47% [+33, +61]</td></tr>
+            <tr><td>GPU-per-success ratio against A [95% CI]</td><td class="num">–</td><td class="num">0.21× [0.07, 0.35]</td><td class="num">0.20× [0.07, 0.33]</td></tr>
+            <tr><td>Mean turns per test episode</td><td class="num">34.2</td><td class="num">28.8</td><td class="num">27.8</td></tr>
+          </tbody>
+        </table></div>
+        <p><strong>B against C.</strong> B beat C on 6 paired test tickets and lost 3 (McNemar p = 0.51). By history the split was 1–1, 2–0 and 3–2. MemRL's ranking adds nothing detectable to plain memory with rules.</p>
+        <p><strong>Why the third history failed.</strong> These tickets have two slow list lookups: the obvious <code>seen</code> list and a second one, such as <code>blocked</code>. The test harness's speed check was not the cause: the reference program took a median 0.14 s in every history, and agent code either ran at about 1× the reference or timed out at about 20×. In histories 1 and 2, 31 of the 60 stored rules mentioned the second lookup. In history 3, none of the 30 did. Its first rules were AVOID rules about the <code>seen</code> list alone, and recall kept returning them. In 45 of history 3's 47 slow-code failures, the agent had added a set for <code>seen</code> and left the second list in place. Memory repeats what it has learned, and the order of the first few tickets decided whether that lesson was complete.</p>
+        <p><strong>Cautions.</strong> The test tickets are the same in all three histories, so the pooled intervals treat the 12 tickets as clusters. Three histories are enough to show that histories differ, not to estimate how often a history learns an incomplete lesson.</p>
+      </div>
     </div>
   </section>
 
@@ -541,10 +562,10 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
         <tr><td><strong>10</strong> hard verbatim</td><td>Arms C and D on the hard tickets, with rules stored verbatim</td><td>A, B, C, D</td><td class="num">93 + 72 dev</td><td><span class="pill done">Done</span></td></tr>
         <tr><td><strong>11</strong> replicate</td><td>Do experiment 10's results hold on fresh training and test tickets?</td><td>A, B, C</td><td class="num">66</td><td><span class="pill done">Done</span></td></tr>
         <tr><td><strong>12</strong> scan join</td><td>Does memory's gain carry to a second bug type?</td><td>A, B, C</td><td class="num">66</td><td><span class="pill done">Done</span></td></tr>
-        <tr><td><strong>13</strong> histories</td><td>B against C on hard tickets over three independent learning histories</td><td>A, B, C</td><td class="num">198</td><td><span class="pill run">Running</span></td></tr>
+        <tr><td><strong>13</strong> histories</td><td>B against C on hard tickets over three independent learning histories</td><td>A, B, C</td><td class="num">198</td><td><span class="pill done">Done</span></td></tr>
       </tbody>
     </table></div>
-    <p class="small muted">Experiment 7 is superseded by experiment 10. Experiment 13 runs three independent histories (each its own training order and banks) on fresh quadratic-membership tickets, so that B against C can be told apart from run-to-run variation. It takes about 7–8 hours.</p>
+    <p class="small muted">Experiment 7 is superseded by experiment 10. Experiment 13 ran three independent histories (each its own training order and banks). Histories differed more than B and C did, so the next step is to record per-history outcomes as the unit of analysis, and to check whether a lesson that misses part of a fix can be corrected once it is stored.</p>
   </section>
 
   <section id="limits">
@@ -552,7 +573,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <h2>What this evidence cannot show yet</h2>
     <div class="note"><ul>
       <li><strong>Ten or twelve test tickets per arm.</strong> At a 90% pass rate, a 95% interval runs from about 60% to 98%. Only large effects are detectable, and the baseline moved by 2 of 12 between identical runs.</li>
-      <li><strong>Two bug types, one learning history each.</strong> The proposal calls for several independent histories and stratified intervals.</li>
+      <li><strong>Few learning histories.</strong> Experiment 13 is the only run with several histories (three, on one bug type). Its histories ranged from 3 to 12 test tickets fixed for the same arm, so single-history results elsewhere in this report carry that much variation.</li>
       <li><strong>Placeholder prices.</strong> Cached input is priced at zero, although it is about 97% of input. Measured GPU time shows learning costs about 80–90% of inference; the placeholder ledger says 28%. Cost terms in rewards barely move.</li>
       <li><strong>Small comparisons have weak power.</strong> Moves to Memory withholds ΔNL below 10 baseline failures, and the published effects are a few points on fresh tasks (MemRL). The sample sizes for the confirmatory study need a power analysis on pilot variance.</li>
     </ul></div>
