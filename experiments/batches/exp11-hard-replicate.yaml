@@ -1,0 +1,38 @@
+# Replication of exp10's A/B/C comparison on fresh tickets: new train seeds [1003,1006) and new eval
+# seeds [2012,2024), same themes, settings and calibration. D is dropped (it did not beat C in exp10
+# and its dev gate costs ~72 episodes); the question is whether C's 12/12 vs A's 4/12 holds.
+# exp9 (arms A-D on quadratic_membership with rules and search) with the agent's rules stored
+# verbatim. Learning on the Job (arXiv 2607.22157; docs/papers/continual.md §3.2 item 2) stores each
+# agent-written rule as written and returns it as written. exp8b/exp9 put the rule inside the
+# lesson-v3 episode record, where Hindsight's LLM fact extraction paraphrased it: in exp8b, 0 of 587
+# recall candidates contained "AVOID", "VERIFIED" or "WHEN", and the AVOID rule naming
+# examples/sample_output.json never reached the agent.
+# Change (rules.store: verbatim): the record is retained without the rule; the rule is its own item
+# ("<RULE>\nSituation: <query>", tags rule and rule:<kind>, document "<episode>:rule") under a bank
+# retain strategy with retain_extraction_mode "chunks" (no LLM, stored as written). Recall gives the
+# first rules.recall_k = 2 slots to a rule-only recall by the ticket text (arm C/D: the utility
+# learner reranks the other k2 - 2); search_memory returns rule hits first. Everything else as exp9.
+# Remaining deviation: the paper retrieves rules only by the agent's own queries; here they are
+# also recalled by the ticket text at episode start.
+name: exp11-hard-replicate
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  rules: {enabled: true, store: verbatim}
+  utility: {k1: 10, k2: 5, delta: 0.8378, sim_mean: 0.8535, sim_std: 0.01762, units_per_doc: 1,
+            reward_mode: spec-signed}
+  workflows: {induce_every: 5, repeats: 2, margin: 0.0, max_library_tokens: 1500}
+  procedure_source: awm
+family: cpu_mem
+histories: 1
+arms: [A, B, C]
+phases:
+  - train:
+      tasks: {causes: [quadratic_membership], themes: [billing, logistics, telemetry, course_registration, network_flows], seeds: [1003, 1006]}
+  - eval:
+      label: after-15
+      tasks: {causes: [quadratic_membership], themes: [inventory], seeds: [2012, 2024]}
+dev:
+  tasks: {causes: [quadratic_membership], themes: [billing, logistics, telemetry], seeds: [3000, 3002]}
