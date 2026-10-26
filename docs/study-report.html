@@ -158,424 +158,219 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <header style="display:grid;gap:14px">
     <div class="eyebrow">Study write-up · Experiential Learning Harness</div>
     <h1>Can AI agents become more experienced?</h1>
-    <p class="lede">A frozen coding agent fixes generated performance bugs. Four agents differ only in what they keep between tasks. This write-up covers the hypothesis, the six papers each part of the design comes from, how we built them, what the evidence says so far, and what runs next.</p>
+    <p class="lede">A frozen local coding agent fixes generated performance bugs. Four arms differ only in what they carry between tasks: nothing, a memory bank, a memory bank with learned ranking, or a memory bank with ranking and validated procedures.</p>
     <div class="meta"><span>Updated 2026-10-26</span><span>Agent: Qwen3-Coder 30B-A3B (Q4_K_M, local)</span><span>Memory LLM: Gemma 4 26B</span><span>Hindsight 1.1.0</span><span>230 tests passing</span></div>
     <nav class="toc" aria-label="Sections">
-      <a href="#bottom">Bottom line</a><a href="#hyp">Hypotheses</a><a href="#arms">The four arms</a><a href="#papers">From papers to code</a><a href="#evidence">Evidence so far</a><a href="#lessons">What went wrong</a><a href="#next">Running and next</a><a href="#limits">Limits</a><a href="#decisions">Open decisions</a>
+      <a href="#summary">Summary</a><a href="#hyp">Hypotheses</a><a href="#arms">Arms</a><a href="#papers">Methods</a><a href="#results">Results</a><a href="#bugs">Harness fixes</a><a href="#limits">Limitations</a><a href="#decisions">Open decisions</a>
     </nav>
   </header>
 
-  <section id="bottom" class="verdict">
-    <div class="eyebrow">Bottom line</div>
+  <section id="summary" class="verdict">
+    <div class="eyebrow">Summary</div>
     <ul>
-      <li><strong>Three independent learning histories confirm memory's gain on hard tickets, and show it depends on what the first episodes happen to teach.</strong> In experiment 13 (36 test tickets per arm), A fixed 6, B 26 and C 23. B won 21 paired tickets and lost 1; C won 18 and lost 1 (McNemar p &lt; 0.001 for both; B used 0.21× A's GPU time per success, 95% interval 0.07–0.35). Per history, B fixed 11, 12 and 3 of 12. In the third history, no stored rule mentioned the ticket's second slow lookup, and the agents fixed only the first one.</li>
-      <li><strong>MemRL's ranking (C) does not beat plain memory (B).</strong> Over three histories, B beat C on 6 paired tickets and lost 3 (p = 0.51). Over experiments 10, 11 and 13 together, B fixed 46 of 60 test tickets and C 43.</li>
-      <li><strong>Memory with verbatim rules beats no memory on hard tickets, and the result replicated on fresh tickets.</strong> Across experiments 10 and 11 (24 test tickets), arm B fixed 20 and the agent without memory 7. B won 14 paired tickets and lost 1. Experiment 11 alone: B 12/12 against A 3/12 (McNemar p = 0.004; gain +75%, 95% interval +50% to +100%; 0.26× the GPU time per success, interval 0.08–0.53).</li>
-      <li><strong>On a bug type the agent already handles, memory gives no pass-rate gain, but C made fixes cheaper.</strong> On <code>nested_scan_join</code> (experiment 12), A fixed 9 of 12, B 9 and C 10. C used 0.67× A's GPU time per success (95% interval 0.44–0.93), and both memory arms took about 8 fewer turns.</li>
-      <li><strong>Procedures (arm D) did not add to C.</strong> D fixed 10 of 12 (p = 0.070 against A), and plain memory with rules (B) fixed 8 of 12 (p = 0.22). D's promotion check kept one of three procedures it tried, and it rejected the first for making protected-file breaks more frequent.</li>
-      <li><strong>Our first version of Learning on the Job was unfaithful, and fixing it is part of this result.</strong> Hindsight had been paraphrasing each rule into facts, so in experiment 8b no rule wording ever reached the agent. Rules are now stored verbatim, with no model rewrite, and two memory slots are reserved for them, as the paper intends. Experiment 10 is the first run with this storage.</li>
-      <li><strong>On hard tickets, memory helped in both earlier runs too.</strong> On quadratic-membership tickets, which the agent without memory almost always fails, the Hindsight arm fixed 5 of 12 against 1 of 12 (experiment 8a), and 7 of 12 against 3 of 12 with rules added (8b). Pooled over both runs, memory won 11 paired tickets and lost 3 (McNemar p = 0.057). It also used less wall time per episode (89–111 s against 138–179 s).</li>
-      <li><strong>On easy tickets, memory hurt.</strong> On <code>queue_pop_front</code>, which the agent without memory fixes about 85% of the time, memory arms did worse in experiment 6 (A 8/10, B 6/10, C 5/10). Memory has room to help only where the agent fails without it.</li>
-      <li><strong>Learning on the Job's rules may speed up learning, but the evidence is weak.</strong> With rules, the agent fixed 10 of 15 practice tickets, against 4 of 15 without (Fisher p = 0.066). On test tickets, 7 of 12 against 5 of 12 cannot be told apart. The baseline itself moved from 1 to 3 of 12 between runs.</li>
-      <li><strong>Memory doesn't fix overwriting a protected file.</strong> The memory arm overwrote the protected <code>examples/sample_output.json</code> in 4 of 24 test episodes, against 2 of 24 without memory. It did so even after a rule naming the file was stored. On ticket 2008, the agent without memory passed in both runs and the memory arm failed in both, each time by overwriting that file.</li>
-      <li><strong>All four arms are built from the cited papers:</strong> Hindsight as its paper intends, MemRL's usefulness ranking, Learning on the Job's rules, Agent Workflow Memory's procedures, and GEPA's reflective optimisation, plus the evaluation metrics from Moves to Memory. Each deviation from a paper is stated below.</li>
+      <li><strong>Memory raises the pass rate on bugs the baseline fails.</strong> On <code>quadratic_membership</code> tickets over three learning histories (experiment 13), the no-memory baseline (A) fixed 6 of 36 test tickets, memory with rules (B) 26 and B with MemRL ranking (C) 23. Paired against A: B 21 wins, 1 loss; C 18 wins, 1 loss (McNemar p &lt; 0.001 for both). B used 0.21× A's GPU time per success (95% CI 0.07–0.35).</li>
+      <li><strong>The gain depends on what the first training tickets teach.</strong> B fixed 11, 12 and 3 of 12 test tickets in the three histories. In the third, no stored rule mentioned the ticket's second slow lookup, and the agent fixed only the first.</li>
+      <li><strong>MemRL ranking does not improve on plain memory.</strong> B against C in experiment 13: 6 wins, 3 losses (p = 0.51). Across experiments 10, 11 and 13, B fixed 46 of 60 and C 43 of 60.</li>
+      <li><strong>Where the baseline already succeeds, memory reduces cost but not failures.</strong> On <code>nested_scan_join</code> (experiment 12), A fixed 9 of 12, B 9 and C 10. C used 0.67× A's GPU time per success (95% CI 0.44–0.93). On the easy <code>queue_pop_front</code> bug (experiment 6), the memory arms did worse than A.</li>
+      <li><strong>Validated procedures (D) did not improve on C</strong> in the one run that included them (D 10 of 12, C 12 of 12).</li>
+      <li><strong>Memory does not prevent protected-file overwrites.</strong> Agents with memory still overwrote <code>examples/sample_output.json</code>, including after a rule naming the file was stored.</li>
     </ul>
   </section>
 
   <section id="hyp">
-    <div class="eyebrow">What we are testing</div>
-    <h2>The hypotheses</h2>
+    <div class="eyebrow">Hypotheses</div>
+    <h2>Hypotheses</h2>
     <div class="h1box">
       <div class="eyebrow">Primary hypothesis · H1</div>
       <blockquote>After 200 training episodes, the continuous-learning agent (D) achieves at least 20% lower fully loaded cost per verified success on sealed, unseen tasks than the stateless agent (A), without losing more than a preregistered margin of success rate.</blockquote>
       <div class="formula">cost per success = (inference + tool compute + memory service + reflection + validation + amortised learning) ÷ verified successes</div>
     </div>
     <div class="hyps">
-      <div class="hyp"><div class="id">H1</div><div class="body"><div class="claim">D is 20% cheaper per success than A on sealed tasks</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">All four arms are now built. A sealed test is not run until the protocol is locked.</span></div></div></div>
-      <div class="hyp"><div class="id">H2</div><div class="body"><div class="claim">The advantage grows across checkpoints</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Only single checkpoints so far. Hold rate between checkpoints is implemented.</span></div></div></div>
-      <div class="hyp"><div class="id">H3</div><div class="body"><div class="claim">Learning transfers to new combinations and causes</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Forward transfer is implemented; it needs sealed novel-combination and novel-cause tasks.</span></div></div></div>
-      <div class="hyp"><div class="id">H4</div><div class="body"><div class="claim">Utility ranking and validated procedures add value beyond retrieval</div><div class="row"><span class="pill blocked">Not supported so far</span><span class="small muted">Hard tickets, five learning histories: B 46/60, C 43/60. In experiment 13, B beat C on 6 paired tickets and lost 3 (p = 0.51). D 10/12 in one run, below C. Easy tickets (experiment 6): C 5/10, B 6/10.</span></div></div></div>
-      <div class="hyp"><div class="id">H5</div><div class="body"><div class="claim">New learning does not erode earlier ability</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Backward transfer, retention phases and automatic rollback are implemented; no retention run yet.</span></div></div></div>
+      <div class="hyp"><div class="id">H1</div><div class="body"><div class="claim">D is 20% cheaper per success than A on sealed tasks</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Sealed tasks are not run until the protocol is locked.</span></div></div></div>
+      <div class="hyp"><div class="id">H2</div><div class="body"><div class="claim">The advantage grows across checkpoints</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">All runs so far have one checkpoint.</span></div></div></div>
+      <div class="hyp"><div class="id">H3</div><div class="body"><div class="claim">Learning transfers to new combinations and causes</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Needs sealed novel-combination and novel-cause tasks.</span></div></div></div>
+      <div class="hyp"><div class="id">H4</div><div class="body"><div class="claim">Utility ranking and validated procedures add value beyond retrieval</div><div class="row"><span class="pill blocked">Not supported so far</span><span class="small muted">B 46/60, C 43/60 on hard tickets over five histories. D 10/12 against C 12/12 in one run.</span></div></div></div>
+      <div class="hyp"><div class="id">H5</div><div class="body"><div class="claim">New learning does not erode earlier ability</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Retention phases are implemented; none run yet.</span></div></div></div>
     </div>
   </section>
 
   <section id="arms">
     <div class="eyebrow">Design</div>
-    <h2>The four arms</h2>
-    <p>Every arm runs the same frozen model, system prompt, tools, sandbox, budgets (40 turns, 600,000 tokens) and judge. They differ only in what is carried from one episode to the next. Memory is shown once, at the start of an episode, inside the first message.</p>
+    <h2>Arms</h2>
+    <p>All arms use the same model, prompt, tools, sandbox, budget (40 turns, 600,000 tokens) and judge. Memory is shown once, in the first message of an episode. Test episodes read a frozen snapshot of the memory.</p>
     <div class="tablewrap"><table>
-      <thead><tr><th>Arm</th><th>What it keeps</th><th>Source</th><th>Status</th></tr></thead>
+      <thead><tr><th>Arm</th><th>Carried between tasks</th><th>Source</th></tr></thead>
       <tbody>
-        <tr><td><strong>A</strong></td><td>Nothing. The baseline sees the same documentation and tools.</td><td>Proposal</td><td><span class="pill done">Built</span></td></tr>
-        <tr><td><strong>B</strong></td><td>A Hindsight memory bank. One record per verified training episode; the agent's own past attempts are recalled for each new ticket.</td><td>Hindsight</td><td><span class="pill done">Built</span></td></tr>
-        <tr><td><strong>C</strong></td><td>B, with recall candidates re-ranked by a learned usefulness score per past episode, updated from verified outcomes.</td><td>MemRL</td><td><span class="pill done">Built</span></td></tr>
-        <tr><td><strong>D</strong></td><td>C, plus a library of reusable procedures induced from passed episodes. A new library is promoted only if it wins on held-aside development tasks, and can be rolled back.</td><td>Agent Workflow Memory, GEPA</td><td><span class="pill done">Built</span></td></tr>
+        <tr><td><strong>A</strong></td><td>Nothing</td><td>Proposal</td></tr>
+        <tr><td><strong>B</strong></td><td>Hindsight memory bank: one record per training episode, plus one WHEN–THEN rule per episode stored verbatim. The agent can also search memory with a tool.</td><td>Hindsight, Learning on the Job</td></tr>
+        <tr><td><strong>C</strong></td><td>B, with recall candidates reranked by a usefulness score learned from outcomes</td><td>MemRL</td></tr>
+        <tr><td><strong>D</strong></td><td>C, plus a procedure library induced from passed episodes, promoted only if it wins on a development panel</td><td>Agent Workflow Memory, GEPA</td></tr>
       </tbody>
     </table></div>
-    <p class="small muted">Learning on the Job's rule writing and agent-driven memory search are switches on any memory arm (B, C, D), so their effect can be measured by turning them on in one run and off in another.</p>
   </section>
 
   <section id="papers">
-    <div class="eyebrow">Research basis</div>
-    <h2>From papers to code</h2>
-    <p>Five agents read the papers your proposal cites, and their code where released, in parallel. Each wrote down the exact method: formulas, prompts, default settings and evaluation protocol. Six more agents then built each method in its own module, and I wired them together. Where we depart from a paper, the reason is given.</p>
+    <div class="eyebrow">Methods</div>
+    <h2>Methods and deviations</h2>
+    <p>Each arm implements the method of a paper cited in the proposal, taken from the paper and its released code. Deviations are listed.</p>
 
     <div class="papers">
       <article class="paper">
-        <div class="head"><h3>Hindsight</h3><span class="cite">Latimer et al., ACL 2026 demo · arXiv 2512.12818 · vectorize-io/hindsight</span></div>
+        <div class="head"><h3>Hindsight</h3><span class="cite">Latimer et al., ACL 2026 demo · arXiv 2512.12818</span></div>
         <dl>
-          <dt>The method</dt><dd>Memory organised by fact type (world facts, the agent's own experiences, observations), with retain, recall and reflect. Recall combines semantic, keyword, graph and time-based search, then a cross-encoder reranks. Reported 91.4 on LongMemEval-S and 89.6 on LoCoMo. It has no component ablations and does not cover learning from task outcomes.</dd>
-          <dt>What we found</dt><dd>Hindsight reranks each memory as "context: text". We had put the full ticket in the context, so the ticket filled the reranker's 512-token window and cut off the lesson. One protected-files lesson scored +0.78 with the ticket context and −9.32 on its own text.</dd>
-          <dt>What we built</dt><dd>Record format <code>lesson-v3</code>: a one-sentence outcome context with no ticket text, plus tags for outcome and failed checks. Recall can be limited to <code>experience</code> facts, the type the paper defines for what the agent did. Other additions: the full ranked candidate list with per-stage scores, bank missions, and a fingerprint that also covers context, metadata and mental models. <code>elh/memory/hindsight.py</code></dd>
-          <dt>Effect on recall</dt><dd>Read-only replay on experiment 1's memory: lessons reached the top 5 in 1/10 test tickets as run, 8/10 when recalling experience facts only, and 10/10 with a fixed second "past mistakes" query. That second query is our own idea, not the paper's, so the paper-faithful arm B uses only the experience filter.</dd>
-          <dt>Deviations</dt><dd>We don't call <code>reflect</code> during episodes: it took 43 s and about 44,000 tokens per call in a probe. It remains a possible ablation.</dd>
+          <dt>Method</dt><dd>Memory typed as world facts, experiences and observations, with retain, recall and reflect. Recall fuses semantic, keyword, graph and temporal search, then reranks with a cross-encoder.</dd>
+          <dt>Implementation</dt><dd>Record format <code>lesson-v3</code>: a one-sentence outcome context without ticket text, tagged by outcome and failed checks. Recall is limited to <code>experience</code> facts. Every recall logs its ranked candidate list. <code>elh/memory/hindsight.py</code></dd>
+          <dt>Deviations</dt><dd><code>reflect</code> is not called during episodes (43 s and about 44,000 tokens per call).</dd>
         </dl>
       </article>
 
       <article class="paper">
-        <div class="head"><h3>MemRL</h3><span class="cite">Zhang et al., arXiv 2601.03192 · MemTensor/MemRL</span></div>
+        <div class="head"><h3>MemRL</h3><span class="cite">Zhang et al., arXiv 2601.03192</span></div>
         <dl>
-          <dt>The method</dt><dd>Each memory is an intent, an experience and a usefulness value Q. Recall happens in two phases: keep memories whose task similarity passes a threshold, take the top k1, then rank by 0.5·z(similarity) + 0.5·z(Q) and inject the top k2. After each episode, every injected memory is updated as Q ← Q + 0.3(r − Q).</dd>
-          <dt>How strong</dt><dd>One run per setting, with no intervals. Gains over the strongest baseline were +3.8 points (runtime) and +2.8 (transfer). The large gains come from re-solving the same tasks over 10 rounds; on fresh coding tasks the gain was about 1–2 points. Our sample sizes should not assume MemRL-sized effects.</dd>
-          <dt>What we built</dt><dd>A reranker over Hindsight's own candidate list, with Q kept per source episode, so C differs from B only in ranking. Q survives snapshot restores and is hashed into each snapshot; test episodes rank with a frozen copy. Every ranking decision is logged. <code>elh/learner/utility.py</code></dd>
-          <dt>Deviations</dt><dd><span class="dev">Reward:</span> a pass scores 1 − cost/budget, as the spec says, but a failure scores −1, as in MemRL. With the spec's reward, a failure scores 0 and Q can never fall, so memories linked to failures are never demoted. The spec's version stays available as a setting.<br><span class="dev">Similarity gate:</span> calibrated on our data (207 episode similarities, mean 0.865, sd 0.017). MemRL keeps about the top 20% of its whole store. Our candidates are already Hindsight's top list, about 14 episodes per ticket, so we set the gate at the 20th percentile (0.853). Otherwise about 3 episodes would remain for 5 slots.<br><span class="dev">Injection size:</span> one memory per selected episode, so C shows as many memories as B.<br>The code's undocumented extras (random exploration, a −0.8 exclusion floor) are off, as in the paper.</dd>
+          <dt>Method</dt><dd>Two-phase recall: keep memories above a similarity threshold, take the top k1, rank by 0.5·z(similarity) + 0.5·z(Q), inject the top k2. After each episode, Q ← Q + 0.3(r − Q) for every injected memory. Reported gains on fresh coding tasks are 1–2 points.</dd>
+          <dt>Implementation</dt><dd>Reranks Hindsight's candidate list, with Q kept per source episode. Test episodes use a frozen copy of Q. <code>elh/learner/utility.py</code></dd>
+          <dt>Deviations</dt><dd>Failure reward is −1 (as in MemRL) rather than the spec's 0, under which Q could never fall. The similarity threshold is the 20th percentile of our candidate similarities (0.838 on hard tickets), because Hindsight has already filtered the candidates. The threshold calibrated on <code>quadratic_membership</code> was reused for <code>nested_scan_join</code>.</dd>
         </dl>
       </article>
 
       <article class="paper">
         <div class="head"><h3>Learning on the Job</h3><span class="cite">Tablan, Taylor &amp; Bernhem, arXiv 2607.22157</span></div>
         <dl>
-          <dt>The method</dt><dd>After each episode, the agent reflects and writes one rule: "VERIFIED RULE: WHEN … THEN …" after a pass, "AVOID: …" after a failure. Each rule has a separate query field, phrased as the question a future agent would ask, which is what retrieval matches. A validator sends back rules that leave out key facts. The agent searches memory itself, once it has gathered information, and re-reads rules before acting. Reported 1.6× the no-memory baseline with verdict-only feedback, 2.6× with corrections.</dd>
-          <dt>Why it matters here</dt><dd>The authors' code notes that a single search on the opening message made a lesson unreachable, which is the failure we hit.</dd>
-          <dt>What we built</dt><dd>The rule writer, using the paper's reflection and rejection prompts adapted to tickets. The agent sees the judge's per-check verdict, the protected files it changed, and its time against the budget, but never the hidden tests or the reference fix. The validator requires the protected file names. There is also an optional <code>search_memory</code> tool; when it is off, every request is byte-identical to before (checked by a test). <code>elh/learner/rules.py</code></dd>
-          <dt>Deviations</dt><dd>We have no gold solution, so the validator can only require the protected-file names. The merge of two conflicting rules is not implemented. In a sanity call, one rule gave a cause the prompt forbids it to guess, and no check caught it.</dd>
+          <dt>Method</dt><dd>After each episode the agent writes one rule: "VERIFIED RULE: WHEN … THEN …" after a pass, "AVOID: …" after a failure, with a query field used for retrieval. A validator rejects rules that omit key facts. The agent searches memory itself during the task.</dd>
+          <dt>Implementation</dt><dd>The paper's reflection and rejection prompts, adapted to tickets. The rule writer sees the judge's per-check verdict but never the hidden tests or reference fix. Rules are stored verbatim (no LLM extraction) and take the first two memory slots. <code>elh/learner/rules.py</code></dd>
+          <dt>Deviations</dt><dd>With no gold solution, the validator only requires protected-file names. Merging conflicting rules is not implemented.</dd>
         </dl>
       </article>
 
       <article class="paper">
         <div class="head"><h3>Agent Workflow Memory</h3><span class="cite">Wang et al., ICML 2025 · arXiv 2409.07429</span></div>
         <dl>
-          <dt>The method</dt><dd>A model turns successful runs into short reusable workflows: a description plus steps, with specifics replaced by placeholders. The whole library is regenerated after each success and shown in full, with no retrieval. On WebArena, success rose from 23.5% to 35.5% and steps per task fell from 7.9 to 5.9. Neither paper version reports seeds or variance.</dd>
-          <dt>What we built</dt><dd>Induction from passed training episodes only, one per ticket type, with steps taken from the agent's own commands and trimmed outputs. It uses AWM's induction prompt verbatim with three domain substitutions. Libraries are versioned in a skills table with their source episodes and hashes, and injected at the top of arm D's memory block. <code>elh/learner/workflows.py</code></dd>
-          <dt>Added by the proposal</dt><dd>AWM promotes nothing; it just uses the new library. The proposal requires validation, so a candidate library runs against the current one on 6 held-aside development tasks, twice each. It is promoted only if mean reward improves, passes don't drop and protected-file breaks don't rise. It is rolled back automatically if a retention check drops.</dd>
-          <dt>Found in testing</dt><dd>On all 3 sanity calls the model copied the prompt's example workflows word for word, and a filter now drops those copies. Agents' real fixes often match the reference fix exactly, so those edits are shown as diffs and checked so that the reference text never leaks.</dd>
+          <dt>Method</dt><dd>Induces reusable workflows from successful runs and regenerates the library after each success.</dd>
+          <dt>Implementation</dt><dd>AWM's induction prompt with three domain substitutions, run on passed training episodes. Libraries are versioned with their source episodes. <code>elh/learner/workflows.py</code></dd>
+          <dt>Additions</dt><dd>The proposal requires validation, which AWM does not have. A candidate library is promoted only if, on 6 development tasks run twice each, mean reward rises, passes do not fall and protected-file breaks do not rise.</dd>
         </dl>
       </article>
 
       <article class="paper">
-        <div class="head"><h3>GEPA</h3><span class="cite">Agrawal et al., ICLR 2026 · arXiv 2507.19457 · gepa 0.1.4</span></div>
+        <div class="head"><h3>GEPA</h3><span class="cite">Agrawal et al., ICLR 2026 · arXiv 2507.19457</span></div>
         <dl>
-          <dt>The method</dt><dd>Evolves a text prompt. A reflection model reads a few rollouts and their feedback, rewrites the text, and the rewrite is kept only if it scores better on those tasks. Candidates are chosen from a Pareto frontier across validation tasks. With Qwen3-8B it scored 54.85, against 48.91 for GRPO with 24,000 rollouts and 47.84 for MIPROv2. GEPA's coding-agent variant raised resolve rates from 55% to 82% and from 24% to 93%.</dd>
-          <dt>What we built</dt><dd>An adapter for the <code>gepa</code> package that optimises arm D's procedure text, scored with partial credit per check plus cost. A protected-file break scores 0. Feedback uses the judge's wording without reference timings, hidden inputs or the reference fix, and it runs on development tasks only. <code>elh/learner/gepa_opt.py</code></dd>
-          <dt>Deviations</dt><dd>GEPA's default reflection prompt asks the model to keep "niche domain facts", which would copy ticket specifics into the procedure. We replaced it with one that tells the model to generalise. Merge is off, since it hurt Qwen3-8B in the paper. A pilot costs about 150 rollouts plus a 40-rollout check, roughly 3 hours on our single GPU.</dd>
+          <dt>Method</dt><dd>Evolves text by reflecting on rollouts and feedback, keeping candidates on a Pareto frontier across validation tasks.</dd>
+          <dt>Implementation</dt><dd>Adapter for the <code>gepa</code> package that optimises arm D's procedure text on development tasks only. <code>elh/learner/gepa_opt.py</code></dd>
+          <dt>Deviations</dt><dd>The reflection prompt asks for general procedures instead of "niche domain facts". Merge is off. Not yet run in an experiment.</dd>
         </dl>
       </article>
 
       <article class="paper">
         <div class="head"><h3>When Continual Learning Moves to Memory</h3><span class="cite">Hu, Long &amp; Wang, arXiv 2604.27003</span></div>
         <dl>
-          <dt>The method</dt><dd>Measures what memory does to an agent over time. Test tasks are split into those the baseline solves and those it fails. ΔRR measures whether memory breaks solved tasks; ΔNL whether it solves new ones. Forward and backward transfer are measured against a memory-enabled run that starts from scratch.</dd>
-          <dt>Its warnings</dt><dd>Raw trajectories cause negative transfer, worst on hard tasks (ΔNL −26). Fine-grained entries can collapse onto one item: 88.5% of searches returned the same top memory. The setting with the best forward transfer also forgot the most (−10).</dd>
-          <dt>What we built</dt><dd>ΔRR and ΔNL (hidden below 10 baseline failures, as in the paper), forward and backward transfer, hold rate (from Learning on the Job), a paired cluster bootstrap by task, and recall diagnostics: coverage, top-1 concentration, lesson reach and lesson rank. <code>elh/analysis.py</code></dd>
+          <dt>Method</dt><dd>Splits test tasks by whether the baseline solves them. ΔRR measures solved tasks that memory breaks; ΔNL measures failed tasks that memory solves. Also forward and backward transfer.</dd>
+          <dt>Implementation</dt><dd>ΔRR, ΔNL (withheld below 10 baseline failures, as in the paper), transfer, hold rate, paired cluster bootstrap and recall diagnostics. <code>elh/analysis.py</code></dd>
         </dl>
       </article>
     </div>
-    <p class="small muted">Terminal-Bench was read for task design only. Our task format (hidden tests, reference solution, protected files) matches it. Two ideas are worth adopting: take the fastest of several timing runs to cut noise on a shared machine, and put canary strings in generated tasks.</p>
   </section>
 
-  <section id="evidence">
-    <div class="eyebrow">Evidence so far</div>
-    <h2>What the experiments show</h2>
-    <p>Experiments 1 and 6 used one bug type, a job that pops items from the front of a Python list (<code>queue_pop_front</code>). Experiments 8a and 8b used a harder one, membership tests against a list (<code>quadratic_membership</code>). In each, memory arms trained on 15 tickets across five themes. All arms were then tested on 10 or 12 new tickets in a sixth theme, against a frozen snapshot of the memory.</p>
+  <section id="results">
+    <div class="eyebrow">Results</div>
+    <h2>Results</h2>
+    <p>Each memory arm trains on 15 tickets across five themes, then is tested on 10 or 12 new tickets in a sixth theme. Pass counts are on test tickets.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Exp.</th><th>Bug type</th><th>Setting</th><th class="num">A</th><th class="num">B</th><th class="num">C</th><th class="num">D</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><code>queue_pop_front</code></td><td>Early memory format</td><td class="num">9/10</td><td class="num">9/10</td><td class="num">–</td><td class="num">–</td></tr>
+        <tr><td>6</td><td><code>queue_pop_front</code></td><td>Arms built from the papers, no rules</td><td class="num">8/10</td><td class="num">6/10</td><td class="num">5/10</td><td class="num">–</td></tr>
+        <tr><td>8a</td><td><code>quadratic_membership</code></td><td>No rules</td><td class="num">1/12</td><td class="num">5/12</td><td class="num">–</td><td class="num">–</td></tr>
+        <tr><td>8b</td><td><code>quadratic_membership</code></td><td>Rules, paraphrased by Hindsight</td><td class="num">3/12</td><td class="num">7/12</td><td class="num">–</td><td class="num">–</td></tr>
+        <tr><td>10</td><td><code>quadratic_membership</code></td><td>Rules stored verbatim</td><td class="num">4/12</td><td class="num">8/12</td><td class="num">12/12</td><td class="num">10/12</td></tr>
+        <tr><td>11</td><td><code>quadratic_membership</code></td><td>As 10, new tickets</td><td class="num">3/12</td><td class="num">12/12</td><td class="num">8/12</td><td class="num">–</td></tr>
+        <tr><td>12</td><td><code>nested_scan_join</code></td><td>As 11</td><td class="num">9/12</td><td class="num">9/12</td><td class="num">10/12</td><td class="num">–</td></tr>
+        <tr><td>13</td><td><code>quadratic_membership</code></td><td>As 11, three histories, new tickets</td><td class="num">6/36</td><td class="num">26/36</td><td class="num">23/36</td><td class="num">–</td></tr>
+      </tbody>
+    </table></div>
 
     <div class="findings">
       <div class="finding">
-        <div class="tag against">Experiment 1 · void</div>
-        <h3>The first memory format stated failures as their opposite</h3>
-        <p>A failed protected-files check was written in the wording for the passing check: "FAILED: left the tests and harness untouched". Hindsight duly stored that the attempt "failed because it left the tests and harness untouched". Arm B then broke the protected-files rule in 3 of 10 test episodes, against 1 of 10 for arm A (A 9/10, B 7/10). We voided the result, fixed the wording (<code>lesson-v2</code>), and re-ran.</p>
+        <div class="tag for">Experiment 13 · three histories</div>
+        <h3>Memory's gain holds across histories; its size depends on the first lessons</h3>
+        <p>Arms A, B and C, run three times on the same 15 training and 12 test tickets. Each history shuffles the training order and starts from empty banks.</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Measure</th><th class="num">A</th><th class="num">B</th><th class="num">C</th></tr></thead>
+          <tbody>
+            <tr><td>Training passed, by history (of 15)</td><td class="num">–</td><td class="num">10 · 7 · 3</td><td class="num">9 · 8 · 3</td></tr>
+            <tr><td>Test passed, by history (of 12)</td><td class="num">2 · 3 · 1</td><td class="num">11 · 12 · 3</td><td class="num">11 · 10 · 2</td></tr>
+            <tr><td>Paired wins / losses against A (McNemar p)</td><td class="num">–</td><td class="num">21 / 1 (&lt;0.001)</td><td class="num">18 / 1 (&lt;0.001)</td></tr>
+            <tr><td>Pass-rate difference against A [95% CI]</td><td class="num">–</td><td class="num">+56% [+42, +67]</td><td class="num">+47% [+33, +61]</td></tr>
+            <tr><td>GPU time per success against A [95% CI]</td><td class="num">–</td><td class="num">0.21× [0.07, 0.35]</td><td class="num">0.20× [0.07, 0.33]</td></tr>
+            <tr><td>Mean turns per test episode</td><td class="num">34.2</td><td class="num">28.8</td><td class="num">27.8</td></tr>
+          </tbody>
+        </table></div>
+        <p>B against C: 6 wins, 3 losses (p = 0.51).</p>
+        <p>The tickets contain two slow list lookups, the <code>seen</code> list and a second list such as <code>blocked</code>. In histories 1 and 2, 31 of 60 stored rules mentioned the second lookup; in history 3, 0 of 30 did. In 45 of history 3's 47 timeouts, the agent had replaced <code>seen</code> with a set and left the second list unchanged. The timing check was stable across histories (reference median 0.14 s in each), and agent code either matched the reference or timed out at about 20×.</p>
+        <p>The 12 test tickets are shared across histories, so the bootstrap clusters by ticket. Three histories show that outcomes vary by history but do not estimate how often an incomplete lesson occurs.</p>
       </div>
 
       <div class="finding">
-        <div class="tag method">Experiment 1, rerun</div>
-        <h3>A tie, with the right lesson stored but rarely recalled</h3>
-        <div class="tablewrap"><table>
-          <thead><tr><th>Measure</th><th class="num">A · no memory</th><th class="num">B · memory</th></tr></thead>
-          <tbody>
-            <tr><td>Passed (of 10)</td><td class="num">9</td><td class="num">9</td></tr>
-            <tr><td>Broke the protected-files rule</td><td class="num">1</td><td class="num">0</td></tr>
-            <tr><td>Too slow on the large input</td><td class="num">0</td><td class="num">1</td></tr>
-            <tr><td>Agent GPU seconds per success</td><td class="num">38.7</td><td class="num">38.2</td></tr>
-          </tbody>
-        </table></div>
-        <div class="tablewrap"><table>
-          <thead><tr><th>Paired comparison, B vs A</th><th>Result</th></tr></thead>
-          <tbody>
-            <tr><td>Same ticket: both passed / only A / only B</td><td>8 / 1 / 1 (McNemar p = 1.0)</td></tr>
-            <tr><td>Pass-rate difference, bootstrap 95% CI</td><td>+0% [−30%, +30%]</td></tr>
-            <tr><td>GPU-per-success ratio, bootstrap 95% CI</td><td>0.99× [0.61, 1.56]</td></tr>
-            <tr><td>ΔRR (tickets A solved that B broke)</td><td>−11% (1 of 9)</td></tr>
-            <tr><td>ΔNL (new tickets solved)</td><td>Not measurable: A failed only 1 ticket</td></tr>
-          </tbody>
-        </table></div>
-        <p>The bank held 85 memories, 6 of them correctly worded protected-files lessons. A lesson reached the agent in 1 of 10 test episodes, at rank 4. Test episodes used only 17 of the 85 memories, and 40% of them got the same memory at the top. Since the lesson almost never reached the agent, B's clean protected-files record can't be credited to memory.</p>
+        <div class="tag for">Experiments 10 and 11 · verbatim rules</div>
+        <h3>B and C both beat A; their order reversed between runs</h3>
+        <p>Paired against A, C won 8 and lost 0 in experiment 10 (p = 0.008); B won 9 and lost 0 in experiment 11 (p = 0.004). Pooled, B and C each fixed 20 of 24 against A's 7. In experiment 11, C passed 9 of 15 training tickets and B 15 of 15, so the arm with the weaker training run had the weaker bank at test time.</p>
+        <p>D tried three AWM procedures in experiment 10. The check rejected the first (dev-panel passes fell from 7 to 5 of 12), promoted the second (7 to 9) and rejected the third (12 to 12). Its 72 development episodes cost 2,877 agent GPU seconds, charged as learning.</p>
       </div>
 
       <div class="finding">
-        <div class="tag for">Diagnosis</div>
-        <h3>Recall ranked by ticket similarity because of how we stored memories</h3>
-        <figure>
-          <div class="chart">
-            <svg viewBox="0 0 640 170" role="img" aria-label="Test tickets where a protected-files lesson reached the top five: 1 of 10 as run, 1 with higher budget, 8 with experience-only recall, 10 with an added lesson query">
-              <line class="grid" x1="300" y1="14" x2="300" y2="150"/><line class="grid" x1="400" y1="14" x2="400" y2="150"/><line class="grid" x1="500" y1="14" x2="500" y2="150"/><line class="grid" x1="600" y1="14" x2="600" y2="150"/>
-              <line class="ref" x1="200" y1="14" x2="200" y2="150"/>
-              <text class="lab" x="190" y="34" text-anchor="end">As run (ticket context)</text>
-              <rect class="bar-fail" x="200" y="22" width="40" height="18"/><text x="248" y="36">1/10</text>
-              <text class="lab" x="190" y="66" text-anchor="end">Higher recall budget</text>
-              <rect class="bar-fail" x="200" y="54" width="40" height="18"/><text x="248" y="68">1/10</text>
-              <text class="lab" x="190" y="98" text-anchor="end">Experience facts only</text>
-              <rect class="bar-ok" x="200" y="86" width="320" height="18"/><text x="528" y="100">8/10</text>
-              <text class="lab" x="190" y="130" text-anchor="end">+ fixed lesson query</text>
-              <rect class="bar-ok" x="200" y="118" width="400" height="18"/><text x="608" y="132" text-anchor="end" style="fill:var(--sheet)">10/10</text>
-              <text x="200" y="164" text-anchor="middle">0</text><text x="400" y="164" text-anchor="middle">5</text><text x="600" y="164" text-anchor="middle">10</text>
-            </svg>
-          </div>
-          <figcaption>Test tickets (of 10) where a protected-files lesson reached the agent's top 5. Replayed read-only on experiment 1's frozen memory; the memory's fingerprint was unchanged after every call.</figcaption>
-        </figure>
-      </div>
-
-      <div class="finding">
-        <div class="tag against">Experiment 6 · arms built from the papers</div>
-        <h3>Memory arms did worse, mostly by overwriting a protected file</h3>
-        <p>Same tickets and order as experiment 1. B used Hindsight as its paper intends (outcome context, experience-only recall). C added MemRL's usefulness ranking. During training, C passed 14 of 15 and B 11 of 15.</p>
-        <div class="tablewrap"><table>
-          <thead><tr><th>Measure (10 test tickets)</th><th class="num">A · none</th><th class="num">B · Hindsight</th><th class="num">C · MemRL</th></tr></thead>
-          <tbody>
-            <tr><td>Passed</td><td class="num">8</td><td class="num">6</td><td class="num">5</td></tr>
-            <tr><td>Broke the protected-files rule</td><td class="num">0</td><td class="num fail">3</td><td class="num fail">3</td></tr>
-            <tr><td>Too slow on the large input</td><td class="num">2</td><td class="num">1</td><td class="num">2</td></tr>
-            <tr><td>Ran out of budget</td><td class="num">2</td><td class="num">0</td><td class="num">3</td></tr>
-            <tr><td>Agent GPU seconds per success</td><td class="num">43.2</td><td class="num">56.0</td><td class="num">69.7</td></tr>
-            <tr><td>A protected-files lesson reached the agent</td><td class="num">–</td><td class="num">9 of 10</td><td class="num">2 of 10</td></tr>
-            <tr><td>Share of episodes with the same top memory</td><td class="num">–</td><td class="num">40%</td><td class="num">80%</td></tr>
-          </tbody>
-        </table></div>
-        <div class="tablewrap"><table>
-          <thead><tr><th>Paired, against A</th><th>Pass-rate difference [95% CI]</th><th>GPU-per-success ratio [95% CI]</th><th>McNemar p</th></tr></thead>
-          <tbody>
-            <tr><td>B</td><td>−20% [−60%, +20%]</td><td>1.30× [0.71, 2.69]</td><td>0.625</td></tr>
-            <tr><td>C</td><td>−30% [−60%, 0%]</td><td>1.61× [1.12, 3.44]</td><td>0.250</td></tr>
-          </tbody>
-        </table></div>
-        <p>Every protected-file break in this experiment, in training and testing, was the same file, <code>examples/sample_output.json</code>. Every one came from the agent writing its verification output over the protected expected output. The recall fix worked: a protected-files lesson reached B in 9 of 10 test episodes, up from 1 of 10. It did not help. B passed 5 of the 9 episodes that saw the lesson, and in C's ticket 2003 the agent overwrote the file right after reading "failed because it modified protected files, specifically <code>examples/sample_output.json</code>".</p>
-        <p>Three readings fit this, and the next experiments are designed to separate them. First, the memories prime the behaviour: the most frequent memories all stress "byte-for-byte output equivalence", which invites checking against the sample file. Second, a lesson that names what not to do, without saying what to do instead, does not change behaviour; Learning on the Job's WHEN–THEN rules exist for this reason. Third, it is noise: with 10 tickets, 3 of 10 against 0 of 10 is suggestive, not conclusive. C's recall also concentrated onto one memory in 80% of test episodes, the collapse Moves to Memory warns about.</p>
-      </div>
-
-      <div class="finding">
-        <div class="tag method">Difficulty probe</div>
-        <h3>One bug type is hard for the agent without memory</h3>
-        <p>The agent without memory tried 3 new tickets of each of the four other bug types. The reference fix passes every validation check on these tickets, so failures are the agent's.</p>
-        <div class="tablewrap"><table>
-          <thead><tr><th>Bug type</th><th class="num">Passed</th><th>How it failed</th></tr></thead>
-          <tbody>
-            <tr><td><code>quadratic_membership</code> (membership tests against a list)</td><td class="num fail">0 of 3</td><td>All too slow: about 3.01 s against a 3 s budget</td></tr>
-            <tr><td><code>nested_scan_join</code> (a join done by nested scans)</td><td class="num">2 of 3</td><td>Too slow, and ran out of turns</td></tr>
-            <tr><td><code>repeated_sort_min</code> (sorting to find a minimum)</td><td class="num ok">3 of 3</td><td>–</td></tr>
-            <tr><td><code>exponential_recursion</code> (recursion without memoisation)</td><td class="num ok">3 of 3</td><td>–</td></tr>
-            <tr><td><code>queue_pop_front</code> (experiments 1 and 6, for comparison)</td><td class="num">17 of 20</td><td>Protected-file breaks and too slow</td></tr>
-          </tbody>
-        </table></div>
-        <p>Quadratic-membership tickets give memory room to help: the baseline fails them, and the fix is a reusable idea. Experiments 8a and 8b use them.</p>
-      </div>
-
-      <div class="finding">
-        <div class="tag for">Experiments 8a and 8b · hard tickets</div>
-        <h3>Where the agent without memory fails, memory helps</h3>
-        <p>Both runs used 15 training tickets and 12 test tickets of <code>quadratic_membership</code>. 8a ran B as in experiment 6. 8b added Learning on the Job: after each training episode the agent wrote one WHEN–THEN rule, and it could search memory during a task. Arm A ran in both.</p>
-        <div class="tablewrap"><table>
-          <thead><tr><th>Measure</th><th class="num">8a · A</th><th class="num">8a · B</th><th class="num">8b · A</th><th class="num">8b · B + rules</th></tr></thead>
-          <tbody>
-            <tr><td>Training tickets passed (of 15)</td><td class="num">–</td><td class="num">4</td><td class="num">–</td><td class="num ok">10</td></tr>
-            <tr><td>Test tickets passed (of 12)</td><td class="num fail">1</td><td class="num">5</td><td class="num">3</td><td class="num ok">7</td></tr>
-            <tr><td>Too slow on the large input</td><td class="num">9</td><td class="num">4</td><td class="num">8</td><td class="num">5</td></tr>
-            <tr><td>Broke the protected-files rule</td><td class="num">1</td><td class="num">2</td><td class="num">1</td><td class="num">2</td></tr>
-            <tr><td>Wrong output</td><td class="num">2</td><td class="num">3</td><td class="num">1</td><td class="num">0</td></tr>
-            <tr><td>Mean wall time per test episode</td><td class="num">179 s</td><td class="num">111 s</td><td class="num">138 s</td><td class="num">89 s</td></tr>
-            <tr><td>Agent GPU seconds per success</td><td class="num">572</td><td class="num">117</td><td class="num">171</td><td class="num">75</td></tr>
-            <tr><td>Share of test episodes with the same top memory</td><td class="num">–</td><td class="num">75%</td><td class="num">–</td><td class="num">58%</td></tr>
-          </tbody>
-        </table></div>
-        <div class="tablewrap"><table>
-          <thead><tr><th>Paired against A</th><th>B only / A only</th><th>Pass-rate difference [95% CI]</th><th>GPU-per-success ratio [95% CI]</th><th>McNemar p</th></tr></thead>
-          <tbody>
-            <tr><td>8a · B</td><td>5 / 1</td><td>+33% [0%, +67%]</td><td>0.20× [0.13, 1.47]</td><td>0.22</td></tr>
-            <tr><td>8b · B + rules</td><td>6 / 2</td><td>+33% [−8%, +75%]</td><td>0.44× [0.12, 1.24]</td><td>0.29</td></tr>
-            <tr><td>Both runs pooled</td><td>11 / 3</td><td>12 of 24 against 4 of 24</td><td>–</td><td>0.057</td></tr>
-          </tbody>
-        </table></div>
-        <p>Neither run alone is significant, but both point the same way, and each run's interval for pass rate sits at or just below zero. Pooling the 24 paired test episodes gives p = 0.057. That pooling mixes B with and without rules, so it tests "any memory against none" rather than either arm. The baseline moved from 1 to 3 of 12 between runs (Fisher p = 0.59), which is ordinary noise at this sample size.</p>
-        <p><strong>The rules were well formed.</strong> All 15 training episodes produced a rule. Successes wrote rules such as "WHEN a Python list membership check causes O(n²) time, THEN convert the list to a set for lookups and keep a separate list to preserve order." The first failed episode had already written a correct AVOID rule. In one case the format check rejected an AVOID rule because it left out the protected file's name. The agent rewrote it, and later still overwrote that file on a training ticket.</p>
-        <p><strong>The agent used search.</strong> It called <code>search_memory</code> in 11 of 15 training episodes and 7 of 12 test episodes. Test episodes that searched passed 6 of 7, against 1 of 5 that didn't. The agent chose when to search, so this may reflect which tickets it found easy rather than what search contributed.</p>
-        <p><strong>What rules may have changed.</strong> With rules, the agent fixed 10 of 15 training tickets, against 4 of 15 without them (Fisher p = 0.066), and wrong-output failures on test tickets fell from 3 to 0. Rules did not reduce protected-file breaks, which stayed at 2 of 12. All five remaining test failures were too slow, and two of them also broke the protected-files rule. Two tickets (2002, 2003) failed in all four arm-runs.</p>
-      </div>
-
-      <div class="finding">
-        <div class="tag for">Experiment 10 · all four arms, rules stored verbatim</div>
-        <h3>MemRL's ranking with verbatim rules fixed every hard test ticket</h3>
-        <p>Same 15 training and 12 test <code>quadratic_membership</code> tickets as experiments 8a and 8b. Every memory arm had Learning on the Job's rules and memory search, now with rules stored verbatim and given the first two memory slots. C reranks the rest by MemRL's learned usefulness. D adds AWM procedures, kept only if they win the dev-panel check.</p>
-        <div class="tablewrap"><table>
-          <thead><tr><th>Measure</th><th class="num">A · none</th><th class="num">B · memory + rules</th><th class="num">C · + MemRL</th><th class="num">D · + procedures</th></tr></thead>
-          <tbody>
-            <tr><td>Training tickets passed (of 15)</td><td class="num">–</td><td class="num">10</td><td class="num">11</td><td class="num">9</td></tr>
-            <tr><td>Test tickets passed (of 12)</td><td class="num fail">4</td><td class="num">8</td><td class="num ok">12</td><td class="num">10</td></tr>
-            <tr><td>Too slow on the large input</td><td class="num">7</td><td class="num">2</td><td class="num">0</td><td class="num">2</td></tr>
-            <tr><td>Broke the protected-files rule</td><td class="num">1</td><td class="num">2</td><td class="num">0</td><td class="num">0</td></tr>
-            <tr><td>Mean wall time per test episode</td><td class="num">148 s</td><td class="num">73 s</td><td class="num">48 s</td><td class="num">65 s</td></tr>
-            <tr><td>Agent GPU seconds per success</td><td class="num">133</td><td class="num">58</td><td class="num">38</td><td class="num">60</td></tr>
-            <tr><td>Mean turns per test episode</td><td class="num">33.6</td><td class="num">27.2</td><td class="num">24.2</td><td class="num">33.2</td></tr>
-          </tbody>
-        </table></div>
-        <div class="tablewrap"><table>
-          <thead><tr><th>Paired against A</th><th>Arm only / A only</th><th>Pass-rate difference [95% CI]</th><th>GPU-per-success ratio [95% CI]</th><th>McNemar p</th></tr></thead>
-          <tbody>
-            <tr><td>B</td><td>5 / 1</td><td>+33% [0%, +67%]</td><td>0.44× [0.12, 0.97]</td><td>0.22</td></tr>
-            <tr><td>C</td><td>8 / 0</td><td>+67% [+42%, +92%]</td><td>0.29× [0.07, 0.55]</td><td>0.008</td></tr>
-            <tr><td>D</td><td>7 / 1</td><td>+50% [+8%, +83%]</td><td>0.45× [0.12, 0.93]</td><td>0.070</td></tr>
-          </tbody>
-        </table></div>
-        <p><strong>The rules reached the agent.</strong> Every memory arm's test episodes opened with a verbatim rule, almost always the VERIFIED rule for this bug ("WHEN Python code performs O(n) membership testing (like 'item in list') …"). Tickets 2002 and 2003 had failed in all four arm-runs of 8a and 8b; C and D fixed both.</p>
-        <p><strong>Protected-file breaks fell, but not clearly because of the AVOID rule.</strong> C and D broke the rule 0 times in 24 test episodes. B broke it 2 times in 12, and A once. An AVOID rule about protected files was among the shown memories in only 2 of B's, 2 of C's and 1 of D's test episodes. The VERIFIED rule took most rule slots, so the drop more likely comes from faster, more direct fixes: C averaged 24 turns, against 34 for A.</p>
-        <p><strong>D's procedure check worked as designed.</strong> It tried three AWM procedures. It rejected the first, which lowered dev-panel passes from 7 to 5 of 12 and made protected-file breaks more frequent. It promoted the second (7 to 9 of 12) and rejected the third, which tied at 12 of 12. The check's 72 dev episodes cost 2,877 agent GPU seconds, charged as learning. D's procedures did not improve on C, which shares D's memory settings without them.</p>
-        <p><strong>Cautions.</strong> This is one learning history and 12 test tickets of one bug type, with three arms compared against A. Arm A fixed 1, 3 and 4 of 12 across experiments 8a, 8b and 10, so the baseline varies by run. C fixing 12 of 12 is the headline, and it needs a second history and the sealed tickets before it counts as evidence for H4.</p>
-      </div>
-
-      <div class="finding">
-        <div class="tag for">Experiment 11 · replication on fresh tickets</div>
-        <h3>Memory's gain held up; C's lead over B did not</h3>
-        <p>Experiment 10's arms A, B and C, with the same settings and calibration, on 15 new training tickets (seeds 1003–1005) and 12 new test tickets (seeds 2012–2023). D was left out: it did not beat C, and its check costs about 72 extra episodes.</p>
-        <div class="tablewrap"><table>
-          <thead><tr><th>Measure</th><th class="num">A · none</th><th class="num">B · memory + rules</th><th class="num">C · + MemRL</th></tr></thead>
-          <tbody>
-            <tr><td>Training tickets passed (of 15)</td><td class="num">–</td><td class="num ok">15</td><td class="num">9</td></tr>
-            <tr><td>Test tickets passed (of 12)</td><td class="num fail">3</td><td class="num ok">12</td><td class="num">8</td></tr>
-            <tr><td>Too slow on the large input</td><td class="num">9</td><td class="num">0</td><td class="num">2</td></tr>
-            <tr><td>Broke the protected-files rule</td><td class="num">1</td><td class="num">0</td><td class="num">2</td></tr>
-            <tr><td>Agent GPU seconds per success</td><td class="num">183</td><td class="num">47</td><td class="num">61</td></tr>
-          </tbody>
-        </table></div>
-        <div class="tablewrap"><table>
-          <thead><tr><th>Paired against A</th><th>Arm only / A only</th><th>Pass-rate difference [95% CI]</th><th>GPU-per-success ratio [95% CI]</th><th>McNemar p</th></tr></thead>
-          <tbody>
-            <tr><td>B</td><td>9 / 0</td><td>+75% [+50%, +100%]</td><td>0.26× [0.08, 0.53]</td><td>0.004</td></tr>
-            <tr><td>C</td><td>6 / 1</td><td>+42% [+8%, +75%]</td><td>0.33× [0.08, 0.93]</td><td>0.125</td></tr>
-          </tbody>
-        </table></div>
-        <div class="tablewrap"><table>
-          <thead><tr><th>Experiments 10 + 11 pooled (24 test tickets)</th><th class="num">A</th><th class="num">B</th><th class="num">C</th></tr></thead>
-          <tbody>
-            <tr><td>Passed</td><td class="num">7</td><td class="num">20</td><td class="num">20</td></tr>
-            <tr><td>Paired wins / losses against A</td><td class="num">–</td><td class="num">14 / 1</td><td class="num">14 / 1</td></tr>
-          </tbody>
-        </table></div>
-        <p>The B and C ranking reversed between runs, and so did their training rounds: in experiment 11, C passed only 9 of 15 training tickets, against B's 15. Each arm learns from its own successes and failures, so an arm that starts badly carries a weaker bank into testing. With one history per experiment, this run-to-run variation is as large as any difference between B and C. It is why the proposal calls for several independent histories.</p>
+        <div class="tag for">Experiments 8a and 8b · hard tickets, before verbatim rules</div>
+        <h3>Memory helped on hard tickets before the rules reached the agent</h3>
+        <p>Pooled over both runs, B won 11 paired tickets and lost 3 (p = 0.057). With rules, B passed 10 of 15 training tickets against 4 of 15 without (Fisher p = 0.066). Hindsight's fact extraction had paraphrased every rule: none of 587 recall candidates in 8b contained rule wording. Rules have been stored verbatim since experiment 10.</p>
       </div>
 
       <div class="finding">
         <div class="tag method">Experiment 12 · second bug type</div>
-        <h3>Where the baseline already succeeds, memory saves effort, not failures</h3>
-        <p>Experiment 11's settings on <code>nested_scan_join</code> (a join done by nested scans), 15 training and 12 test tickets. C's similarity calibration is reused from <code>quadratic_membership</code>, a stated deviation.</p>
-        <div class="tablewrap"><table>
-          <thead><tr><th>Measure</th><th class="num">A · none</th><th class="num">B · memory + rules</th><th class="num">C · + MemRL</th></tr></thead>
-          <tbody>
-            <tr><td>Training tickets passed (of 15)</td><td class="num">–</td><td class="num">13</td><td class="num">13</td></tr>
-            <tr><td>Test tickets passed (of 12)</td><td class="num">9</td><td class="num">9</td><td class="num">10</td></tr>
-            <tr><td>Broke the protected-files rule</td><td class="num">3</td><td class="num">3</td><td class="num">1</td></tr>
-            <tr><td>Mean turns per test episode</td><td class="num">36.8</td><td class="num">29.1</td><td class="num">28.8</td></tr>
-            <tr><td>Agent GPU seconds per success</td><td class="num">72.6</td><td class="num">66.3</td><td class="num">48.5</td></tr>
-            <tr><td>GPU-per-success ratio against A [95% CI]</td><td class="num">–</td><td class="num">0.91× [0.54, 1.58]</td><td class="num">0.67× [0.44, 0.93]</td></tr>
-            <tr><td>Paired wins / losses against A (McNemar p)</td><td class="num">–</td><td class="num">2 / 2 (1.0)</td><td class="num">2 / 1 (1.0)</td></tr>
-          </tbody>
-        </table></div>
-        <p>Every failure here was a protected-file break or wrong output, never a slow fix, so the cause-specific rule had nothing to correct. This matches the pattern across all experiments: memory raises pass rates only where the agent without memory fails, and otherwise mostly shortens the work. C's cost ratio is the only interval here that excludes no effect, and it rests on one history.</p>
+        <h3>No pass-rate gain where the baseline succeeds</h3>
+        <p>On <code>nested_scan_join</code>, all failures were protected-file breaks or wrong output, not slow code. Both memory arms used about 8 fewer turns than A. C's GPU time per success was 0.67× A's (95% CI 0.44–0.93); B's was 0.91× (0.54–1.58).</p>
       </div>
+
       <div class="finding">
-        <div class="tag method">Experiment 13 · three histories</div>
-        <h3>Memory's gain held over three histories, but one history learned an incomplete lesson</h3>
-        <p>Arms A, B and C on fresh <code>quadratic_membership</code> tickets: 15 training and 12 test tickets, run three times. Each history shuffles the training order and starts from empty memory banks.</p>
-        <div class="tablewrap"><table>
-          <thead><tr><th>Measure</th><th class="num">A · none</th><th class="num">B · memory + rules</th><th class="num">C · + MemRL</th></tr></thead>
-          <tbody>
-            <tr><td>Training tickets passed, per history (of 15)</td><td class="num">–</td><td class="num">10 · 7 · 3</td><td class="num">9 · 8 · 3</td></tr>
-            <tr><td>Test tickets passed, per history (of 12)</td><td class="num">2 · 3 · 1</td><td class="num">11 · 12 · 3</td><td class="num">11 · 10 · 2</td></tr>
-            <tr><td>Test tickets passed, pooled (of 36)</td><td class="num">6</td><td class="num">26</td><td class="num">23</td></tr>
-            <tr><td>Paired wins / losses against A (McNemar p)</td><td class="num">–</td><td class="num">21 / 1 (&lt;0.001)</td><td class="num">18 / 1 (&lt;0.001)</td></tr>
-            <tr><td>Pass-rate gain against A [95% CI]</td><td class="num">–</td><td class="num">+56% [+42, +67]</td><td class="num">+47% [+33, +61]</td></tr>
-            <tr><td>GPU-per-success ratio against A [95% CI]</td><td class="num">–</td><td class="num">0.21× [0.07, 0.35]</td><td class="num">0.20× [0.07, 0.33]</td></tr>
-            <tr><td>Mean turns per test episode</td><td class="num">34.2</td><td class="num">28.8</td><td class="num">27.8</td></tr>
-          </tbody>
-        </table></div>
-        <p><strong>B against C.</strong> B beat C on 6 paired test tickets and lost 3 (McNemar p = 0.51). By history the split was 1–1, 2–0 and 3–2. MemRL's ranking adds nothing detectable to plain memory with rules.</p>
-        <p><strong>Why the third history failed.</strong> These tickets have two slow list lookups: the obvious <code>seen</code> list and a second one, such as <code>blocked</code>. The test harness's speed check was not the cause: the reference program took a median 0.14 s in every history, and agent code either ran at about 1× the reference or timed out at about 20×. In histories 1 and 2, 31 of the 60 stored rules mentioned the second lookup. In history 3, none of the 30 did. Its first rules were AVOID rules about the <code>seen</code> list alone, and recall kept returning them. In 45 of history 3's 47 slow-code failures, the agent had added a set for <code>seen</code> and left the second list in place. Memory repeats what it has learned, and the order of the first few tickets decided whether that lesson was complete.</p>
-        <p><strong>Cautions.</strong> The test tickets are the same in all three histories, so the pooled intervals treat the 12 tickets as clusters. Three histories are enough to show that histories differ, not to estimate how often a history learns an incomplete lesson.</p>
+        <div class="tag against">Experiments 1 and 6 · easy tickets</div>
+        <h3>On an easy bug, memory did not help</h3>
+        <p>Experiment 1 was voided: failed checks were recorded in the wording of the passing check, so memory stored that an attempt "failed because it left the tests and harness untouched". After that was fixed, A and B each passed 9 of 10. A protected-files lesson reached the top 5 in only 1 of 10 test episodes, because ticket text in the memory context made recall rank by ticket similarity. Restricting recall to experience facts raised this to 8 of 10 in a replay.</p>
+        <p>In experiment 6, B passed 6 of 10 and C 5 of 10, against A's 8. Both memory arms broke the protected-files rule 3 times, always by writing verification output over <code>examples/sample_output.json</code>, including immediately after recalling a lesson that named the file. C's recall returned the same top memory in 80% of test episodes.</p>
       </div>
     </div>
   </section>
 
-  <section id="lessons">
+  <section id="bugs">
     <div class="eyebrow">Method notes</div>
-    <h2>What went wrong, and what it taught us</h2>
+    <h2>Harness fixes</h2>
     <div class="twocol">
       <div>
-        <h3>Bugs that would have biased results</h3>
+        <h3>Bugs found and fixed</h3>
         <ul class="checklist">
-          <li>Failed checks described in their passing wording (experiment 1 voided).</li>
+          <li>Failed checks recorded in passing wording (experiment 1 voided).</li>
           <li>Ticket text in the memory context made recall rank by ticket similarity.</li>
           <li>A 500 KB scratch file in an episode diff caused about 40 memory-model calls; diffs now cover source files only.</li>
-          <li>Proposal formula for arm C's reward could never demote a memory linked to failures.</li>
-          <li>Learning on the Job's rules were paraphrased by Hindsight's fact extraction, so none reached the agent in their own words (experiment 8b, 0 of 587 candidates). Rules are now stored verbatim; experiment 9, which used the old storage, was stopped after 6 episodes.</li>
+          <li>The spec's reward for arm C could never demote a memory.</li>
+          <li>Rules paraphrased by Hindsight's fact extraction; experiment 9 was stopped after 6 episodes.</li>
         </ul>
       </div>
       <div>
-        <h3>Safeguards now in place</h3>
+        <h3>Safeguards</h3>
         <ul class="checklist">
-          <li>Model and memory LLM pinned by weights hash, build and context; checked before every episode.</li>
-          <li>Test episodes read a frozen snapshot of the memory, and must leave both its content hash and its learner hash unchanged.</li>
-          <li>Learners, rules and procedures never see hidden tests or the reference fix; tests check this.</li>
-          <li>Every earlier experiment setup keeps its exact hash, so old runs reproduce.</li>
-          <li>Each recall logs its full ranked candidate list, so "never retrieved" can be told from "retrieved but ignored".</li>
+          <li>Model and memory LLM pinned by weights hash, checked before every episode.</li>
+          <li>Test episodes must leave the memory snapshot's content and learner hashes unchanged.</li>
+          <li>Learners never see hidden tests or the reference fix; tests check this.</li>
+          <li>Earlier experiment configs keep their hashes, so old runs reproduce.</li>
         </ul>
       </div>
     </div>
-  </section>
-
-  <section id="next">
-    <div class="eyebrow">Running and next</div>
-    <h2>Experiments</h2>
-    <div class="tablewrap"><table>
-      <thead><tr><th>Experiment</th><th>Question</th><th>Arms</th><th class="num">Episodes</th><th>Status</th></tr></thead>
-      <tbody>
-        <tr><td><strong>6</strong> papers-bc</td><td>Do Hindsight as intended (B) and MemRL ranking (C) beat no memory, on experiment 1's tickets?</td><td>A, B, C</td><td class="num">60</td><td><span class="pill done">Done</span></td></tr>
-        <tr><td><strong>Probe</strong></td><td>Which of the other four bug types does the agent without memory fail?</td><td>A</td><td class="num">12</td><td><span class="pill done">Done</span></td></tr>
-        <tr><td><strong>7</strong> arm D</td><td>Do validated procedures add to utility ranking?</td><td>A, B, C, D</td><td class="num">85 + up to 72 dev</td><td><span class="pill untested">Designed</span></td></tr>
-        <tr><td><strong>8a</strong> hard memory</td><td>On hard tickets, does Hindsight memory (as in experiment 6) help?</td><td>A, B</td><td class="num">39</td><td><span class="pill done">Done</span></td></tr>
-        <tr><td><strong>8b</strong> hard rules</td><td>Same tickets: do Learning on the Job's WHEN–THEN rules and agent memory search add to it?</td><td>A, B + rules</td><td class="num">39</td><td><span class="pill done">Done</span></td></tr>
-        <tr><td><strong>9</strong> hard C/D</td><td>Arms C and D on the hard tickets, rules paraphrased</td><td>A, B, C, D</td><td class="num">6 of 93</td><td><span class="pill blocked">Stopped</span></td></tr>
-        <tr><td><strong>10</strong> hard verbatim</td><td>Arms C and D on the hard tickets, with rules stored verbatim</td><td>A, B, C, D</td><td class="num">93 + 72 dev</td><td><span class="pill done">Done</span></td></tr>
-        <tr><td><strong>11</strong> replicate</td><td>Do experiment 10's results hold on fresh training and test tickets?</td><td>A, B, C</td><td class="num">66</td><td><span class="pill done">Done</span></td></tr>
-        <tr><td><strong>12</strong> scan join</td><td>Does memory's gain carry to a second bug type?</td><td>A, B, C</td><td class="num">66</td><td><span class="pill done">Done</span></td></tr>
-        <tr><td><strong>13</strong> histories</td><td>B against C on hard tickets over three independent learning histories</td><td>A, B, C</td><td class="num">198</td><td><span class="pill done">Done</span></td></tr>
-      </tbody>
-    </table></div>
-    <p class="small muted">Experiment 7 is superseded by experiment 10. Experiment 13 ran three independent histories (each its own training order and banks). Histories differed more than B and C did, so the next step is to record per-history outcomes as the unit of analysis, and to check whether a lesson that misses part of a fix can be corrected once it is stored.</p>
   </section>
 
   <section id="limits">
-    <div class="eyebrow">Limits</div>
-    <h2>What this evidence cannot show yet</h2>
+    <div class="eyebrow">Limitations</div>
+    <h2>Limitations</h2>
     <div class="note"><ul>
-      <li><strong>Ten or twelve test tickets per arm.</strong> At a 90% pass rate, a 95% interval runs from about 60% to 98%. Only large effects are detectable, and the baseline moved by 2 of 12 between identical runs.</li>
-      <li><strong>Few learning histories.</strong> Experiment 13 is the only run with several histories (three, on one bug type). Its histories ranged from 3 to 12 test tickets fixed for the same arm, so single-history results elsewhere in this report carry that much variation.</li>
-      <li><strong>Placeholder prices.</strong> Cached input is priced at zero, although it is about 97% of input. Measured GPU time shows learning costs about 80–90% of inference; the placeholder ledger says 28%. Cost terms in rewards barely move.</li>
-      <li><strong>Small comparisons have weak power.</strong> Moves to Memory withholds ΔNL below 10 baseline failures, and the published effects are a few points on fresh tasks (MemRL). The sample sizes for the confirmatory study need a power analysis on pilot variance.</li>
+      <li>10 or 12 test tickets per arm per history. At a 90% pass rate, the 95% interval spans about 60–98%.</li>
+      <li>Only experiment 13 has more than one history. Its histories ranged from 3 to 12 of 12 for the same arm, so single-history results carry similar variation.</li>
+      <li>Costs use placeholder prices. Cached input, about 97% of input tokens, is priced at zero. Measured GPU time puts learning at 80–90% of inference cost; the ledger says 28%.</li>
+      <li>Published effects for these methods are a few points on fresh tasks. The confirmatory study needs a power analysis based on pilot variance.</li>
     </ul></div>
   </section>
 
@@ -583,17 +378,17 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <div class="eyebrow">Decisions</div>
     <h2>Open decisions</h2>
     <ol class="steps">
-      <li><strong>Prices from GPU time.</strong> Replace the placeholder shadow prices with prices derived from measured GPU seconds. This changes the registration.</li>
-      <li><strong>Arm C reward.</strong> Adopt "pass: 1 − cost, fail: −1" and amend the spec, or keep the spec's formula as primary and report the other as a sensitivity run.</li>
-      <li><strong>GEPA promotion check.</strong> Use a larger development panel when GEPA is the procedure source, since with 6 tasks only 1 is unseen by its search.</li>
-      <li><strong>Reflect and mental models.</strong> Test Hindsight's reflect, or a standing "lessons from failures" mental model, as an ablation of arm B.</li>
+      <li><strong>Prices from GPU time.</strong> Replace placeholder prices with prices derived from measured GPU seconds. This changes the registration.</li>
+      <li><strong>Arm C reward.</strong> Amend the spec to "pass: 1 − cost, fail: −1", or keep the spec's formula and report this one as a sensitivity analysis.</li>
+      <li><strong>GEPA development panel.</strong> With 6 tasks, only 1 is unseen by GEPA's search; a larger panel is needed.</li>
+      <li><strong>Reflect.</strong> Test Hindsight's reflect, or a standing mental model of past failures, as an ablation of B.</li>
+      <li><strong>Unit of analysis.</strong> Treat the learning history as the unit and run more histories, possibly in parallel, at the cost of comparable GPU-time measurements.</li>
     </ol>
   </section>
 
   <hr>
   <footer>
-    <span>Code: /home/dev/projects/agent-experience · learners in elh/learner/, memory in elh/memory/hindsight.py, metrics in elh/analysis.py</span>
-    <span>Paper reports: session scratchpad papers/{hindsight,memrl,continual,awm,gepa}.md</span>
+    <span>Code: /home/dev/projects/agent-experience · elh/learner/, elh/memory/hindsight.py, elh/analysis.py</span>
     <span>Proposal: "Can AI Agents Become More Experienced?" v1.0, 2026-10-24</span>
   </footer>
 </main>
