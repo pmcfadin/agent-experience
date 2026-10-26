@@ -5,3 +5,10 @@ __pycache__/
 .env
 .env.*
 runs-*/
+.pytest_cache/
+.claude/
+*.sqlite3
+*.sqlite
+*.db
+*.gguf
+services/hindsight/models/
