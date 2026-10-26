@@ -159,7 +159,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <div class="eyebrow">Study write-up · Experiential Learning Harness</div>
     <h1>Can AI agents become more experienced?</h1>
     <p class="lede">A frozen coding agent fixes generated performance bugs. Four agents differ only in what they keep between tasks. This write-up covers the hypothesis, the six papers each part of the design comes from, how we built them, what the evidence says so far, and what runs next.</p>
-    <div class="meta"><span>Updated 2026-10-25</span><span>Agent: Qwen3-Coder 30B-A3B (Q4_K_M, local)</span><span>Memory LLM: Gemma 4 26B</span><span>Hindsight 1.1.0</span><span>200 tests passing</span></div>
+    <div class="meta"><span>Updated 2026-10-26</span><span>Agent: Qwen3-Coder 30B-A3B (Q4_K_M, local)</span><span>Memory LLM: Gemma 4 26B</span><span>Hindsight 1.1.0</span><span>230 tests passing</span></div>
     <nav class="toc" aria-label="Sections">
       <a href="#bottom">Bottom line</a><a href="#hyp">Hypotheses</a><a href="#arms">The four arms</a><a href="#papers">From papers to code</a><a href="#evidence">Evidence so far</a><a href="#lessons">What went wrong</a><a href="#next">Running and next</a><a href="#limits">Limits</a><a href="#decisions">Open decisions</a>
     </nav>
@@ -168,7 +168,10 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <section id="bottom" class="verdict">
     <div class="eyebrow">Bottom line</div>
     <ul>
-      <li><strong>On hard tickets, memory helped in both runs.</strong> On quadratic-membership tickets, which the agent without memory almost always fails, the Hindsight arm fixed 5 of 12 against 1 of 12 (experiment 8a), and 7 of 12 against 3 of 12 with rules added (8b). Pooled over both runs, memory won 11 paired tickets and lost 3 (McNemar p = 0.057). It also used less wall time per episode (89–111 s against 138–179 s).</li>
+      <li><strong>With rules stored word for word, MemRL's ranking (arm C) fixed all 12 hard test tickets; the agent without memory fixed 4.</strong> C won 8 paired tickets and lost none (McNemar p = 0.008; pass-rate gain +67%, 95% interval +42% to +92%). It used 0.29× the agent GPU time per success (interval 0.07–0.55). That interval is the first to clearly exclude no effect in C's favour. It is one learning history on one bug type with 12 test tickets, so it needs replication before it counts.</li>
+      <li><strong>Procedures (arm D) did not add to C.</strong> D fixed 10 of 12 (p = 0.070 against A), and plain memory with rules (B) fixed 8 of 12 (p = 0.22). D's promotion check kept one of three procedures it tried, and it rejected the first for making protected-file breaks more frequent.</li>
+      <li><strong>Our first version of Learning on the Job was unfaithful, and fixing it is part of this result.</strong> Hindsight had been paraphrasing each rule into facts, so in experiment 8b no rule wording ever reached the agent. Rules are now stored verbatim, with no model rewrite, and two memory slots are reserved for them, as the paper intends. Experiment 10 is the first run with this storage.</li>
+      <li><strong>On hard tickets, memory helped in both earlier runs too.</strong> On quadratic-membership tickets, which the agent without memory almost always fails, the Hindsight arm fixed 5 of 12 against 1 of 12 (experiment 8a), and 7 of 12 against 3 of 12 with rules added (8b). Pooled over both runs, memory won 11 paired tickets and lost 3 (McNemar p = 0.057). It also used less wall time per episode (89–111 s against 138–179 s).</li>
       <li><strong>On easy tickets, memory hurt.</strong> On <code>queue_pop_front</code>, which the agent without memory fixes about 85% of the time, memory arms did worse in experiment 6 (A 8/10, B 6/10, C 5/10). Memory has room to help only where the agent fails without it.</li>
       <li><strong>Learning on the Job's rules may speed up learning, but the evidence is weak.</strong> With rules, the agent fixed 10 of 15 practice tickets, against 4 of 15 without (Fisher p = 0.066). On test tickets, 7 of 12 against 5 of 12 cannot be told apart. The baseline itself moved from 1 to 3 of 12 between runs.</li>
       <li><strong>Memory doesn't fix overwriting a protected file.</strong> The memory arm overwrote the protected <code>examples/sample_output.json</code> in 4 of 24 test episodes, against 2 of 24 without memory. It did so even after a rule naming the file was stored. On ticket 2008, the agent without memory passed in both runs and the memory arm failed in both, each time by overwriting that file.</li>
@@ -188,7 +191,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       <div class="hyp"><div class="id">H1</div><div class="body"><div class="claim">D is 20% cheaper per success than A on sealed tasks</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">All four arms are now built. A sealed test is not run until the protocol is locked.</span></div></div></div>
       <div class="hyp"><div class="id">H2</div><div class="body"><div class="claim">The advantage grows across checkpoints</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Only single checkpoints so far. Hold rate between checkpoints is implemented.</span></div></div></div>
       <div class="hyp"><div class="id">H3</div><div class="body"><div class="claim">Learning transfers to new combinations and causes</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Forward transfer is implemented; it needs sealed novel-combination and novel-cause tasks.</span></div></div></div>
-      <div class="hyp"><div class="id">H4</div><div class="body"><div class="claim">Utility ranking and validated procedures add value beyond retrieval</div><div class="row"><span class="pill blocked">Against, so far</span><span class="small muted">Experiment 6: C passed 5/10 against B's 6/10, and its recall collapsed onto one memory in 80% of test episodes. C and D have not yet run on the hard tickets where B helps.</span></div></div></div>
+      <div class="hyp"><div class="id">H4</div><div class="body"><div class="claim">Utility ranking and validated procedures add value beyond retrieval</div><div class="row"><span class="pill ready">Mixed</span><span class="small muted">Hard tickets (experiment 10): C 12/12 against B 8/12, so utility ranking may help; D 10/12, so procedures did not add to C. Easy tickets (experiment 6): C 5/10 against B 6/10. One history each.</span></div></div></div>
       <div class="hyp"><div class="id">H5</div><div class="body"><div class="claim">New learning does not erode earlier ability</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Backward transfer, retention phases and automatic rollback are implemented; no retention run yet.</span></div></div></div>
     </div>
   </section>
@@ -411,6 +414,36 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
         <p><strong>The agent used search.</strong> It called <code>search_memory</code> in 11 of 15 training episodes and 7 of 12 test episodes. Test episodes that searched passed 6 of 7, against 1 of 5 that didn't. The agent chose when to search, so this may reflect which tickets it found easy rather than what search contributed.</p>
         <p><strong>What rules may have changed.</strong> With rules, the agent fixed 10 of 15 training tickets, against 4 of 15 without them (Fisher p = 0.066), and wrong-output failures on test tickets fell from 3 to 0. Rules did not reduce protected-file breaks, which stayed at 2 of 12. All five remaining test failures were too slow, and two of them also broke the protected-files rule. Two tickets (2002, 2003) failed in all four arm-runs.</p>
       </div>
+
+      <div class="finding">
+        <div class="tag for">Experiment 10 · all four arms, rules stored verbatim</div>
+        <h3>MemRL's ranking with verbatim rules fixed every hard test ticket</h3>
+        <p>Same 15 training and 12 test <code>quadratic_membership</code> tickets as experiments 8a and 8b. Every memory arm had Learning on the Job's rules and memory search, now with rules stored verbatim and given the first two memory slots. C reranks the rest by MemRL's learned usefulness. D adds AWM procedures, kept only if they win the dev-panel check.</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Measure</th><th class="num">A · none</th><th class="num">B · memory + rules</th><th class="num">C · + MemRL</th><th class="num">D · + procedures</th></tr></thead>
+          <tbody>
+            <tr><td>Training tickets passed (of 15)</td><td class="num">–</td><td class="num">10</td><td class="num">11</td><td class="num">9</td></tr>
+            <tr><td>Test tickets passed (of 12)</td><td class="num fail">4</td><td class="num">8</td><td class="num ok">12</td><td class="num">10</td></tr>
+            <tr><td>Too slow on the large input</td><td class="num">7</td><td class="num">2</td><td class="num">0</td><td class="num">2</td></tr>
+            <tr><td>Broke the protected-files rule</td><td class="num">1</td><td class="num">2</td><td class="num">0</td><td class="num">0</td></tr>
+            <tr><td>Mean wall time per test episode</td><td class="num">148 s</td><td class="num">73 s</td><td class="num">48 s</td><td class="num">65 s</td></tr>
+            <tr><td>Agent GPU seconds per success</td><td class="num">133</td><td class="num">58</td><td class="num">38</td><td class="num">60</td></tr>
+            <tr><td>Mean turns per test episode</td><td class="num">33.6</td><td class="num">27.2</td><td class="num">24.2</td><td class="num">33.2</td></tr>
+          </tbody>
+        </table></div>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Paired against A</th><th>Arm only / A only</th><th>Pass-rate difference [95% CI]</th><th>GPU-per-success ratio [95% CI]</th><th>McNemar p</th></tr></thead>
+          <tbody>
+            <tr><td>B</td><td>5 / 1</td><td>+33% [0%, +67%]</td><td>0.44× [0.12, 0.97]</td><td>0.22</td></tr>
+            <tr><td>C</td><td>8 / 0</td><td>+67% [+42%, +92%]</td><td>0.29× [0.07, 0.55]</td><td>0.008</td></tr>
+            <tr><td>D</td><td>7 / 1</td><td>+50% [+8%, +83%]</td><td>0.45× [0.12, 0.93]</td><td>0.070</td></tr>
+          </tbody>
+        </table></div>
+        <p><strong>The rules reached the agent.</strong> Every memory arm's test episodes opened with a verbatim rule, almost always the VERIFIED rule for this bug ("WHEN Python code performs O(n) membership testing (like 'item in list') …"). Tickets 2002 and 2003 had failed in all four arm-runs of 8a and 8b; C and D fixed both.</p>
+        <p><strong>Protected-file breaks fell, but not clearly because of the AVOID rule.</strong> C and D broke the rule 0 times in 24 test episodes. B broke it 2 times in 12, and A once. An AVOID rule about protected files was among the shown memories in only 2 of B's, 2 of C's and 1 of D's test episodes. The VERIFIED rule took most rule slots, so the drop more likely comes from faster, more direct fixes: C averaged 24 turns, against 34 for A.</p>
+        <p><strong>D's procedure check worked as designed.</strong> It tried three AWM procedures. It rejected the first, which lowered dev-panel passes from 7 to 5 of 12 and made protected-file breaks more frequent. It promoted the second (7 to 9 of 12) and rejected the third, which tied at 12 of 12. The check's 72 dev episodes cost 2,877 agent GPU seconds, charged as learning. D's procedures did not improve on C, which shares D's memory settings without them.</p>
+        <p><strong>Cautions.</strong> This is one learning history and 12 test tickets of one bug type, with three arms compared against A. Arm A fixed 1, 3 and 4 of 12 across experiments 8a, 8b and 10, so the baseline varies by run. C fixing 12 of 12 is the headline, and it needs a second history and the sealed tickets before it counts as evidence for H4.</p>
+      </div>
     </div>
   </section>
 
@@ -425,6 +458,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
           <li>Ticket text in the memory context made recall rank by ticket similarity.</li>
           <li>A 500 KB scratch file in an episode diff caused about 40 memory-model calls; diffs now cover source files only.</li>
           <li>Proposal formula for arm C's reward could never demote a memory linked to failures.</li>
+          <li>Learning on the Job's rules were paraphrased by Hindsight's fact extraction, so none reached the agent in their own words (experiment 8b, 0 of 587 candidates). Rules are now stored verbatim; experiment 9, which used the old storage, was stopped after 6 episodes.</li>
         </ul>
       </div>
       <div>
@@ -451,9 +485,11 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
         <tr><td><strong>7</strong> arm D</td><td>Do validated procedures add to utility ranking?</td><td>A, B, C, D</td><td class="num">85 + up to 72 dev</td><td><span class="pill untested">Designed</span></td></tr>
         <tr><td><strong>8a</strong> hard memory</td><td>On hard tickets, does Hindsight memory (as in experiment 6) help?</td><td>A, B</td><td class="num">39</td><td><span class="pill done">Done</span></td></tr>
         <tr><td><strong>8b</strong> hard rules</td><td>Same tickets: do Learning on the Job's WHEN–THEN rules and agent memory search add to it?</td><td>A, B + rules</td><td class="num">39</td><td><span class="pill done">Done</span></td></tr>
+        <tr><td><strong>9</strong> hard C/D</td><td>Arms C and D on the hard tickets, rules paraphrased</td><td>A, B, C, D</td><td class="num">6 of 93</td><td><span class="pill blocked">Stopped</span></td></tr>
+        <tr><td><strong>10</strong> hard verbatim</td><td>Arms C and D on the hard tickets, with rules stored verbatim</td><td>A, B, C, D</td><td class="num">93 + 72 dev</td><td><span class="pill done">Done</span></td></tr>
       </tbody>
     </table></div>
-    <p class="small muted">Next: move experiment 7 to the quadratic-membership tickets, so C and D are tested where B helps, with rules on in every memory arm. Replicating 8b with more test tickets, or a second learning history, would settle whether rules add anything beyond plain memory. Experiment 7 takes about 2–3 hours, depending on how many libraries reach the promotion check.</p>
+    <p class="small muted">Experiment 7 is superseded by experiment 10. Next: replicate experiment 10 with a second learning history (different training order) and more test tickets, and add a second hard bug type (<code>nested_scan_join</code>) to see whether C's result carries over. Experiment 10 took about 4.5 hours.</p>
   </section>
 
   <section id="limits">
