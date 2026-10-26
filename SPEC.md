@@ -14,7 +14,7 @@ Phase 0 code is implemented; see §13 for what has and has not been verified.
 
 | Item | Value | Notes |
 |---|---|---|
-| Agent model | **Self-hosted Qwen3 Coder 30B A3B** via the Wintermute OpenAI-compatible gateway (Decision, 2026-10-24) | Frozen by weights file hash, quantization, server build/flags and context size (`model.pin`); the controller refuses any non-dev split until the pin is complete. Served through the dedicated alias `study-qwen3-coder-30b-a3b`, which takes one request at a time (the client holds a per-alias lock). The alias shares its backend unit with Hermes's aliases, so every response's backend identity (gateway deployment id, `system_fingerprint`) is recorded and a change mid-episode is an infrastructure error; the backend's `/props` is stored with every episode. `claude-sonnet-5-5` is kept as an optional comparison configuration (`experiments/phase0-sonnet.yaml`). |
+| Agent model | **Self-hosted Qwen3 Coder 30B A3B** via a self-hosted OpenAI-compatible gateway in front of llama.cpp (Decision, 2026-10-24) | Frozen by weights file hash, quantization, server build/flags and context size (`model.pin`); the controller refuses any non-dev split until the pin is complete. Served through the dedicated alias `study-qwen3-coder-30b-a3b`, which takes one request at a time (the client holds a per-alias lock). The alias shares its backend unit with other users' aliases, so every response's backend identity (gateway deployment id, `system_fingerprint`) is recorded and a change mid-episode is an infrastructure error; the backend's `/props` is stored with every episode. `claude-sonnet-5-5` is kept as an optional comparison configuration (`experiments/phase0-sonnet.yaml`). |
 | Thinking / effort | n/a for the local model; Sonnet comparison: adaptive thinking, `effort: medium` | Any `reasoning_content` the gateway returns is kept in the trace and never sent back. |
 | Refusal fallbacks (Sonnet comparison) | **off** | Server-side fallback would silently switch models mid-episode and break the frozen-model control. A `refusal` stop ends the episode as `outcome=refused` and is reported separately. |
 | Sampling | local model: `temperature 0.7, top_p 0.8` (Qwen3-Coder recommended), preregistered | Model nondeterminism is handled by replicated learning histories, not by seeds. |
@@ -513,13 +513,12 @@ the earlier ticket; the useful verdict detail is thin, which is worth watching i
 
 ## 14. Open items needing the owner
 
-1. ~~Local model access from dev~~ (done 2026-10-25: dev loopback, `claude-dev` key in
-   `~/.config/wintermute/model-api.env`, aliases `study-qwen3-coder-30b-a3b` and
-   `study-gemma4-26b-a4b`). The directory's `model-api` entry still lists only hermes and randy.
-2. ~~Pin facts~~ (done 2026-10-25: supplied by the sysadmin from `docs/local-model-api-pilot.md`
-   and matched against `/props`; registration v4 pins both the agent and the memory LLM. Gemma's
-   `context_tokens` is the per-request 65536: `--ctx-size 131072` over 2 slots). No Forgejo token.
-3. ~~Backend `/props`~~ (done 2026-10-25: `wintermute-props-relay` on `127.0.0.1:4120`, read-only,
+1. ~~Local model access from dev~~ (done 2026-10-25: loopback access, API key in a private env
+   file outside the repository, aliases `study-qwen3-coder-30b-a3b` and `study-gemma4-26b-a4b`).
+2. ~~Pin facts~~ (done 2026-10-25: supplied by the host administrator and matched against
+   `/props`; registration v4 pins both the agent and the memory LLM. Gemma's
+   `context_tokens` is the per-request 65536: `--ctx-size 131072` over 2 slots).
+3. ~~Backend `/props`~~ (done 2026-10-25: a read-only `/props` relay on `127.0.0.1:4120`,
    `GET /coder/props` and `/gemma/props` only). Every episode fetches the agent's `/props` (and the
    memory LLM's on group B), stores it, and is an infra error if the weights file, build or
    per-request context differs from the pin; the relay is sent no credentials.

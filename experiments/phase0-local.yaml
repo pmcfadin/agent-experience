@@ -8,14 +8,14 @@ version: 6                      # v2: study aliases, UserSandbox, /props capture
 model:
   provider: openai_compat
   id: study-qwen3-coder-30b-a3b   # dedicated study alias; one request at a time (client holds a lock)
-  base_url_env: WINTERMUTE_MODEL_API_BASE   # from ~/.config/wintermute/model-api.env
+  base_url_env: WINTERMUTE_MODEL_API_BASE   # values come from a private env file outside the repo
   api_key_env: WINTERMUTE_MODEL_API_KEY
-  props_url: http://127.0.0.1:4120/coder/props   # wintermute-props-relay: read-only GET /props
+  props_url: http://127.0.0.1:4120/coder/props   # read-only relay of llama.cpp GET /props
   max_tokens_per_turn: 8192
   temperature: 0.7                # Qwen3-Coder recommended sampling; preregistered
   top_p: 0.8
   pin:                            # required before any non-dev split (controller enforces);
-                                  # facts from the sysadmin (docs/local-model-api-pilot.md), 2026-10-25,
+                                  # facts from the host administrator, 2026-10-25,
                                   # matched against /props; every episode re-checks file, build, n_ctx
     weights_sha256: fadc3e5f8d42bf7e894a785b05082e47daee4df26680389817e2093056f088ad
     weights_file: Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
