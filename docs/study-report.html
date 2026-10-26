@@ -168,7 +168,8 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <section id="bottom" class="verdict">
     <div class="eyebrow">Bottom line</div>
     <ul>
-      <li><strong>With rules stored word for word, MemRL's ranking (arm C) fixed all 12 hard test tickets; the agent without memory fixed 4.</strong> C won 8 paired tickets and lost none (McNemar p = 0.008; pass-rate gain +67%, 95% interval +42% to +92%). It used 0.29× the agent GPU time per success (interval 0.07–0.55). That interval is the first to clearly exclude no effect in C's favour. It is one learning history on one bug type with 12 test tickets, so it needs replication before it counts.</li>
+      <li><strong>Memory with verbatim rules beats no memory on hard tickets, and the result replicated on fresh tickets.</strong> Across experiments 10 and 11 (24 test tickets), arm B fixed 20 and the agent without memory 7. B won 14 paired tickets and lost 1. Experiment 11 alone: B 12/12 against A 3/12 (McNemar p = 0.004; gain +75%, 95% interval +50% to +100%; 0.26× the GPU time per success, interval 0.08–0.53).</li>
+      <li><strong>MemRL's ranking (arm C) did not beat plain memory once replicated.</strong> C fixed 12/12 in experiment 10 but 8/12 in experiment 11, where B fixed 12/12. Pooled, B and C both fixed 20 of 24. Both beat A, but nothing yet shows C adding to B.</li>
       <li><strong>Procedures (arm D) did not add to C.</strong> D fixed 10 of 12 (p = 0.070 against A), and plain memory with rules (B) fixed 8 of 12 (p = 0.22). D's promotion check kept one of three procedures it tried, and it rejected the first for making protected-file breaks more frequent.</li>
       <li><strong>Our first version of Learning on the Job was unfaithful, and fixing it is part of this result.</strong> Hindsight had been paraphrasing each rule into facts, so in experiment 8b no rule wording ever reached the agent. Rules are now stored verbatim, with no model rewrite, and two memory slots are reserved for them, as the paper intends. Experiment 10 is the first run with this storage.</li>
       <li><strong>On hard tickets, memory helped in both earlier runs too.</strong> On quadratic-membership tickets, which the agent without memory almost always fails, the Hindsight arm fixed 5 of 12 against 1 of 12 (experiment 8a), and 7 of 12 against 3 of 12 with rules added (8b). Pooled over both runs, memory won 11 paired tickets and lost 3 (McNemar p = 0.057). It also used less wall time per episode (89–111 s against 138–179 s).</li>
@@ -191,7 +192,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       <div class="hyp"><div class="id">H1</div><div class="body"><div class="claim">D is 20% cheaper per success than A on sealed tasks</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">All four arms are now built. A sealed test is not run until the protocol is locked.</span></div></div></div>
       <div class="hyp"><div class="id">H2</div><div class="body"><div class="claim">The advantage grows across checkpoints</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Only single checkpoints so far. Hold rate between checkpoints is implemented.</span></div></div></div>
       <div class="hyp"><div class="id">H3</div><div class="body"><div class="claim">Learning transfers to new combinations and causes</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Forward transfer is implemented; it needs sealed novel-combination and novel-cause tasks.</span></div></div></div>
-      <div class="hyp"><div class="id">H4</div><div class="body"><div class="claim">Utility ranking and validated procedures add value beyond retrieval</div><div class="row"><span class="pill ready">Mixed</span><span class="small muted">Hard tickets (experiment 10): C 12/12 against B 8/12, so utility ranking may help; D 10/12, so procedures did not add to C. Easy tickets (experiment 6): C 5/10 against B 6/10. One history each.</span></div></div></div>
+      <div class="hyp"><div class="id">H4</div><div class="body"><div class="claim">Utility ranking and validated procedures add value beyond retrieval</div><div class="row"><span class="pill blocked">Not supported so far</span><span class="small muted">Hard tickets, two independent runs: C 12/12 then 8/12; B 8/12 then 12/12 (20/24 each). D 10/12 in one run, below C. Easy tickets (experiment 6): C 5/10, B 6/10.</span></div></div></div>
       <div class="hyp"><div class="id">H5</div><div class="body"><div class="claim">New learning does not erode earlier ability</div><div class="row"><span class="pill untested">Untested</span><span class="small muted">Backward transfer, retention phases and automatic rollback are implemented; no retention run yet.</span></div></div></div>
     </div>
   </section>
@@ -444,6 +445,37 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
         <p><strong>D's procedure check worked as designed.</strong> It tried three AWM procedures. It rejected the first, which lowered dev-panel passes from 7 to 5 of 12 and made protected-file breaks more frequent. It promoted the second (7 to 9 of 12) and rejected the third, which tied at 12 of 12. The check's 72 dev episodes cost 2,877 agent GPU seconds, charged as learning. D's procedures did not improve on C, which shares D's memory settings without them.</p>
         <p><strong>Cautions.</strong> This is one learning history and 12 test tickets of one bug type, with three arms compared against A. Arm A fixed 1, 3 and 4 of 12 across experiments 8a, 8b and 10, so the baseline varies by run. C fixing 12 of 12 is the headline, and it needs a second history and the sealed tickets before it counts as evidence for H4.</p>
       </div>
+
+      <div class="finding">
+        <div class="tag for">Experiment 11 · replication on fresh tickets</div>
+        <h3>Memory's gain held up; C's lead over B did not</h3>
+        <p>Experiment 10's arms A, B and C, with the same settings and calibration, on 15 new training tickets (seeds 1003–1005) and 12 new test tickets (seeds 2012–2023). D was left out: it did not beat C, and its check costs about 72 extra episodes.</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Measure</th><th class="num">A · none</th><th class="num">B · memory + rules</th><th class="num">C · + MemRL</th></tr></thead>
+          <tbody>
+            <tr><td>Training tickets passed (of 15)</td><td class="num">–</td><td class="num ok">15</td><td class="num">9</td></tr>
+            <tr><td>Test tickets passed (of 12)</td><td class="num fail">3</td><td class="num ok">12</td><td class="num">8</td></tr>
+            <tr><td>Too slow on the large input</td><td class="num">9</td><td class="num">0</td><td class="num">2</td></tr>
+            <tr><td>Broke the protected-files rule</td><td class="num">1</td><td class="num">0</td><td class="num">2</td></tr>
+            <tr><td>Agent GPU seconds per success</td><td class="num">183</td><td class="num">47</td><td class="num">61</td></tr>
+          </tbody>
+        </table></div>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Paired against A</th><th>Arm only / A only</th><th>Pass-rate difference [95% CI]</th><th>GPU-per-success ratio [95% CI]</th><th>McNemar p</th></tr></thead>
+          <tbody>
+            <tr><td>B</td><td>9 / 0</td><td>+75% [+50%, +100%]</td><td>0.26× [0.08, 0.53]</td><td>0.004</td></tr>
+            <tr><td>C</td><td>6 / 1</td><td>+42% [+8%, +75%]</td><td>0.33× [0.08, 0.93]</td><td>0.125</td></tr>
+          </tbody>
+        </table></div>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Experiments 10 + 11 pooled (24 test tickets)</th><th class="num">A</th><th class="num">B</th><th class="num">C</th></tr></thead>
+          <tbody>
+            <tr><td>Passed</td><td class="num">7</td><td class="num">20</td><td class="num">20</td></tr>
+            <tr><td>Paired wins / losses against A</td><td class="num">–</td><td class="num">14 / 1</td><td class="num">14 / 1</td></tr>
+          </tbody>
+        </table></div>
+        <p>The B and C ranking reversed between runs, and so did their training rounds: in experiment 11, C passed only 9 of 15 training tickets, against B's 15. Each arm learns from its own successes and failures, so an arm that starts badly carries a weaker bank into testing. With one history per experiment, this run-to-run variation is as large as any difference between B and C. It is why the proposal calls for several independent histories.</p>
+      </div>
     </div>
   </section>
 
@@ -487,9 +519,10 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
         <tr><td><strong>8b</strong> hard rules</td><td>Same tickets: do Learning on the Job's WHEN–THEN rules and agent memory search add to it?</td><td>A, B + rules</td><td class="num">39</td><td><span class="pill done">Done</span></td></tr>
         <tr><td><strong>9</strong> hard C/D</td><td>Arms C and D on the hard tickets, rules paraphrased</td><td>A, B, C, D</td><td class="num">6 of 93</td><td><span class="pill blocked">Stopped</span></td></tr>
         <tr><td><strong>10</strong> hard verbatim</td><td>Arms C and D on the hard tickets, with rules stored verbatim</td><td>A, B, C, D</td><td class="num">93 + 72 dev</td><td><span class="pill done">Done</span></td></tr>
+        <tr><td><strong>11</strong> replicate</td><td>Do experiment 10's results hold on fresh training and test tickets?</td><td>A, B, C</td><td class="num">66</td><td><span class="pill done">Done</span></td></tr>
       </tbody>
     </table></div>
-    <p class="small muted">Experiment 7 is superseded by experiment 10. Next: replicate experiment 10 with a second learning history (different training order) and more test tickets, and add a second hard bug type (<code>nested_scan_join</code>) to see whether C's result carries over. Experiment 10 took about 4.5 hours.</p>
+    <p class="small muted">Experiment 7 is superseded by experiment 10. Next: test whether the B-over-A result carries to a second bug type (<code>nested_scan_join</code>), and run several independent histories so that B against C can be told apart from run-to-run variation.</p>
   </section>
 
   <section id="limits">
