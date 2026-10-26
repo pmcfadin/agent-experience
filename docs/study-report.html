@@ -158,10 +158,10 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <header style="display:grid;gap:14px">
     <div class="eyebrow">Study write-up · Experiential Learning Harness</div>
     <h1>Can AI agents become more experienced?</h1>
-    <p class="lede">A frozen local coding agent fixes generated performance bugs. Four arms differ only in what they carry between tasks: nothing, a memory bank, a memory bank with learned ranking, or a memory bank with ranking and validated procedures.</p>
+    <p class="lede">A frozen local coding agent fixes generated performance bugs. Four groups differ only in what they carry between tasks: nothing, a memory bank, a memory bank with learned ranking, or a memory bank with ranking and validated procedures.</p>
     <div class="meta"><span>Updated 2026-10-26</span><span>Agent: Qwen3-Coder 30B-A3B (Q4_K_M, local)</span><span>Memory LLM: Gemma 4 26B</span><span>Hindsight 1.1.0</span><span>230 tests passing</span></div>
     <nav class="toc" aria-label="Sections">
-      <a href="#summary">Summary</a><a href="#hyp">Hypotheses</a><a href="#arms">Arms</a><a href="#papers">Methods</a><a href="#results">Results</a><a href="#bugs">Harness fixes</a><a href="#limits">Limitations</a><a href="#decisions">Open decisions</a>
+      <a href="#summary">Summary</a><a href="#hyp">Hypotheses</a><a href="#groups">Test groups</a><a href="#papers">Methods</a><a href="#results">Results</a><a href="#bugs">Harness fixes</a><a href="#limits">Limitations</a><a href="#decisions">Open decisions</a>
     </nav>
   </header>
 
@@ -171,7 +171,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       <li><strong>Memory raises the pass rate on bugs the baseline fails.</strong> On <code>quadratic_membership</code> tickets over three learning histories (experiment 13), the no-memory baseline (A) fixed 6 of 36 test tickets, memory with rules (B) 26 and B with MemRL ranking (C) 23. Paired against A: B 21 wins, 1 loss; C 18 wins, 1 loss (McNemar p &lt; 0.001 for both). B used 0.21× A's GPU time per success (95% CI 0.07–0.35).</li>
       <li><strong>The gain depends on what the first training tickets teach.</strong> B fixed 11, 12 and 3 of 12 test tickets in the three histories. In the third, no stored rule mentioned the ticket's second slow lookup, and the agent fixed only the first.</li>
       <li><strong>MemRL ranking does not improve on plain memory.</strong> B against C in experiment 13: 6 wins, 3 losses (p = 0.51). Across experiments 10, 11 and 13, B fixed 46 of 60 and C 43 of 60.</li>
-      <li><strong>Where the baseline already succeeds, memory reduces cost but not failures.</strong> On <code>nested_scan_join</code> (experiment 12), A fixed 9 of 12, B 9 and C 10. C used 0.67× A's GPU time per success (95% CI 0.44–0.93). On the easy <code>queue_pop_front</code> bug (experiment 6), the memory arms did worse than A.</li>
+      <li><strong>Where the baseline already succeeds, memory reduces cost but not failures.</strong> On <code>nested_scan_join</code> (experiment 12), A fixed 9 of 12, B 9 and C 10. C used 0.67× A's GPU time per success (95% CI 0.44–0.93). On the easy <code>queue_pop_front</code> bug (experiment 6), the memory groups did worse than A.</li>
       <li><strong>Validated procedures (D) did not improve on C</strong> in the one run that included them (D 10 of 12, C 12 of 12).</li>
       <li><strong>Memory does not prevent protected-file overwrites.</strong> Agents with memory still overwrote <code>examples/sample_output.json</code>, including after a rule naming the file was stored.</li>
     </ul>
@@ -194,12 +194,12 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     </div>
   </section>
 
-  <section id="arms">
+  <section id="groups">
     <div class="eyebrow">Design</div>
-    <h2>Arms</h2>
-    <p>All arms use the same model, prompt, tools, sandbox, budget (40 turns, 600,000 tokens) and judge. Memory is shown once, in the first message of an episode. Test episodes read a frozen snapshot of the memory.</p>
+    <h2>Test groups</h2>
+    <p>All groups use the same model, prompt, tools, sandbox, budget (40 turns, 600,000 tokens) and judge. Memory is shown once, in the first message of an episode. Test episodes read a frozen snapshot of the memory.</p>
     <div class="tablewrap"><table>
-      <thead><tr><th>Arm</th><th>Carried between tasks</th><th>Source</th></tr></thead>
+      <thead><tr><th>Group</th><th>Carried between tasks</th><th>Source</th></tr></thead>
       <tbody>
         <tr><td><strong>A</strong></td><td>Nothing</td><td>Proposal</td></tr>
         <tr><td><strong>B</strong></td><td>Hindsight memory bank: one record per training episode, plus one WHEN–THEN rule per episode stored verbatim. The agent can also search memory with a tool.</td><td>Hindsight, Learning on the Job</td></tr>
@@ -212,7 +212,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <section id="papers">
     <div class="eyebrow">Methods</div>
     <h2>Methods and deviations</h2>
-    <p>Each arm implements the method of a paper cited in the proposal, taken from the paper and its released code. Deviations are listed.</p>
+    <p>Each group implements the method of a paper cited in the proposal, taken from the paper and its released code. Deviations are listed.</p>
 
     <div class="papers">
       <article class="paper">
@@ -255,7 +255,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
         <div class="head"><h3>GEPA</h3><span class="cite">Agrawal et al., ICLR 2026 · arXiv 2507.19457</span></div>
         <dl>
           <dt>Method</dt><dd>Evolves text by reflecting on rollouts and feedback, keeping candidates on a Pareto frontier across validation tasks.</dd>
-          <dt>Implementation</dt><dd>Adapter for the <code>gepa</code> package that optimises arm D's procedure text on development tasks only. <code>elh/learner/gepa_opt.py</code></dd>
+          <dt>Implementation</dt><dd>Adapter for the <code>gepa</code> package that optimises group D's procedure text on development tasks only. <code>elh/learner/gepa_opt.py</code></dd>
           <dt>Deviations</dt><dd>The reflection prompt asks for general procedures instead of "niche domain facts". Merge is off. Not yet run in an experiment.</dd>
         </dl>
       </article>
@@ -273,12 +273,12 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <section id="results">
     <div class="eyebrow">Results</div>
     <h2>Results</h2>
-    <p>Each memory arm trains on 15 tickets across five themes, then is tested on 10 or 12 new tickets in a sixth theme. Pass counts are on test tickets.</p>
+    <p>Each memory group trains on 15 tickets across five themes, then is tested on 10 or 12 new tickets in a sixth theme. Pass counts are on test tickets.</p>
     <div class="tablewrap"><table>
       <thead><tr><th>Exp.</th><th>Bug type</th><th>Setting</th><th class="num">A</th><th class="num">B</th><th class="num">C</th><th class="num">D</th></tr></thead>
       <tbody>
         <tr><td>1</td><td><code>queue_pop_front</code></td><td>Early memory format</td><td class="num">9/10</td><td class="num">9/10</td><td class="num">–</td><td class="num">–</td></tr>
-        <tr><td>6</td><td><code>queue_pop_front</code></td><td>Arms built from the papers, no rules</td><td class="num">8/10</td><td class="num">6/10</td><td class="num">5/10</td><td class="num">–</td></tr>
+        <tr><td>6</td><td><code>queue_pop_front</code></td><td>Groups built from the papers, no rules</td><td class="num">8/10</td><td class="num">6/10</td><td class="num">5/10</td><td class="num">–</td></tr>
         <tr><td>8a</td><td><code>quadratic_membership</code></td><td>No rules</td><td class="num">1/12</td><td class="num">5/12</td><td class="num">–</td><td class="num">–</td></tr>
         <tr><td>8b</td><td><code>quadratic_membership</code></td><td>Rules, paraphrased by Hindsight</td><td class="num">3/12</td><td class="num">7/12</td><td class="num">–</td><td class="num">–</td></tr>
         <tr><td>10</td><td><code>quadratic_membership</code></td><td>Rules stored verbatim</td><td class="num">4/12</td><td class="num">8/12</td><td class="num">12/12</td><td class="num">10/12</td></tr>
@@ -292,7 +292,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       <div class="finding">
         <div class="tag for">Experiment 13 · three histories</div>
         <h3>Memory's gain holds across histories; its size depends on the first lessons</h3>
-        <p>Arms A, B and C, run three times on the same 15 training and 12 test tickets. Each history shuffles the training order and starts from empty banks.</p>
+        <p>Groups A, B and C, run three times on the same 15 training and 12 test tickets. Each history shuffles the training order and starts from empty banks.</p>
         <div class="tablewrap"><table>
           <thead><tr><th>Measure</th><th class="num">A</th><th class="num">B</th><th class="num">C</th></tr></thead>
           <tbody>
@@ -312,7 +312,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       <div class="finding">
         <div class="tag for">Experiments 10 and 11 · verbatim rules</div>
         <h3>B and C both beat A; their order reversed between runs</h3>
-        <p>Paired against A, C won 8 and lost 0 in experiment 10 (p = 0.008); B won 9 and lost 0 in experiment 11 (p = 0.004). Pooled, B and C each fixed 20 of 24 against A's 7. In experiment 11, C passed 9 of 15 training tickets and B 15 of 15, so the arm with the weaker training run had the weaker bank at test time.</p>
+        <p>Paired against A, C won 8 and lost 0 in experiment 10 (p = 0.008); B won 9 and lost 0 in experiment 11 (p = 0.004). Pooled, B and C each fixed 20 of 24 against A's 7. In experiment 11, C passed 9 of 15 training tickets and B 15 of 15, so the group with the weaker training run had the weaker bank at test time.</p>
         <p>D tried three AWM procedures in experiment 10. The check rejected the first (dev-panel passes fell from 7 to 5 of 12), promoted the second (7 to 9) and rejected the third (12 to 12). Its 72 development episodes cost 2,877 agent GPU seconds, charged as learning.</p>
       </div>
 
@@ -325,14 +325,14 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       <div class="finding">
         <div class="tag method">Experiment 12 · second bug type</div>
         <h3>No pass-rate gain where the baseline succeeds</h3>
-        <p>On <code>nested_scan_join</code>, all failures were protected-file breaks or wrong output, not slow code. Both memory arms used about 8 fewer turns than A. C's GPU time per success was 0.67× A's (95% CI 0.44–0.93); B's was 0.91× (0.54–1.58).</p>
+        <p>On <code>nested_scan_join</code>, all failures were protected-file breaks or wrong output, not slow code. Both memory groups used about 8 fewer turns than A. C's GPU time per success was 0.67× A's (95% CI 0.44–0.93); B's was 0.91× (0.54–1.58).</p>
       </div>
 
       <div class="finding">
         <div class="tag against">Experiments 1 and 6 · easy tickets</div>
         <h3>On an easy bug, memory did not help</h3>
         <p>Experiment 1 was voided: failed checks were recorded in the wording of the passing check, so memory stored that an attempt "failed because it left the tests and harness untouched". After that was fixed, A and B each passed 9 of 10. A protected-files lesson reached the top 5 in only 1 of 10 test episodes, because ticket text in the memory context made recall rank by ticket similarity. Restricting recall to experience facts raised this to 8 of 10 in a replay.</p>
-        <p>In experiment 6, B passed 6 of 10 and C 5 of 10, against A's 8. Both memory arms broke the protected-files rule 3 times, always by writing verification output over <code>examples/sample_output.json</code>, including immediately after recalling a lesson that named the file. C's recall returned the same top memory in 80% of test episodes.</p>
+        <p>In experiment 6, B passed 6 of 10 and C 5 of 10, against A's 8. Both memory groups broke the protected-files rule 3 times, always by writing verification output over <code>examples/sample_output.json</code>, including immediately after recalling a lesson that named the file. C's recall returned the same top memory in 80% of test episodes.</p>
       </div>
     </div>
   </section>
@@ -347,7 +347,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
           <li>Failed checks recorded in passing wording (experiment 1 voided).</li>
           <li>Ticket text in the memory context made recall rank by ticket similarity.</li>
           <li>A 500 KB scratch file in an episode diff caused about 40 memory-model calls; diffs now cover source files only.</li>
-          <li>The spec's reward for arm C could never demote a memory.</li>
+          <li>The spec's reward for group C could never demote a memory.</li>
           <li>Rules paraphrased by Hindsight's fact extraction; experiment 9 was stopped after 6 episodes.</li>
         </ul>
       </div>
@@ -367,8 +367,8 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <div class="eyebrow">Limitations</div>
     <h2>Limitations</h2>
     <div class="note"><ul>
-      <li>10 or 12 test tickets per arm per history. At a 90% pass rate, the 95% interval spans about 60–98%.</li>
-      <li>Only experiment 13 has more than one history. Its histories ranged from 3 to 12 of 12 for the same arm, so single-history results carry similar variation.</li>
+      <li>10 or 12 test tickets per group per history. At a 90% pass rate, the 95% interval spans about 60–98%.</li>
+      <li>Only experiment 13 has more than one history. Its histories ranged from 3 to 12 of 12 for the same group, so single-history results carry similar variation.</li>
       <li>Costs use placeholder prices. Cached input, about 97% of input tokens, is priced at zero. Measured GPU time puts learning at 80–90% of inference cost; the ledger says 28%.</li>
       <li>Published effects for these methods are a few points on fresh tasks. The confirmatory study needs a power analysis based on pilot variance.</li>
     </ul></div>
@@ -379,7 +379,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <h2>Open decisions</h2>
     <ol class="steps">
       <li><strong>Prices from GPU time.</strong> Replace placeholder prices with prices derived from measured GPU seconds. This changes the registration.</li>
-      <li><strong>Arm C reward.</strong> Amend the spec to "pass: 1 − cost, fail: −1", or keep the spec's formula and report this one as a sensitivity analysis.</li>
+      <li><strong>Group C reward.</strong> Amend the spec to "pass: 1 − cost, fail: −1", or keep the spec's formula and report this one as a sensitivity analysis.</li>
       <li><strong>GEPA development panel.</strong> With 6 tasks, only 1 is unseen by GEPA's search; a larger panel is needed.</li>
       <li><strong>Reflect.</strong> Test Hindsight's reflect, or a standing mental model of past failures, as an ablation of B.</li>
       <li><strong>Unit of analysis.</strong> Treat the learning history as the unit and run more histories, possibly in parallel, at the cost of comparable GPU-time measurements.</li>
