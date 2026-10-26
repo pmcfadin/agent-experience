@@ -169,6 +169,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <div class="eyebrow">Bottom line</div>
     <ul>
       <li><strong>Memory with verbatim rules beats no memory on hard tickets, and the result replicated on fresh tickets.</strong> Across experiments 10 and 11 (24 test tickets), arm B fixed 20 and the agent without memory 7. B won 14 paired tickets and lost 1. Experiment 11 alone: B 12/12 against A 3/12 (McNemar p = 0.004; gain +75%, 95% interval +50% to +100%; 0.26× the GPU time per success, interval 0.08–0.53).</li>
+      <li><strong>On a bug type the agent already handles, memory gives no pass-rate gain, but C made fixes cheaper.</strong> On <code>nested_scan_join</code> (experiment 12), A fixed 9 of 12, B 9 and C 10. C used 0.67× A's GPU time per success (95% interval 0.44–0.93), and both memory arms took about 8 fewer turns.</li>
       <li><strong>MemRL's ranking (arm C) did not beat plain memory once replicated.</strong> C fixed 12/12 in experiment 10 but 8/12 in experiment 11, where B fixed 12/12. Pooled, B and C both fixed 20 of 24. Both beat A, but nothing yet shows C adding to B.</li>
       <li><strong>Procedures (arm D) did not add to C.</strong> D fixed 10 of 12 (p = 0.070 against A), and plain memory with rules (B) fixed 8 of 12 (p = 0.22). D's promotion check kept one of three procedures it tried, and it rejected the first for making protected-file breaks more frequent.</li>
       <li><strong>Our first version of Learning on the Job was unfaithful, and fixing it is part of this result.</strong> Hindsight had been paraphrasing each rule into facts, so in experiment 8b no rule wording ever reached the agent. Rules are now stored verbatim, with no model rewrite, and two memory slots are reserved for them, as the paper intends. Experiment 10 is the first run with this storage.</li>
@@ -476,6 +477,25 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
         </table></div>
         <p>The B and C ranking reversed between runs, and so did their training rounds: in experiment 11, C passed only 9 of 15 training tickets, against B's 15. Each arm learns from its own successes and failures, so an arm that starts badly carries a weaker bank into testing. With one history per experiment, this run-to-run variation is as large as any difference between B and C. It is why the proposal calls for several independent histories.</p>
       </div>
+
+      <div class="finding">
+        <div class="tag method">Experiment 12 · second bug type</div>
+        <h3>Where the baseline already succeeds, memory saves effort, not failures</h3>
+        <p>Experiment 11's settings on <code>nested_scan_join</code> (a join done by nested scans), 15 training and 12 test tickets. C's similarity calibration is reused from <code>quadratic_membership</code>, a stated deviation.</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Measure</th><th class="num">A · none</th><th class="num">B · memory + rules</th><th class="num">C · + MemRL</th></tr></thead>
+          <tbody>
+            <tr><td>Training tickets passed (of 15)</td><td class="num">–</td><td class="num">13</td><td class="num">13</td></tr>
+            <tr><td>Test tickets passed (of 12)</td><td class="num">9</td><td class="num">9</td><td class="num">10</td></tr>
+            <tr><td>Broke the protected-files rule</td><td class="num">3</td><td class="num">3</td><td class="num">1</td></tr>
+            <tr><td>Mean turns per test episode</td><td class="num">36.8</td><td class="num">29.1</td><td class="num">28.8</td></tr>
+            <tr><td>Agent GPU seconds per success</td><td class="num">72.6</td><td class="num">66.3</td><td class="num">48.5</td></tr>
+            <tr><td>GPU-per-success ratio against A [95% CI]</td><td class="num">–</td><td class="num">0.91× [0.54, 1.58]</td><td class="num">0.67× [0.44, 0.93]</td></tr>
+            <tr><td>Paired wins / losses against A (McNemar p)</td><td class="num">–</td><td class="num">2 / 2 (1.0)</td><td class="num">2 / 1 (1.0)</td></tr>
+          </tbody>
+        </table></div>
+        <p>Every failure here was a protected-file break or wrong output, never a slow fix, so the cause-specific rule had nothing to correct. This matches the pattern across all experiments: memory raises pass rates only where the agent without memory fails, and otherwise mostly shortens the work. C's cost ratio is the only interval here that excludes no effect, and it rests on one history.</p>
+      </div>
     </div>
   </section>
 
@@ -520,9 +540,11 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
         <tr><td><strong>9</strong> hard C/D</td><td>Arms C and D on the hard tickets, rules paraphrased</td><td>A, B, C, D</td><td class="num">6 of 93</td><td><span class="pill blocked">Stopped</span></td></tr>
         <tr><td><strong>10</strong> hard verbatim</td><td>Arms C and D on the hard tickets, with rules stored verbatim</td><td>A, B, C, D</td><td class="num">93 + 72 dev</td><td><span class="pill done">Done</span></td></tr>
         <tr><td><strong>11</strong> replicate</td><td>Do experiment 10's results hold on fresh training and test tickets?</td><td>A, B, C</td><td class="num">66</td><td><span class="pill done">Done</span></td></tr>
+        <tr><td><strong>12</strong> scan join</td><td>Does memory's gain carry to a second bug type?</td><td>A, B, C</td><td class="num">66</td><td><span class="pill done">Done</span></td></tr>
+        <tr><td><strong>13</strong> histories</td><td>B against C on hard tickets over three independent learning histories</td><td>A, B, C</td><td class="num">198</td><td><span class="pill run">Running</span></td></tr>
       </tbody>
     </table></div>
-    <p class="small muted">Experiment 7 is superseded by experiment 10. Next: test whether the B-over-A result carries to a second bug type (<code>nested_scan_join</code>), and run several independent histories so that B against C can be told apart from run-to-run variation.</p>
+    <p class="small muted">Experiment 7 is superseded by experiment 10. Experiment 13 runs three independent histories (each its own training order and banks) on fresh quadratic-membership tickets, so that B against C can be told apart from run-to-run variation. It takes about 7–8 hours.</p>
   </section>
 
   <section id="limits">

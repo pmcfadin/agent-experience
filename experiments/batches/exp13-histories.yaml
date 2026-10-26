@@ -1,0 +1,25 @@
+# B against C on quadratic_membership over 3 independent learning histories (own training order and
+# banks per history), fresh train seeds [1006,1009) and eval seeds [2024,2036). In exp10/11 B and C
+# swapped places (20/24 each); one history per run cannot separate them from run-to-run variation.
+name: exp13-histories
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  rules: {enabled: true, store: verbatim}
+  utility: {k1: 10, k2: 5, delta: 0.8378, sim_mean: 0.8535, sim_std: 0.01762, units_per_doc: 1,
+            reward_mode: spec-signed}
+  workflows: {induce_every: 5, repeats: 2, margin: 0.0, max_library_tokens: 1500}
+  procedure_source: awm
+family: cpu_mem
+histories: 3
+arms: [A, B, C]
+phases:
+  - train:
+      tasks: {causes: [quadratic_membership], themes: [billing, logistics, telemetry, course_registration, network_flows], seeds: [1006, 1009]}
+  - eval:
+      label: after-15
+      tasks: {causes: [quadratic_membership], themes: [inventory], seeds: [2024, 2036]}
+dev:
+  tasks: {causes: [quadratic_membership], themes: [billing, logistics, telemetry], seeds: [3000, 3002]}
