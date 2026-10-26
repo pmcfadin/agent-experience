@@ -334,4 +334,7 @@ tests/
   a power analysis from pilot variance.
 - Reproduction is tied to specific hardware and pinned model builds; results on other hardware need
   a new registration and are not directly comparable on timing.
-- No license has been chosen yet.
+
+## License
+
+Apache License 2.0. See [`LICENSE`](LICENSE).
