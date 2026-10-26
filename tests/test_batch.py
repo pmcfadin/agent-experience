@@ -26,7 +26,7 @@ URL = os.environ.get("ELH_HINDSIGHT_URL", "http://127.0.0.1:8901")
 
 def _write(tmp_path, **kw) -> Path:
     doc = {"name": f"batchtest-{uuid.uuid4().hex[:8]}", "base_config": str(BASE), "family": "cpu_mem",
-           "histories": 1, "arms": ["A"],
+           "histories": 1, "groups": ["A"],
            "phases": [{"train": {"tasks": {"causes": ["queue_pop_front"], "themes": ["billing"], "seeds": [1000, 1002]}}},
                       {"eval": {"tasks": {"causes": ["nested_scan_join"], "themes": ["inventory"], "seeds": [2000, 2002]}}}]}
     doc.update(kw)
@@ -44,24 +44,25 @@ def test_bundled_experiments_load(path):
     exp, cfg = load_experiment(path)
     assert cfg.name == f"phase0-local-{exp.name}"
     steps = schedule(exp, cfg)
-    assert {s.arm for s in steps if s.kind == "train"} == set(exp.arms) - {"A"}
+    assert {s.group for s in steps if s.kind == "train"} == set(exp.groups) - {"A"}
     assert all(s.task.seed >= 2000 if s.kind == "eval" else 1000 <= s.task.seed < 2000 for s in steps)
     assert all(3000 <= t.seed < 4000 for t in batch.dev_tasks(exp, cfg, 0))
-    assert (exp.dev is not None) == ("D" in exp.arms)
+    if "D" in exp.groups:  # a dev panel without group D is unused (experiments 11-13 kept experiment 10's)
+        assert exp.dev is not None
 
 
 def test_schedule_is_deterministic_and_differs_across_histories(tmp_path):
-    exp, cfg = load_experiment(_write(tmp_path, histories=2, arms=["A", "B"], phases=[
+    exp, cfg = load_experiment(_write(tmp_path, histories=2, groups=["A", "B"], phases=[
         {"train": {"tasks": {"causes": ["queue_pop_front"], "themes": ["billing", "logistics"], "seeds": [1000, 1005]}}},
         {"eval": {"tasks": {"causes": ["queue_pop_front"], "themes": ["inventory"], "seeds": [2000, 2004]}}}]))
     a, b = schedule(exp, cfg), schedule(exp, cfg)
-    key = lambda steps: [(s.history, s.phase, s.arm, s.task.task_id, s.after, s.ordinal) for s in steps]
+    key = lambda steps: [(s.history, s.phase, s.group, s.task.task_id, s.after, s.ordinal) for s in steps]
     assert key(a) == key(b)
     train = {h: [s.task.task_id for s in a if s.history == h and s.kind == "train"] for h in (0, 1)}
     assert len(train[0]) == 10 and sorted(train[0]) == sorted(train[1]) and train[0] != train[1]
     evals = [s for s in a if s.history == 0 and s.kind == "eval"]
-    # Arms interleave per task, all at checkpoint 10 (train episodes before the phase).
-    assert [s.arm for s in evals] == ["A", "B"] * 4 and {s.after for s in evals} == {10}
+    # Groups interleave per task, all at checkpoint 10 (train episodes before the phase).
+    assert [s.group for s in evals] == ["A", "B"] * 4 and {s.after for s in evals} == {10}
     assert evals[0].task.task_id == evals[1].task.task_id
     assert {s.phase for s in evals} == {"after-10"}
 
@@ -76,7 +77,7 @@ def test_overrides_make_a_distinct_validated_run(tmp_path):
     with pytest.raises(KeyError):
         load_experiment(_write(tmp_path, overrides={"nosection.x": 1}))
     with pytest.raises(ValidationError):
-        load_experiment(_write(tmp_path, arms=["A", "Z"]))
+        load_experiment(_write(tmp_path, groups=["A", "Z"]))
 
 
 def test_dry_run_prints_without_touching_the_store(tmp_path, capsys):
@@ -84,7 +85,7 @@ def test_dry_run_prints_without_touching_the_store(tmp_path, capsys):
     assert main(["run-batch", str(_write(tmp_path)), "--dry-run", "--runs-dir", str(runs)]) == 0
     out = capsys.readouterr().out
     assert "cpu_mem/nested_scan_join/inventory/2001" in out and "after-2" in out
-    assert "queue_pop_front" not in out  # arm A has no train phase
+    assert "queue_pop_front" not in out  # group A has no train phase
     assert not runs.exists()
 
 
@@ -99,7 +100,7 @@ def test_a_only_batch_end_to_end(tmp_path, capsys):
     store = Store(runs)
     rows = store.db.execute("SELECT * FROM episodes ORDER BY ordinal").fetchall()
     assert [r["batch_id"] for r in rows] == [f"{exp.name}/0"] * 2
-    assert {(r["run_id"], r["arm"], r["split"], r["checkpoint"]) for r in rows} == {(run_id_for(cfg), "A", "checkpoint", 2)}
+    assert {(r["run_id"], r["test_group"], r["split"], r["checkpoint"]) for r in rows} == {(run_id_for(cfg), "A", "checkpoint", 2)}
     # A second run of the same experiment is refused (no resume).
     with pytest.raises(RuntimeError, match="already has"):
         run_batch(exp, cfg, store, _client, sandbox_backend="local")
@@ -121,8 +122,8 @@ def test_infra_error_skips_the_episode(tmp_path, monkeypatch):
     results = run_batch(exp, cfg, Store(tmp_path / "runs"), _client, sandbox_backend="local", out=lines.append)
     assert [r["error"] is None for r in results] == [False, True]
     assert "INFRA ERROR" in lines[0]
-    _, phase, arm, n, rate, _, infra = batch.summarize(results)[1].split()
-    assert (phase, arm, n, rate, infra) == ("after-2", "A", "1", "1.00", "1")
+    _, phase, group, n, rate, _, infra = batch.summarize(results)[1].split()
+    assert (phase, group, n, rate, infra) == ("after-2", "A", "1", "1.00", "1")
 
 
 def _up() -> bool:
@@ -134,19 +135,19 @@ def _up() -> bool:
 
 
 @pytest.mark.skipif(not _up(), reason="Hindsight server not running")
-def test_arm_b_trains_then_evaluates_on_a_snapshot(tmp_path):
+def test_group_b_trains_then_evaluates_on_a_snapshot(tmp_path):
     """One train episode (one memory-LLM retain, ~30 s), then A and B on one task."""
-    exp, cfg = load_experiment(_write(tmp_path, arms=["A", "B"], phases=[
+    exp, cfg = load_experiment(_write(tmp_path, groups=["A", "B"], phases=[
         {"train": {"tasks": {"causes": ["queue_pop_front"], "themes": ["billing"], "seeds": [1000, 1001]}}},
         {"eval": {"label": "after-1", "tasks": {"causes": ["queue_pop_front"], "themes": ["inventory"], "seeds": [2000, 2001]}}}]))
     bank = bank_id_for(cfg, 0, "B")
     store = Store(tmp_path / "runs")
     try:
         results = run_batch(exp, cfg, store, _client, sandbox_backend="local", out=lambda _: None)
-        assert [(r["kind"], r["arm"], r["passed"]) for r in results] == [
+        assert [(r["kind"], r["group"], r["passed"]) for r in results] == [
             ("train", "B", True), ("eval", "A", True), ("eval", "B", True)]
-        rows = store.db.execute("SELECT arm, split, checkpoint, memory_snapshot_id FROM episodes "
-                                "WHERE split = 'checkpoint' ORDER BY arm").fetchall()
+        rows = store.db.execute("SELECT test_group, split, checkpoint, memory_snapshot_id FROM episodes "
+                                "WHERE split = 'checkpoint' ORDER BY test_group").fetchall()
         snap = store.db.execute("SELECT snapshot_id, after_episode FROM memory_snapshots").fetchone()
         assert snap["after_episode"] == 1
         assert [tuple(r) for r in rows] == [("A", "checkpoint", 1, None), ("B", "checkpoint", 1, snap["snapshot_id"])]

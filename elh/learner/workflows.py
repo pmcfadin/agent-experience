@@ -1,4 +1,4 @@
-"""Arm D procedures: Agent Workflow Memory (Wang et al., ICML 2025), online mode, plus a dev gate.
+"""Group D procedures: Agent Workflow Memory (Wang et al., ICML 2025), online mode, plus a dev gate.
 
 What follows AWM (github.com/zorazrw/agent-workflow-memory, `webarena/induce_prompt.py`):
 - only verified successes are induced from (our oracle verdict = AWM's `--criteria gt`);
@@ -253,12 +253,12 @@ def check_inducible(row) -> None:
         raise LeakageError(f"episode {eid} has no clean integrity check")
 
 
-def eligible_pool(store: Store, run_id: str, history: int, arm: str, family: str,
+def eligible_pool(store: Store, run_id: str, history: int, group: str, family: str,
                   max_ordinal: int | None = None) -> list[sqlite3.Row]:
-    """The cumulative success pool of one (run, history, arm, family) stream, in train order."""
-    sql = ("SELECT * FROM episodes WHERE run_id = ? AND history = ? AND arm = ? AND family = ? "
+    """The cumulative success pool of one (run, history, group, family) stream, in train order."""
+    sql = ("SELECT * FROM episodes WHERE run_id = ? AND history = ? AND test_group = ? AND family = ? "
            "AND split = 'train' AND passed = 1 AND outcome = 'submitted'")
-    args: list = [run_id, history, arm, family]
+    args: list = [run_id, history, group, family]
     if max_ordinal is not None:
         sql += " AND ordinal <= ?"
         args.append(max_ordinal)
@@ -282,8 +282,8 @@ def sample_per_cell(rows: Sequence, seed: int, n: int = 1) -> list:
     return [ex for group in cells.values() for ex in rng.sample(group, min(n, len(group)))]
 
 
-def induction_seed(run_id: str, history: int, arm: str, family: str, index: int) -> int:
-    return int(_sha(f"{run_id}|{history}|{arm}|{family}|{index}")[:12], 16)
+def induction_seed(run_id: str, history: int, group: str, family: str, index: int) -> int:
+    return int(_sha(f"{run_id}|{history}|{group}|{family}|{index}")[:12], 16)
 
 
 @dataclass(frozen=True)
@@ -574,7 +574,7 @@ def procedure_ids(library: WorkflowLibrary | None, revision: int | None) -> list
 
 
 def experience_block(library: WorkflowLibrary | None, memory_block: str = "") -> str:
-    """Procedures first, then arm C's recalled notes (what `run_episode(memory_block=...)` takes)."""
+    """Procedures first, then group C's recalled notes (what `run_episode(memory_block=...)` takes)."""
     return "\n\n".join(p for p in (render_procedure_block(library), memory_block.strip()) if p)
 
 
@@ -755,39 +755,39 @@ _TRANSITIONS = {"candidate": {"promoted", "rejected"}, "promoted": {"superseded"
                 "superseded": {"promoted"}}  # superseded -> promoted only by rollback
 
 
-def _scope(run_id: str, history: int, arm: str, family: str) -> tuple:
-    return (run_id, history, arm, family)
+def _scope(run_id: str, history: int, group: str, family: str) -> tuple:
+    return (run_id, history, group, family)
 
 
-def record_candidate(store: Store, induction: Induction, *, run_id: str, history: int, arm: str = "D") -> int | None:
+def record_candidate(store: Store, induction: Induction, *, run_id: str, history: int, group: str = "D") -> int | None:
     """Store a regenerated library as the next candidate revision. Returns the revision, or None if
     the library came out empty (nothing to validate; the spend is still charged by the caller)."""
     lib = induction.library
     if not lib.workflows:
         return None
-    scope = _scope(run_id, history, arm, lib.family)
+    scope = _scope(run_id, history, group, lib.family)
     rev = store.db.execute("SELECT COALESCE(MAX(revision), 0) + 1 FROM skills WHERE run_id = ? AND history = ? "
-                           "AND arm = ? AND family = ?", scope).fetchone()[0]
+                           "AND test_group = ? AND family = ?", scope).fetchone()[0]
     now = utcnow()
     prov = json.dumps(induction.provenance(), sort_keys=True)
     src = json.dumps(induction.source_episode_ids)
     with store.db:
         for pos, w in enumerate(lib.workflows):
             store.db.execute(
-                "INSERT INTO skills (skill_id, revision, run_id, history, arm, family, position, status, title, "
+                "INSERT INTO skills (skill_id, revision, run_id, history, test_group, family, position, status, title, "
                 "body, body_sha256, library_sha256, source_episode_ids_json, induction_json, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, 'candidate', ?, ?, ?, ?, ?, ?, ?)",
-                (w.skill_id, rev, run_id, history, arm, lib.family, pos, w.title, w.body, w.body_sha256,
+                (w.skill_id, rev, run_id, history, group, lib.family, pos, w.title, w.body, w.body_sha256,
                  lib.library_sha256, src, prov, now))
     return rev
 
 
-def load_library(store: Store, *, run_id: str, history: int, arm: str, family: str, revision: int) -> WorkflowLibrary:
-    rows = store.db.execute("SELECT * FROM skills WHERE run_id = ? AND history = ? AND arm = ? AND family = ? "
-                            "AND revision = ? ORDER BY position", (*_scope(run_id, history, arm, family), revision)
+def load_library(store: Store, *, run_id: str, history: int, group: str, family: str, revision: int) -> WorkflowLibrary:
+    rows = store.db.execute("SELECT * FROM skills WHERE run_id = ? AND history = ? AND test_group = ? AND family = ? "
+                            "AND revision = ? ORDER BY position", (*_scope(run_id, history, group, family), revision)
                             ).fetchall()
     if not rows:
-        raise KeyError(f"no library revision {revision} for {run_id}/h{history}/{arm}/{family}")
+        raise KeyError(f"no library revision {revision} for {run_id}/h{history}/{group}/{family}")
     wfs = []
     for r in rows:
         lines = r["body"].splitlines()
@@ -801,9 +801,9 @@ def load_library(store: Store, *, run_id: str, history: int, arm: str, family: s
     return lib
 
 
-def revision_status(store: Store, *, run_id: str, history: int, arm: str, family: str, revision: int) -> str:
-    row = store.db.execute("SELECT DISTINCT status FROM skills WHERE run_id = ? AND history = ? AND arm = ? "
-                           "AND family = ? AND revision = ?", (*_scope(run_id, history, arm, family), revision)
+def revision_status(store: Store, *, run_id: str, history: int, group: str, family: str, revision: int) -> str:
+    row = store.db.execute("SELECT DISTINCT status FROM skills WHERE run_id = ? AND history = ? AND test_group = ? "
+                           "AND family = ? AND revision = ?", (*_scope(run_id, history, group, family), revision)
                            ).fetchall()
     if len(row) != 1:
         raise KeyError(f"revision {revision} missing or inconsistent")
@@ -811,7 +811,7 @@ def revision_status(store: Store, *, run_id: str, history: int, arm: str, family
 
 
 def _set_status(store: Store, scope: tuple, revision: int, status: str, *, validation: dict | None = None) -> None:
-    current = revision_status(store, run_id=scope[0], history=scope[1], arm=scope[2], family=scope[3],
+    current = revision_status(store, run_id=scope[0], history=scope[1], group=scope[2], family=scope[3],
                               revision=revision)
     if status not in _TRANSITIONS.get(current, set()):
         raise ValueError(f"revision {revision}: {current} -> {status} is not allowed")
@@ -825,62 +825,62 @@ def _set_status(store: Store, scope: tuple, revision: int, status: str, *, valid
     if validation is not None:
         sets.append("validation_json = ?")
         args.append(json.dumps(validation, sort_keys=True))
-    store.db.execute(f"UPDATE skills SET {', '.join(sets)} WHERE run_id = ? AND history = ? AND arm = ? "
+    store.db.execute(f"UPDATE skills SET {', '.join(sets)} WHERE run_id = ? AND history = ? AND test_group = ? "
                      "AND family = ? AND revision = ?", (*args, *scope, revision))
 
 
-def promoted_revision(store: Store, *, run_id: str, history: int, arm: str, family: str) -> int | None:
-    row = store.db.execute("SELECT MAX(revision) FROM skills WHERE run_id = ? AND history = ? AND arm = ? "
-                           "AND family = ? AND status = 'promoted'", _scope(run_id, history, arm, family)).fetchone()
+def promoted_revision(store: Store, *, run_id: str, history: int, group: str, family: str) -> int | None:
+    row = store.db.execute("SELECT MAX(revision) FROM skills WHERE run_id = ? AND history = ? AND test_group = ? "
+                           "AND family = ? AND status = 'promoted'", _scope(run_id, history, group, family)).fetchone()
     return row[0]
 
 
-def promoted_library(store: Store, *, run_id: str, history: int, arm: str, family: str
+def promoted_library(store: Store, *, run_id: str, history: int, group: str, family: str
                      ) -> tuple[int | None, WorkflowLibrary]:
-    """The library arm D's episodes see now (empty before the first promotion)."""
-    rev = promoted_revision(store, run_id=run_id, history=history, arm=arm, family=family)
+    """The library group D's episodes see now (empty before the first promotion)."""
+    rev = promoted_revision(store, run_id=run_id, history=history, group=group, family=family)
     if rev is None:
         return None, WorkflowLibrary(family)
-    return rev, load_library(store, run_id=run_id, history=history, arm=arm, family=family, revision=rev)
+    return rev, load_library(store, run_id=run_id, history=history, group=group, family=family, revision=rev)
 
 
 def library_state_sha256(revision: int | None, library: WorkflowLibrary) -> str:
     return _sha(json.dumps({"revision": revision, "library_sha256": library.library_sha256}, sort_keys=True))
 
 
-def learner_state_sha256(store: Store, *, run_id: str, history: int, arm: str, family: str) -> str:
-    """Which library is promoted now (revision and content); the library half of arm D's
-    `memory_snapshots.learner_state_sha256` (see `arm_d_state`)."""
-    rev, lib = promoted_library(store, run_id=run_id, history=history, arm=arm, family=family)
+def learner_state_sha256(store: Store, *, run_id: str, history: int, group: str, family: str) -> str:
+    """Which library is promoted now (revision and content); the library half of group D's
+    `memory_snapshots.learner_state_sha256` (see `group_d_state`)."""
+    rev, lib = promoted_library(store, run_id=run_id, history=history, group=group, family=family)
     return library_state_sha256(rev, lib)
 
 
-ARM_D_STATE_FORMAT = "arm-d-state-v1"
+GROUP_D_STATE_FORMAT = "group-d-state-v1"
 
 
-def arm_d_state(utility_state_sha256: str, revision: int | None, library: WorkflowLibrary) -> bytes:
-    """Arm D's learner state as canonical JSON: the utility table's state hash (itself a stored
+def group_d_state(utility_state_sha256: str, revision: int | None, library: WorkflowLibrary) -> bytes:
+    """Group D's learner state as canonical JSON: the utility table's state hash (itself a stored
     "learner" blob, elh/learner/utility.py) and the promoted library (revision, content hash, and
     `library_state_sha256` of the two). The controller stores these bytes as a "learner" blob; their
     sha256 is the snapshot's `learner_state_sha256`, so it changes if either half changes, and the
     blob says how to restore both."""
-    body = {"format": ARM_D_STATE_FORMAT, "utility_state_sha256": utility_state_sha256,
+    body = {"format": GROUP_D_STATE_FORMAT, "utility_state_sha256": utility_state_sha256,
             "library": {"family": library.family, "revision": revision, "library_sha256": library.library_sha256,
                         "state_sha256": library_state_sha256(revision, library)}}
     return json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
 
 
-def arm_d_state_sha256(utility_state_sha256: str, revision: int | None, library: WorkflowLibrary) -> str:
-    return hashlib.sha256(arm_d_state(utility_state_sha256, revision, library)).hexdigest()
+def group_d_state_sha256(utility_state_sha256: str, revision: int | None, library: WorkflowLibrary) -> str:
+    return hashlib.sha256(group_d_state(utility_state_sha256, revision, library)).hexdigest()
 
 
-def decide_candidate(store: Store, *, run_id: str, history: int, arm: str, family: str, revision: int,
+def decide_candidate(store: Store, *, run_id: str, history: int, group: str, family: str, revision: int,
                      decision: "GateDecision") -> None:
     """Apply a gate decision: promote (the old incumbent becomes `superseded`) or reject."""
-    scope = _scope(run_id, history, arm, family)
+    scope = _scope(run_id, history, group, family)
     with store.db:
         if decision.promote:
-            old = promoted_revision(store, run_id=run_id, history=history, arm=arm, family=family)
+            old = promoted_revision(store, run_id=run_id, history=history, group=group, family=family)
             if old is not None:
                 _set_status(store, scope, old, "superseded")
             _set_status(store, scope, revision, "promoted", validation=decision.to_dict())
@@ -888,17 +888,17 @@ def decide_candidate(store: Store, *, run_id: str, history: int, arm: str, famil
             _set_status(store, scope, revision, "rejected", validation=decision.to_dict())
 
 
-def apply_rollback(store: Store, *, run_id: str, history: int, arm: str, family: str,
+def apply_rollback(store: Store, *, run_id: str, history: int, group: str, family: str,
                    evidence: dict | None = None) -> int | None:
     """Mark the promoted revision `rolled_back` and re-promote the most recent `superseded` one
-    (None if there is none: arm D then runs with no procedures). Returns the revision now active."""
-    scope = _scope(run_id, history, arm, family)
+    (None if there is none: group D then runs with no procedures). Returns the revision now active."""
+    scope = _scope(run_id, history, group, family)
     with store.db:
-        cur = promoted_revision(store, run_id=run_id, history=history, arm=arm, family=family)
+        cur = promoted_revision(store, run_id=run_id, history=history, group=group, family=family)
         if cur is None:
             raise ValueError("nothing is promoted; nothing to roll back")
         _set_status(store, scope, cur, "rolled_back", validation=evidence)
-        prev = store.db.execute("SELECT MAX(revision) FROM skills WHERE run_id = ? AND history = ? AND arm = ? "
+        prev = store.db.execute("SELECT MAX(revision) FROM skills WHERE run_id = ? AND history = ? AND test_group = ? "
                                 "AND family = ? AND status = 'superseded' AND revision < ?", (*scope, cur)).fetchone()[0]
         if prev is not None:
             _set_status(store, scope, prev, "promoted")

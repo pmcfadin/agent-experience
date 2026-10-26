@@ -1,6 +1,6 @@
-"""HindsightMemory: arm B's memory, backed by the dedicated Hindsight server (SPEC §10).
+"""HindsightMemory: group B's memory, backed by the dedicated Hindsight server (SPEC §10).
 
-One bank per (run, history, arm). Recall uses the ticket text as the query (optionally restricted
+One bank per (run, history, group). Recall uses the ticket text as the query (optionally restricted
 to fact types, plus a fixed pre-registered lesson query). Retain stores one post-episode record
 built only from what the agent may learn from: the judge's verified feedback (checks and timings),
 its own summary and code diff (and, in lesson-v3, a distilled WHEN/THEN rule), with the ticket
@@ -230,7 +230,7 @@ class HindsightMemory:
 
     def recall_candidates(self, task: TaskInstance, n: int | None = None) -> list[MemoryItem]:
         """The ticket query's full ranked list (first n; all when n is None), with document ids and
-        per-stage scores, for a learner that reranks relevance candidates (arm C). Verbatim rules
+        per-stage scores, for a learner that reranks relevance candidates (group C). Verbatim rules
         are not candidates: the controller shows `recall_rules` first and reranks the rest."""
         ranked = self._recall(task.prompt, self.recall_types)
         return ranked if n is None else ranked[:n]

@@ -68,9 +68,9 @@ def cmd_run_episode(args) -> int:
     store = Store(args.runs_dir)
     from elh.controller import memory_for
 
-    memory = memory_for(cfg, args.arm, args.history, args.split, store=store, snapshot_id=args.snapshot)
+    memory = memory_for(cfg, args.group, args.history, args.split, store=store, snapshot_id=args.snapshot)
     episode_id, result, verdict = run_single_episode(
-        cfg, store, task, _client(args.client, cfg, task, family), arm=args.arm, split=args.split,
+        cfg, store, task, _client(args.client, cfg, task, family), group=args.group, split=args.split,
         history=args.history, checkpoint=args.checkpoint, memory=memory, sandbox_backend=args.sandbox)
     print(json.dumps({
         "episode_id": episode_id, "task_id": task.task_id, "outcome": result.outcome,
@@ -98,8 +98,8 @@ def cmd_snapshot(args) -> int:
 
     cfg = load_config(args.config)
     store = Store(args.runs_dir)
-    live = memory_for(cfg, args.arm, args.history, "train", store=store)
-    sid = snapshot_memory(cfg, store, live, history=args.history, arm=args.arm, after_episode=args.after)
+    live = memory_for(cfg, args.group, args.history, "train", store=store)
+    sid = snapshot_memory(cfg, store, live, history=args.history, group=args.group, after_episode=args.after)
     row = store.snapshot(sid)
     print(json.dumps({k: row[k] for k in row.keys()}, indent=2))
     return 0
@@ -121,7 +121,7 @@ def cmd_run_batch(args) -> int:
     shared = _client("model", cfg, None, family) if args.client == "model" else None
     store = Store(args.runs_dir)
     extra = {}
-    if args.client != "model":  # arm D's induction / reflection stand-ins (elh/runner/scripts.py)
+    if args.client != "model":  # group D's induction / reflection stand-ins (elh/runner/scripts.py)
         from elh.runner.scripts import ScriptedInductionClient, scripted_reflection
 
         extra = {"make_induction_client": ScriptedInductionClient,
@@ -164,10 +164,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--users", type=int, default=8)
     p.set_defaults(fn=cmd_sandbox_setup)
 
-    p = sub.add_parser("snapshot", help="freeze an arm's training bank for checkpoint episodes")
+    p = sub.add_parser("snapshot", help="freeze a group's training bank for checkpoint episodes")
     p.add_argument("--config", required=True)
     p.add_argument("--runs-dir", default="runs")
-    p.add_argument("--arm", default="B")
+    p.add_argument("--group", default="B")
     p.add_argument("--history", type=int, default=0)
     p.add_argument("--after", type=int, required=True, help="number of train episodes the bank has seen")
     p.set_defaults(fn=cmd_snapshot)
@@ -181,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dry-run", action="store_true", help="print the expanded schedule and exit")
     p.set_defaults(fn=cmd_run_batch)
 
-    p = sub.add_parser("analyze", help="compare arms for a batch (see python -m elh.analysis --help)")
+    p = sub.add_parser("analyze", help="compare groups for a batch (see python -m elh.analysis --help)")
     p.add_argument("rest", nargs=argparse.REMAINDER)
     p.set_defaults(fn=cmd_analyze)
 
@@ -204,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--cause", required=True)
             p.add_argument("--theme", required=True)
             p.add_argument("--seed", type=int, required=True)
-            p.add_argument("--arm", default="A")
+            p.add_argument("--group", default="A")
             p.add_argument("--split", default="dev")
             p.add_argument("--history", type=int, default=0)
             p.add_argument("--snapshot", help="snapshot id (required for checkpoint, sealed and retention splits)")

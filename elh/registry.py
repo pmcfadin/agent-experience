@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from elh.learner.utility import UtilityConfig
 
@@ -102,8 +102,8 @@ class RulesConfig(_Strict):
         return {"rule_store": self.store, "rule_k": self.recall_k}
 
 
-class WorkflowConfig(BaseModel):  # arm D (AWM source and the dev gate); elh/learner/workflows.py
-    """Arm D's registered parameters. `induce_every` is AWM's "every n tasks" (AWM itself: 1)."""
+class WorkflowConfig(BaseModel):  # group D (AWM source and the dev gate); elh/learner/workflows.py
+    """Group D's registered parameters. `induce_every` is AWM's "every n tasks" (AWM itself: 1)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -118,7 +118,7 @@ class WorkflowConfig(BaseModel):  # arm D (AWM source and the dev gate); elh/lea
     max_prompt_tokens: int = Field(40_000, ge=1000)  # approx; observations shrink to fit
 
 
-class GepaConfig(BaseModel):  # arm D's GEPA source; elh/learner/gepa_opt.py
+class GepaConfig(BaseModel):  # group D's GEPA source; elh/learner/gepa_opt.py
     """One GEPA invocation. Defaults are the report's minimal pilot (papers/gepa.md §3.6):
     |validation| = 10, 15 iterations at ~30% acceptance -> 10 + 90 + 45 ~ 145 rollouts, so
     `max_metric_calls=150`; plus 2 x 20 rollouts for the paired promotion check."""
@@ -252,15 +252,15 @@ class ExperimentConfig(_Strict):
     budgets: Budgets = Budgets()
     sandbox: SandboxConfig = SandboxConfig()
     sandbox_cpu_usd_per_hour: float = 0.0
-    arms: list[str]
+    groups: list[str] = Field(validation_alias=AliasChoices("groups", "arms"))  # "arms": legacy key
     histories: int = 1
     families: list[str]
     schedule: Schedule = Schedule()
     amortization: Amortization = Amortization()
     memory_service: MemoryServiceConfig | None = None
-    utility: UtilityConfig | None = None   # arm C (MemRL-style utility ranking); required when C runs
+    utility: UtilityConfig | None = None   # group C (MemRL-style utility ranking); required when C runs
     rules: RulesConfig | None = None       # Learning on the Job: one reflected rule per train episode
-    # Arm D = arm C + a procedure library shown first in the memory block (SPEC §10). The library
+    # Group D = group C + a procedure library shown first in the memory block (SPEC §10). The library
     # comes from AWM induction over verified train successes (`workflows`) or from GEPA over dev
     # episodes (`gepa`); either way a candidate is promoted only by the paired dev gate in `workflows`.
     workflows: WorkflowConfig | None = None
@@ -268,13 +268,13 @@ class ExperimentConfig(_Strict):
     procedure_source: Literal["awm", "gepa"] = "awm"
 
     @model_validator(mode="after")
-    def _arm_d(self) -> "ExperimentConfig":
-        if "D" in self.arms:
+    def _group_d(self) -> "ExperimentConfig":
+        if "D" in self.groups:
             missing = [k for k in ("utility", "workflows") if getattr(self, k) is None]
             if self.procedure_source == "gepa" and self.gepa is None:
                 missing.append("gepa")
             if missing:
-                raise ValueError(f"arm D needs registration sections {missing} (utility: as arm C; workflows: "
+                raise ValueError(f"group D needs registration sections {missing} (utility: as group C; workflows: "
                                  "induction cadence and the dev promotion gate; gepa: when procedure_source is gepa)")
         return self
 
@@ -304,6 +304,7 @@ _LATE_FIELDS = {
 
 def _hashable(cfg: "ExperimentConfig") -> dict:
     d = cfg.model_dump(mode="json")
+    d["arms"] = d.pop("groups")  # hashed under its original key, so existing run ids and banks are kept
     for section, defaults in _LATE_FIELDS.items():
         target = d if not section else d.get(section)
         if isinstance(target, dict):

@@ -1,4 +1,4 @@
-# Agent Workflow Memory (AWM): a report for building Arm D's SkillLearner
+# Agent Workflow Memory (AWM): a report for building Group D's SkillLearner
 
 Paper: Wang, Mao, Fried, Neubig, "Agent Workflow Memory", ICML 2025 (PMLR 267:63897-63911), and arXiv 2409.07429v1 (11 Sep 2024; v1 is the only arXiv version).
 Code: github.com/zorazrw/agent-workflow-memory (main branch, read 2026-10-25).
@@ -324,7 +324,7 @@ No repeated runs, seeds, confidence intervals or significance tests are reported
 
 ---
 
-## 5. Gap analysis and a faithful Arm D design
+## 5. Gap analysis and a faithful Group D design
 
 ### 5.1 What our harness provides (observed in the repo)
 
@@ -358,15 +358,15 @@ In 60 sampled stored traces there are 1,635 `tool_use` blocks and 1,067 `text` b
 [INFER] With pass rates already high, AWM's most transferable effect is **step reduction**: 7.9 to 5.9 steps, about 25% fewer. That maps directly onto the cost-per-success endpoint (SPEC §8.2).
 
 **Constraints AWM did not have.**
-- The system prompt must be byte-identical across arms (§6.1). Memory goes into an `<experience>` block in the first user message, once (§6.2, `prompts.py::first_user_message`). Anything AWM put in the system prompt must go there instead.
+- The system prompt must be byte-identical across groups (§6.1). Memory goes into an `<experience>` block in the first user message, once (§6.2, `prompts.py::first_user_message`). Anything AWM put in the system prompt must go there instead.
 - Only `train` episodes may write; checkpoint, sealed and retention episodes run against read-only snapshots, with `learner_state_sha256` in `memory_snapshots`.
-- Learning spend is charged to the arm (§8.1).
+- Learning spend is charged to the group (§8.1).
 
 ### 5.2 Mapping AWM concepts to the harness
 
-| AWM concept | Arm D equivalent |
+| AWM concept | Group D equivalent |
 |---|---|
-| website | family (`cpu_mem`). One skill library per (history, arm=D, family). |
+| website | family (`cpu_mem`). One skill library per (history, group=D, family). |
 | experience `e = (q, P)` | (ticket, steps). A step is (assistant `text` → "think", bash `command` → action, compact observation from `tool_exec`). |
 | `L_eval` (LM judge) / `gt` reward | `verdict.passed` from the oracle (only `train` episodes) |
 | `intent_template_id` dedup | (cause, theme) cell, n=1 per cell per induction call (see caveat in §5.3 step 3) |
@@ -419,7 +419,7 @@ sed -n '{start},{end}p' {job_module}
 - Segment on blank lines (AWM §2.3). Give each skill an id, and set `body_sha256` per segment.
 
 **6. Injection.**
-- Put the whole promoted library (AWM puts the whole file in, with no per-query retrieval) as a fixed first section of the `<experience>` block, in a deterministic order, counted inside `memory_token_budget`. Arm C's recalled notes follow it.
+- Put the whole promoted library (AWM puts the whole file in, with no per-query retrieval) as a fixed first section of the `<experience>` block, in a deterministic order, counted inside `memory_token_budget`. Group C's recalled notes follow it.
 - Record `skill_id@revision` in `retrieved_memory_ids_json`.
 - Warning from App. C: two sources of procedural memory (off+on) were *not additive*. D = C + skills may show the same interference, so the D vs C ablation is informative [INFER].
 
@@ -454,7 +454,7 @@ sed -n '{start},{end}p' {job_module}
 - **Versioning, auto-rollback, provenance and frozen snapshots.**
 - **Cost accounting** of induction and validation (AWM reports +10.8% tokens post hoc, ICML App. D).
 - **Multiple histories and statistics.** AWM reports a single run with no variance.
-- **Combination with episodic and utility memory** (arm C). AWM found its offline+online combination was not additive.
+- **Combination with episodic and utility memory** (group C). AWM found its offline+online combination was not additive.
 - **Splits.** Novel-combination and novel-cause splits play the role of Mind2Web's cross-website and cross-domain splits.
 
 ### 5.5 Fidelity checklist (what to keep identical to AWM)

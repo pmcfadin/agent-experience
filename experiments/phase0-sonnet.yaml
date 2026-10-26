@@ -1,4 +1,4 @@
-# Phase 0 registration for the optional Sonnet 5.5 comparison arm (SPEC §1). Dev only.
+# Phase 0 registration for the optional Sonnet 5.5 comparison group (SPEC §1). Dev only.
 name: phase0-sonnet
 version: 1
 model:
@@ -21,7 +21,7 @@ sandbox:
   memory_mb: 2048
   network: none
 sandbox_cpu_usd_per_hour: 0.0
-arms: [A]
+groups: [A]
 histories: 1
 families: [cpu_mem]
 schedule:

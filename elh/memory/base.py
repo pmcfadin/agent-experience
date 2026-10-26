@@ -1,4 +1,4 @@
-"""Memory contract (SPEC §10). Phase 0 only needs NullMemory (arm A)."""
+"""Memory contract (SPEC §10). Phase 0 only needs NullMemory (group A)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ class MemoryItem:
     text: str
     score: float = 0.0
     # Source episode (Hindsight document_id == our episode_id); survives snapshot restore, so
-    # learner state keyed on it (arm C utilities) stays valid across snapshots.
+    # learner state keyed on it (group C utilities) stays valid across snapshots.
     document_id: str | None = None
     # Per-stage retrieval scores as the memory service reported them, e.g. {"rerank": 0.78}.
     scores: dict = field(default_factory=dict, compare=False)
@@ -27,7 +27,7 @@ class Memory(Protocol):
 
 
 class NullMemory:
-    """Arm A: stateless. Recalls nothing, retains nothing."""
+    """Group A: stateless. Recalls nothing, retains nothing."""
 
     def recall(self, task: TaskInstance, k: int) -> list[MemoryItem]:
         return []

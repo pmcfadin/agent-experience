@@ -20,14 +20,14 @@ def _served(prompt_ms, predicted_ms, prompt_n=100, predicted_n=10, cache_n=50):
                                                           "cache_n": cache_n}})
 
 
-def _ep(store, eid, *, hist, arm, split, task, passed, checkpoint=None, ordinal=0, turns=10, wall=20.0,
+def _ep(store, eid, *, hist, group, split, task, passed, checkpoint=None, ordinal=0, turns=10, wall=20.0,
         outcome="submitted", calls=((1000, 2000),), t0="2026-10-25T01:00:00+00:00",
         t1="2026-10-25T01:01:00+00:00", batch="pilot", retrieved=None, snapshot=None, trace=None, cause=None,
         **extra):
     checks = {"integrity": True, "public_tests": True, "correctness": passed, "performance": passed}
     store.insert("episodes", {
         **extra, "retrieved_memory_ids_json": json.dumps(retrieved or []), "memory_snapshot_id": snapshot,
-        "trace_sha256": store.put_trace(trace) if trace else None, "cause": cause, "episode_id": eid, "run_id": RUN, "history": hist, "arm": arm, "split": split, "checkpoint": checkpoint,
+        "trace_sha256": store.put_trace(trace) if trace else None, "cause": cause, "episode_id": eid, "run_id": RUN, "history": hist, "test_group": group, "split": split, "checkpoint": checkpoint,
         "ordinal": ordinal, "task_id": task, "outcome": outcome, "passed": int(passed),
         "verdict_json": json.dumps({"passed": passed, "checks": checks}), "turns": turns, "wall_s": wall,
         "batch_id": f"{batch}/{hist}", "started_at": t0, "finished_at": t1})
@@ -41,18 +41,18 @@ def store(tmp_path):
     s = Store(tmp_path)
     s.ensure_run(RUN, "pilot", 1, "abc", json.dumps({"memory_service": {"base_url": "http://mem"}}), None, "t")
     for h in (0, 1):
-        # Arm B trains on two tasks; both arms then run the same eval panel at checkpoint 2.
-        _ep(s, f"tr{h}a", hist=h, arm="B", split="train", task=f"t{h}x", passed=False, ordinal=0,
+        # Group B trains on two tasks; both groups then run the same eval panel at checkpoint 2.
+        _ep(s, f"tr{h}a", hist=h, group="B", split="train", task=f"t{h}x", passed=False, ordinal=0,
             t0="2026-10-25T01:00:00+00:00", t1="2026-10-25T01:01:00+00:00")
-        _ep(s, f"tr{h}b", hist=h, arm="B", split="train", task=f"t{h}y", passed=True, ordinal=1,
+        _ep(s, f"tr{h}b", hist=h, group="B", split="train", task=f"t{h}y", passed=True, ordinal=1,
             t0="2026-10-25T01:02:00+00:00", t1="2026-10-25T01:03:00+00:00")
         for task, a_pass, b_pass in (("e1", True, True), ("e2", False, True), ("e3", False, False)):
-            _ep(s, f"ev{h}A{task}", hist=h, arm="A", split="checkpoint", checkpoint=2, task=task, passed=a_pass,
+            _ep(s, f"ev{h}A{task}", hist=h, group="A", split="checkpoint", checkpoint=2, task=task, passed=a_pass,
                 turns=20, calls=((2000, 2000),))
-            _ep(s, f"ev{h}B{task}", hist=h, arm="B", split="checkpoint", checkpoint=2, task=task, passed=b_pass,
+            _ep(s, f"ev{h}B{task}", hist=h, group="B", split="checkpoint", checkpoint=2, task=task, passed=b_pass,
                 turns=12, calls=((1000, 1000),))
     # Another experiment sharing the prefix's first letters must not be picked up.
-    _ep(s, "other", hist=0, arm="A", split="checkpoint", checkpoint=2, task="e1", passed=True, batch="pilot2")
+    _ep(s, "other", hist=0, group="A", split="checkpoint", checkpoint=2, task="e1", passed=True, batch="pilot2")
     return s
 
 
@@ -81,8 +81,8 @@ def fake_trace(calls_seen=None):
     return fetch
 
 
-def _group(block, phase, arm):
-    return next(g for g in block["groups"] if g["phase"] == phase and g["arm"] == arm)
+def _group(block, phase, group):
+    return next(g for g in block["cells"] if g["phase"] == phase and g["group"] == group)
 
 
 def test_wilson_and_mcnemar():
@@ -100,7 +100,7 @@ def test_grouping_and_gpu_seconds(store):
     s = summarize_batch(store, "pilot", fetch=None)
     assert s["episodes"] == 16 and s["histories"] == ["0", "1"]
     pooled = s["pooled"]
-    assert [(g["phase"], g["arm"]) for g in pooled["groups"]] == [("train", "B"), ("eval@2", "A"), ("eval@2", "B")]
+    assert [(g["phase"], g["group"]) for g in pooled["cells"]] == [("train", "B"), ("eval@2", "A"), ("eval@2", "B")]
     train = _group(pooled, "train", "B")
     assert train["n"] == 4 and train["passes"] == 2
     assert train["agent_gpu_s"]["total"] == pytest.approx(12.0)  # 4 episodes × 3 s
@@ -168,9 +168,9 @@ def test_consolidation_split_across_episodes():
 
 
 def test_missing_timings_and_unreachable_trace(store):
-    _ep(store, "nt", hist=0, arm="A", split="checkpoint", checkpoint=5, task="e9", passed=True,
+    _ep(store, "nt", hist=0, group="A", split="checkpoint", checkpoint=5, task="e9", passed=True,
         calls=((1000, 1000), None))
-    _ep(store, "nocalls", hist=0, arm="A", split="checkpoint", checkpoint=5, task="e8", passed=False, calls=())
+    _ep(store, "nocalls", hist=0, group="A", split="checkpoint", checkpoint=5, task="e8", passed=False, calls=())
 
     def down(url, bank):
         raise OSError("connection refused")
@@ -228,8 +228,8 @@ def test_paired_bootstrap_and_steps(store):
 
 
 def test_gpu_ratio_withheld_without_timings(store):
-    _ep(store, "nt", hist=0, arm="A", split="checkpoint", checkpoint=2, task="e4", passed=True, calls=(None,))
-    _ep(store, "nt2", hist=0, arm="B", split="checkpoint", checkpoint=2, task="e4", passed=True)
+    _ep(store, "nt", hist=0, group="A", split="checkpoint", checkpoint=2, task="e4", passed=True, calls=(None,))
+    _ep(store, "nt2", hist=0, group="B", split="checkpoint", checkpoint=2, task="e4", passed=True)
     (p,) = summarize_batch(store, "pilot", resamples=100)["pooled"]["paired"]
     g = p["bootstrap"]["stats"]["gpu_per_success_ratio"]
     assert g["est"] is None and "timings" in g["note"]
@@ -246,8 +246,8 @@ def test_retention_new_learning(store):
     (r,) = retention_new_learning(eps, "A", min_nl_tasks=4)
     assert r["nl"] == pytest.approx(0.5) and r["d_nl"] == pytest.approx(0.5)
     # Harmful reuse: B breaks an A-pass task.
-    _ep(store, "x1", hist=0, arm="A", split="checkpoint", checkpoint=2, task="e5", passed=True)
-    _ep(store, "x2", hist=0, arm="B", split="checkpoint", checkpoint=2, task="e5", passed=False)
+    _ep(store, "x1", hist=0, group="A", split="checkpoint", checkpoint=2, task="e5", passed=True)
+    _ep(store, "x2", hist=0, group="B", split="checkpoint", checkpoint=2, task="e5", passed=False)
     (r,) = retention_new_learning(load_episodes(store, "pilot"), "A")
     assert r["rr"] == pytest.approx(2 / 3) and r["d_rr"] == pytest.approx(-1 / 3)
     text = format_summary(summarize_batch(store, "pilot", resamples=0))
@@ -255,24 +255,24 @@ def test_retention_new_learning(store):
 
 
 def test_retention_labels_mixed_repeats():
-    eps = [dict(phase="eval@1", arm=a, history_label="0", task_id="t", passed=p, checkpoint=1)
+    eps = [dict(phase="eval@1", group=a, history_label="0", task_id="t", passed=p, checkpoint=1)
            for a, p in (("A", True), ("A", False), ("B", True))]
     (r,) = retention_new_learning(eps, "A")
     assert r["tasks"] == {"pass": 0, "fail": 0, "mixed": 1} and r["rr"] is None
 
 
-def _ck(arm, ck, task, passed, hist="0", split="checkpoint"):
-    return dict(phase=f"{'eval' if split == 'checkpoint' else split}@{ck}", split=split, arm=arm, checkpoint=ck,
+def _ck(group, ck, task, passed, hist="0", split="checkpoint"):
+    return dict(phase=f"{'eval' if split == 'checkpoint' else split}@{ck}", split=split, group=group, checkpoint=ck,
                 history_label=hist, task_id=task, passed=passed)
 
 
 def test_hold_rate():
     eps = []
-    # Arm A re-draws: t1 P,F,P  t2 P,P,F ; arm B holds: t1 P,P,P  t2 F,P,P
+    # Group A re-draws: t1 P,F,P  t2 P,P,F ; group B holds: t1 P,P,P  t2 F,P,P
     for task, a, b in (("t1", (1, 0, 1), (1, 1, 1)), ("t2", (1, 1, 0), (0, 1, 1))):
         for i, ck in enumerate((5, 10, 15)):
             eps += [_ck("A", ck, task, bool(a[i])), _ck("B", ck, task, bool(b[i]))]
-    rows = {h["arm"]: h for h in hold_rates(eps, "A", resamples=300)}
+    rows = {h["group"]: h for h in hold_rates(eps, "A", resamples=300)}
     a, b = rows["A"], rows["B"]
     assert (a["prev_pass"], a["held"]) == (3, 1) and a["hold"] == pytest.approx(1 / 3)
     assert (b["prev_pass"], b["held"], b["prev_fail"], b["converted"]) == (3, 3, 1, 1)
@@ -289,7 +289,7 @@ def test_fwt_bwt_absent_and_present(store):
     assert all(v is None for by in tr["fwt"].values() for v in by.values())
     assert tr["bwt"] == {"B": None}
     assert "FWT/BWT: no sealed or retention" in format_summary(summarize_batch(store, "pilot", resamples=0))
-    syn = [dict(split="sealed_novel_cause", arm=a, passed=p, checkpoint=None)
+    syn = [dict(split="sealed_novel_cause", group=a, passed=p, checkpoint=None)
            for a, p in (("A", False), ("A", True), ("B", True), ("B", True), ("Bs", False), ("Bs", True))]
     f = forward_transfer(syn, "sealed_novel_cause", "B")
     assert f["fwt"] == pytest.approx(0.5) and f["control_kind"] == "no-memory"
@@ -331,21 +331,21 @@ def test_retrieval_diagnostics_from_store(tmp_path):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("manifest.json", json.dumps({"fact_count": 6, "observation_count": 2}))
-    s.insert("memory_snapshots", {"snapshot_id": "snap", "run_id": RUN, "history": 0, "arm": "B", "after_episode": 2,
+    s.insert("memory_snapshots", {"snapshot_id": "snap", "run_id": RUN, "history": 0, "test_group": "B", "after_episode": 2,
                                   "source_bank_id": "b", "bank_id": "b-e2",
                                   "bank_export_sha256": s.put_blob("snapshots", buf.getvalue()),
                                   "content_sha256": "c", "created_at": "t"})
     texts = {"m1": "Fixed by using a deque.", "m2": "The fix failed: it changed protected files.", "m3": "Ticket restated."}
     panel = [("e1", ["m1", "m3"], True), ("e2", ["m1", "m2"], False), ("e3", ["m1", "m3"], True), ("e4", [], False)]
     for task, ids, passed in panel:
-        _ep(s, f"evB{task}", hist=0, arm="B", split="checkpoint", checkpoint=2, task=task, passed=passed,
+        _ep(s, f"evB{task}", hist=0, group="B", split="checkpoint", checkpoint=2, task=task, passed=passed,
             retrieved=ids, snapshot="snap", trace=_start([(i, texts[i]) for i in ids]) if ids else None)
-        _ep(s, f"evA{task}", hist=0, arm="A", split="checkpoint", checkpoint=2, task=task, passed=True)
+        _ep(s, f"evA{task}", hist=0, group="A", split="checkpoint", checkpoint=2, task=task, passed=True)
     sm = summarize_batch(s, "pilot", resamples=0)
     assert sm["retrieval_source"]["bank_sizes"] == {"snap": 8}
     assert sm["retrieval_source"]["episodes_with_injected_texts"] == 3
-    (r,) = sm["pooled"]["retrieval"]   # arm A retrieves nothing and gets no row
-    assert (r["arm"], r["episodes"], r["retrieving"], r["retrievals"], r["unique"]) == ("B", 4, 3, 6, 3)
+    (r,) = sm["pooled"]["retrieval"]   # group A retrieves nothing and gets no row
+    assert (r["group"], r["episodes"], r["retrieving"], r["retrievals"], r["unique"]) == ("B", 4, 3, 6, 3)
     assert r["coverage"] == pytest.approx(0.5) and r["bank_coverage"] == pytest.approx(3 / 8) and r["bank_units"] == 8
     assert r["top1_concentration"] == 1.0
     assert r["lesson_reach"] == pytest.approx(1 / 4) and r["lesson_known"] == 4
@@ -365,12 +365,12 @@ def test_rich_retrieval_records(tmp_path):
     s = Store(tmp_path)
     s._add_columns("episodes", {"retrieval_json": "TEXT"})
     s.ensure_run(RUN, "pilot", 1, "abc", "{}", None, "t")
-    _ep(s, "tr1", hist=0, arm="B", split="train", task="tq", passed=False, cause="quadratic")
-    _ep(s, "tr2", hist=0, arm="B", split="train", task="tq2", passed=True, cause="queue")
+    _ep(s, "tr1", hist=0, group="B", split="train", task="tq", passed=False, cause="quadratic")
+    _ep(s, "tr2", hist=0, group="B", split="train", task="tq2", passed=True, cause="queue")
     cands = [{"id": "m1", "rank": 0, "score": 0.9, "document_id": "tr2"},
              {"id": "m2", "rank": 1, "score": 0.8, "document_id": "tr2"},
              {"id": "m3", "rank": 7, "score": 0.1, "document_id": "tr1", "injected": False}]
-    _ep(s, "ev1", hist=0, arm="B", split="checkpoint", checkpoint=2, task="e1", passed=True, cause="quadratic",
+    _ep(s, "ev1", hist=0, group="B", split="checkpoint", checkpoint=2, task="e1", passed=True, cause="quadratic",
         retrieved=["m1", "m2"], retrieval_json=json.dumps({"query": "q", "candidates": cands}))
     eps = [e for e in load_episodes(s, "pilot") if e["phase"] != "train"]
     assert eps[0]["retrieval"]["query"] == "q"

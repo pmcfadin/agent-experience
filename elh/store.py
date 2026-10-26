@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS runs (
 );
 CREATE TABLE IF NOT EXISTS episodes (
     episode_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(run_id),
-    history INTEGER, arm TEXT, split TEXT, checkpoint INTEGER, ordinal INTEGER,
+    history INTEGER, test_group TEXT, split TEXT, checkpoint INTEGER, ordinal INTEGER,
     task_id TEXT, family TEXT, cause TEXT, theme TEXT, seed INTEGER, task_hash TEXT,
     model_id TEXT, sandbox_backend TEXT, sandbox_image TEXT,
     outcome TEXT, passed INTEGER, verdict_json TEXT,
@@ -35,22 +35,22 @@ CREATE TABLE IF NOT EXISTS llm_calls (
 );
 CREATE TABLE IF NOT EXISTS memory_snapshots (
     snapshot_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(run_id),
-    history INTEGER NOT NULL, arm TEXT NOT NULL, after_episode INTEGER NOT NULL,
+    history INTEGER NOT NULL, test_group TEXT NOT NULL, after_episode INTEGER NOT NULL,
     source_bank_id TEXT NOT NULL, bank_id TEXT NOT NULL,
     bank_export_sha256 TEXT NOT NULL, content_sha256 TEXT NOT NULL, learner_state_sha256 TEXT,
-    created_at TEXT NOT NULL, UNIQUE (run_id, history, arm, after_episode)
+    created_at TEXT NOT NULL, UNIQUE (run_id, history, test_group, after_episode)
 );
--- Arm D procedures (SPEC §9/§10; elh/learner/workflows.py). One row per workflow; a revision is
--- one whole regenerated library of a (run, history, arm, family) stream and shares one status:
+-- Group D procedures (SPEC §9/§10; elh/learner/workflows.py). One row per workflow; a revision is
+-- one whole regenerated library of a (run, history, test_group, family) stream and shares one status:
 -- candidate -> promoted | rejected; promoted -> superseded | rolled_back; superseded -> promoted
 -- (rollback only). Bodies and provenance are never rewritten; only status/validation/timestamps move.
 CREATE TABLE IF NOT EXISTS skills (
     skill_id TEXT NOT NULL, revision INTEGER NOT NULL, run_id TEXT NOT NULL,
-    history INTEGER NOT NULL, arm TEXT NOT NULL, family TEXT NOT NULL, position INTEGER NOT NULL,
+    history INTEGER NOT NULL, test_group TEXT NOT NULL, family TEXT NOT NULL, position INTEGER NOT NULL,
     status TEXT NOT NULL, title TEXT, body TEXT NOT NULL, body_sha256 TEXT NOT NULL,
     library_sha256 TEXT NOT NULL, source_episode_ids_json TEXT NOT NULL, induction_json TEXT,
     validation_json TEXT, created_at TEXT NOT NULL, promoted_at TEXT, rolled_back_at TEXT,
-    PRIMARY KEY (run_id, history, arm, family, revision, skill_id)
+    PRIMARY KEY (run_id, history, test_group, family, revision, skill_id)
 );
 CREATE TABLE IF NOT EXISTS ledger (
     entry_id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, episode_id TEXT,
@@ -69,13 +69,22 @@ class Store:
         self.root.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(self.root / "elh.sqlite3", check_same_thread=False)
         self.db.row_factory = sqlite3.Row
+        self._rename_legacy_columns()
         self.db.executescript(SCHEMA)
         self._add_columns("episodes", {"memory_props_sha256": "TEXT", "batch_id": "TEXT", "retrieval_json": "TEXT",
                                        "memory_searches_json": "TEXT", "rule_json": "TEXT"})
-        # Arm D: the procedure library revision a snapshot pins (NULL: none promoted yet, or not arm D).
+        # Group D: the procedure library revision a snapshot pins (NULL: none promoted yet, or not group D).
         self._add_columns("memory_snapshots", {"library_revision": "INTEGER"})
-        # Learning spend with no episode (arm D induction / GEPA reflection): which stream and why.
-        self._add_columns("ledger", {"history": "INTEGER", "arm": "TEXT", "purpose": "TEXT"})
+        # Learning spend with no episode (group D induction / GEPA reflection): which stream and why.
+        self._add_columns("ledger", {"history": "INTEGER", "test_group": "TEXT", "purpose": "TEXT"})
+
+    def _rename_legacy_columns(self) -> None:
+        """Stores created before test groups were called groups have an `arm` column; rename it in place."""
+        tables = [r[0] for r in self.db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
+        for t in tables:
+            if "arm" in {r[1] for r in self.db.execute(f"PRAGMA table_info({t})")}:
+                self.db.execute(f"ALTER TABLE {t} RENAME COLUMN arm TO test_group")
+        self.db.commit()
 
     def _add_columns(self, table: str, cols: dict[str, str]) -> None:
         """Columns added after a store was created (CREATE TABLE IF NOT EXISTS keeps the old shape)."""

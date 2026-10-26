@@ -1,4 +1,4 @@
-"""Agent loop (SPEC §6.1): manual, append-only tool-use loop with identical budgets for every arm."""
+"""Agent loop (SPEC §6.1): manual, append-only tool-use loop with identical budgets for every group."""
 
 from __future__ import annotations
 

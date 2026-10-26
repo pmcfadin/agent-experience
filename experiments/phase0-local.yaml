@@ -1,9 +1,9 @@
 # Phase 0 registration, primary configuration (SPEC §1): the self-hosted model is the agent
 # and Hindsight's memory model. Both are pinned; each episode checks the backends' /props.
 name: phase0-local
-version: 6                      # v2: study aliases, UserSandbox, /props capture. v3: arm B (Hindsight)
+version: 6                      # v2: study aliases, UserSandbox, /props capture. v3: group B (Hindsight)
                                 # v4: pins for both models, /props relay URLs
-                                # v5: arm B retains lesson-first records (record_format lesson-v1)
+                                # v5: group B retains lesson-first records (record_format lesson-v1)
                                 # v6: lesson-v2 (v1 stated failed checks with their pass wording)
 model:
   provider: openai_compat
@@ -43,7 +43,7 @@ sandbox:
   memory_mb: 2048
   network: none
 sandbox_cpu_usd_per_hour: 0.0
-arms: [A, B]
+groups: [A, B]
 histories: 1
 families: [cpu_mem]
 schedule:

@@ -27,7 +27,7 @@ def scripted_client(kind: str, task: TaskInstance, family) -> ScriptedClient:
                            [("submit", {"summary": f"scripted {kind} fix"})]])
 
 
-# Arm D stand-ins for scripted batches: a fixed induction output and a fixed reflection, so a
+# Group D stand-ins for scripted batches: a fixed induction output and a fixed reflection, so a
 # scripted run exercises induction, versioning, the dev gate and snapshots without a model.
 SCRIPTED_WORKFLOWS = """\
 ## Measure the slow job before changing it

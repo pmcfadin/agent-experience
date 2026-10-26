@@ -14,7 +14,7 @@ overrides:
   procedure_source: awm
 family: cpu_mem
 histories: 3
-arms: [A, B, C]
+groups: [A, B, C]
 phases:
   - train:
       tasks: {causes: [quadratic_membership], themes: [billing, logistics, telemetry, course_registration, network_flows], seeds: [1006, 1009]}

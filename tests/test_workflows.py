@@ -1,4 +1,4 @@
-"""Arm D workflow memory (AWM online + dev gate): inputs, prompt, library, versioning, gate, guards."""
+"""Group D workflow memory (AWM online + dev gate): inputs, prompt, library, versioning, gate, guards."""
 
 import json
 import uuid
@@ -72,7 +72,7 @@ def _reference_turns(task, family):
 
 
 def _add_episode(store, task, *, split="train", passed=True, outcome="submitted", integrity=True,
-                 arm="D", history=0, ordinal=0, family=None, memory_block=""):
+                 group="D", history=0, ordinal=0, family=None, memory_block=""):
     family = family or get_family(task.family)
     sbx = LocalSandbox()
     try:
@@ -86,7 +86,7 @@ def _add_episode(store, task, *, split="train", passed=True, outcome="submitted"
     trace = store.put_trace(res.trace + [{"event": "verdict", **verdict}])
     eid = uuid.uuid4().hex
     store.insert("episodes", {
-        "episode_id": eid, "run_id": RUN, "history": history, "arm": arm, "split": split, "ordinal": ordinal,
+        "episode_id": eid, "run_id": RUN, "history": history, "test_group": group, "split": split, "ordinal": ordinal,
         "task_id": task.task_id, "family": task.family, "cause": task.cause, "theme": task.theme, "seed": task.seed,
         "task_hash": task.content_hash, "outcome": outcome, "passed": int(passed), "verdict_json": json.dumps(verdict),
         "turns": res.turns, "input_tokens": 1000, "output_tokens": 100, "cache_read_tokens": 0,
@@ -138,7 +138,7 @@ def pool(store, family):
                                "retention"]):
         ids[split] = _add_episode(store, family.generate("nested_scan_join", "inventory", 2000 + i), split=split,
                                   ordinal=5 + i)
-    ids["other_arm"] = _add_episode(store, family.generate("repeated_sort_min", "billing", 1009), arm="C", ordinal=0)
+    ids["other_group"] = _add_episode(store, family.generate("repeated_sort_min", "billing", 1009), group="C", ordinal=0)
     return ids
 
 
@@ -339,7 +339,7 @@ def _ind(text, sources=("e1",)):
 
 
 def test_revisions_provenance_promotion_and_rollback(store):
-    scope = dict(run_id=RUN, history=0, arm="D", family="cpu_mem")
+    scope = dict(run_id=RUN, history=0, group="D", family="cpu_mem")
     assert promoted_library(store, **scope) == (None, WorkflowLibrary("cpu_mem"))
     empty_state = learner_state_sha256(store, **scope)
     r1 = record_candidate(store, _ind(LIBRARY_OUTPUT, ["e1", "e2"]), run_id=RUN, history=0)
@@ -379,7 +379,7 @@ def test_tampered_library_body_is_detected(store):
     record_candidate(store, _ind(LIBRARY_OUTPUT), run_id=RUN, history=0)
     store.db.execute("UPDATE skills SET body = body || 'x' WHERE position = 0")
     with pytest.raises(ValueError, match="hash"):
-        load_library(store, run_id=RUN, history=0, arm="D", family="cpu_mem", revision=1)
+        load_library(store, run_id=RUN, history=0, group="D", family="cpu_mem", revision=1)
 
 
 # -- gate ----------------------------------------------------------------------------------------

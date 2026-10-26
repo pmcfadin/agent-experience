@@ -1,4 +1,4 @@
-# MemRL: implementation-grade notes for ELH Arm C
+# MemRL: implementation-grade notes for ELH Group C
 
 Sources read (2026-10-25):
 - Paper: arXiv 2601.03192 **v2** (12 Feb 2026), full HTML (main text and Appendices A–I). Cited as `§x.y`, `Eq. n`, `Table n`, `App. X`.
@@ -337,7 +337,7 @@ The paper says Q_init = 0 for all (Table 8). LLB and HLE disagree with it.
 
 ---
 
-## 6. Gap analysis: a faithful Arm C in ELH
+## 6. Gap analysis: a faithful Group C in ELH
 
 ### 6.1 What exists
 - `HindsightMemory.recall` sends `{"query": task.prompt, "max_tokens": 2048}` and keeps
@@ -350,7 +350,7 @@ The paper says Q_init = 0 for all (Table 8). LLB and HLE disagree with it.
   `retrieved_memory_ids_json` (unit ids), and retains only on non-read-only splits
   (`elh/controller.py:185`, `221`, `243-249`).
 - `memory_snapshots.learner_state_sha256` exists and is always `None` (`controller.py:129`; SPEC §9).
-- SPEC arm C: "two-phase retrieval (relevance top-N → rerank by learned Q); Q updated from verified
+- SPEC group C: "two-phase retrieval (relevance top-N → rerank by learned Q); Q updated from verified
   reward r = passed × (1 − normalised_cost)" (SPEC.md:353). `Learner.observe/rank` (SPEC.md:341-345).
   `elh/learner/` does not exist yet.
 
@@ -358,7 +358,7 @@ The paper says Q_init = 0 for all (Table 8). LLB and HLE disagree with it.
 - `POST /v1/default/banks/{bank}/memories/recall` returns `results[]` with `id`, `type`
   (world/experience/observation), **`document_id`**, `tags`, `metadata`, and
   **`scores {final, reranker, semantic, keyword}`**. `semantic` is the vector cosine (null if the
-  semantic arm did not surface the result). `final` is the reranker score plus recency/temporal
+  semantic group did not surface the result). `final` is the reranker score plus recency/temporal
   boosts. `min_scores {semantic, keyword, reranker, final}` floors exist (openapi `RecallScores`, `MinScores`).
 - Probe with a generic cpu_mem ticket, `max_tokens 4096`, on the 15-episode snapshot bank: **80
   candidates** (33 experience, 30 world, 17 observation) spanning **16 distinct document_ids**.
@@ -369,7 +369,7 @@ The paper says Q_init = 0 for all (Table 8). LLB and HLE disagree with it.
   the right lessons**. The problem lies in the final top-5 truncation and ordering, which Phase B is
   meant to fix.
 - **document_id survives snapshot restore**: the snapshot bank's `document_id`s are the training
-  episode ids. `7d9f3a62…`, `6deb4062…` and `e96b5dcf…` are arm-B train episodes in `runs/elh.sqlite3`.
+  episode ids. `7d9f3a62…`, `6deb4062…` and `e96b5dcf…` are group-B train episodes in `runs/elh.sqlite3`.
   The first two failed on integrity; the third passed. SPEC says unit ids **do not** survive restore
   (SPEC.md:397-398).
 - `semantic` scores are compressed: 0.776–0.849, mean 0.823 over the 80 candidates

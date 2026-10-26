@@ -72,7 +72,7 @@ needs_server = pytest.mark.skipif(not _up(), reason="Hindsight server not runnin
 def test_snapshot_round_trip(cfg, banks, tmp_path):
     store = Store(tmp_path)
     live = _training_bank(cfg, banks)
-    sid = snapshot_memory(cfg, store, live, history=0, arm="B", after_episode=1)
+    sid = snapshot_memory(cfg, store, live, history=0, group="B", after_episode=1)
     row = store.snapshot(sid)
     assert row["bank_id"] == f"{live.bank_id}-e1" and row["content_sha256"] == live.fingerprint()
     assert store.get_blob("snapshots", row["bank_export_sha256"])
@@ -91,7 +91,7 @@ def test_snapshot_round_trip(cfg, banks, tmp_path):
 @needs_server
 def test_tampered_snapshot_is_refused(cfg, banks, tmp_path):
     store = Store(tmp_path)
-    sid = snapshot_memory(cfg, store, _training_bank(cfg, banks), history=0, arm="B", after_episode=1)
+    sid = snapshot_memory(cfg, store, _training_bank(cfg, banks), history=0, group="B", after_episode=1)
     snap = open_snapshot(cfg, store, sid)
     doc = snap._call("GET", "/documents")["items"][0]["id"]
     snap._call("DELETE", f"/documents/{doc}")
@@ -103,13 +103,13 @@ def test_tampered_snapshot_is_refused(cfg, banks, tmp_path):
 @needs_server
 def test_checkpoint_episode_uses_snapshot_and_leaves_it_unchanged(cfg, banks, tmp_path):
     store = Store(tmp_path)
-    sid = snapshot_memory(cfg, store, _training_bank(cfg, banks), history=0, arm="B", after_episode=1)
+    sid = snapshot_memory(cfg, store, _training_bank(cfg, banks), history=0, group="B", after_episode=1)
     family = get_family("cpu_mem")
     task = family.generate("queue_pop_front", "billing", 7)
     snap = memory_for(cfg, "B", 0, "checkpoint", store=store, snapshot_id=sid)
     before = snap.fingerprint()
     episode_id, _, verdict = run_single_episode(
-        cfg, store, task, scripted_client("reference", task, family), arm="B", split="checkpoint",
+        cfg, store, task, scripted_client("reference", task, family), group="B", split="checkpoint",
         checkpoint=1, memory=snap)
     row = store.episode(episode_id)
     assert verdict.passed and row["memory_snapshot_id"] == sid

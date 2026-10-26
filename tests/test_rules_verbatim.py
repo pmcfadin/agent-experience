@@ -1,5 +1,5 @@
 """Verbatim rule store (Learning on the Job, arXiv 2607.22157): the agent's rule is retained as its
-own chunks-mode item, recalled by a rule-only query into reserved slots, and shown first in arms B
+own chunks-mode item, recalled by a rule-only query into reserved slots, and shown first in groups B
 and C. Stub-server tests check request shapes; nothing here talks to a live Hindsight."""
 
 import json
@@ -258,7 +258,7 @@ RULE_ITEMS = [MemoryItem("r0", "AVOID: WHEN a THEN do NOT b\nSituation: a", docu
 
 
 class ServiceBank:
-    """Arm B stand-in with verbatim rules: recall already holds the rules first."""
+    """Group B stand-in with verbatim rules: recall already holds the rules first."""
     readonly, bank_id, verbatim_rules = False, "fake", True
 
     def __init__(self):
@@ -272,12 +272,12 @@ class ServiceBank:
         return [ep["episode_id"]]
 
 
-def test_arm_b_logs_rules_and_shows_them_first(tmp_path):
+def test_group_b_logs_rules_and_shows_them_first(tmp_path):
     cfg = load_config(CONFIG)
     family = get_family("cpu_mem")
     task = family.generate("queue_pop_front", "billing", 3)
     store, bank = Store(tmp_path), ServiceBank()
-    eid, _, _ = run_single_episode(cfg, store, task, scripted_client("reference", task, family), arm="B",
+    eid, _, _ = run_single_episode(cfg, store, task, scripted_client("reference", task, family), group="B",
                                    split="train", memory=bank, sandbox_backend="local")
     row = store.episode(eid)
     assert json.loads(row["retrieved_memory_ids_json"]) == ["r0", "r1", "t0", "t1", "t2"]
@@ -308,7 +308,7 @@ class UtilityBank:
              for i in range(4)]
 
     def recall(self, task, k):
-        raise AssertionError("arm C reranks candidates")
+        raise AssertionError("group C reranks candidates")
 
     def retain(self, ep):
         self.retained.append(ep["episode_id"])
@@ -316,14 +316,14 @@ class UtilityBank:
 
 
 @pytest.mark.parametrize("n_rules,picked", [(0, ["e0:rule", "ep3", "ep2"]), (1, ["ep3", "ep2"]), (2, ["ep3"])])
-def test_arm_c_reserves_rule_slots_and_reranks_the_rest(tmp_path, n_rules, picked):
+def test_group_c_reserves_rule_slots_and_reranks_the_rest(tmp_path, n_rules, picked):
     cfg = load_config(CONFIG).model_copy(update={"utility": UCFG})
     family = get_family("cpu_mem")
     task = family.generate("queue_pop_front", "billing", 3)
     store = Store(tmp_path)
     learner = UtilityLearner.for_store(store, "r", 0, "C", UCFG)
     bank = UtilityBank(learner, RULE_ITEMS[:n_rules])
-    eid, _, verdict = run_single_episode(cfg, store, task, scripted_client("reference", task, family), arm="C",
+    eid, _, verdict = run_single_episode(cfg, store, task, scripted_client("reference", task, family), group="C",
                                          split="train", memory=bank, sandbox_backend="local")
     assert verdict.passed
     # k2 = 3 episodes, minus one slot per rule shown; a shown rule is not reranked again
@@ -340,14 +340,14 @@ def test_arm_c_reserves_rule_slots_and_reranks_the_rest(tmp_path, n_rules, picke
         assert learner.visits("e0:rule") == 0  # shown rules sit outside the utility table
 
 
-def test_arm_c_without_verbatim_rules_is_unchanged(tmp_path):
+def test_group_c_without_verbatim_rules_is_unchanged(tmp_path):
     cfg = load_config(CONFIG).model_copy(update={"utility": UCFG})
     family = get_family("cpu_mem")
     task = family.generate("queue_pop_front", "billing", 3)
     store = Store(tmp_path)
     learner = UtilityLearner.for_store(store, "r", 0, "C", UCFG)
     bank = UtilityBank(learner, None)
-    eid, _, _ = run_single_episode(cfg, store, task, scripted_client("reference", task, family), arm="C",
+    eid, _, _ = run_single_episode(cfg, store, task, scripted_client("reference", task, family), group="C",
                                    split="train", memory=bank, sandbox_backend="local")
     assert "rules" not in json.loads(store.episode(eid)["retrieval_json"])
     assert learner.last_trace.selected_document_ids == ["e0:rule", "ep3", "ep2"]

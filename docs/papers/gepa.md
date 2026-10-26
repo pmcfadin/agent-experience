@@ -1,4 +1,4 @@
-# GEPA: Reflective Prompt Evolution, as an implementation guide for ELH Arm D
+# GEPA: Reflective Prompt Evolution, as an implementation guide for ELH Group D
 
 **Sources read**
 
@@ -167,7 +167,7 @@ DSPy `auto` presets (`dspy/teleprompt/gepa/gepa.py`) [read]: `light/medium/heavy
 - Inference-time search for code (NPUEval mean vector utilisation 4.25% → 30.52%; KernelBench fast₁ from about 0 to >20%), with temperature removed via caching.
 - Adversarial prompt search: a GEPA-evolved adversarial prompt cut GPT-5-mini's AIME-2025 pass@1 from 76% to 10%. This shows how strongly a single text artefact can move a frozen model, in either direction.
 
-**gskill**, the closest analogue to Arm D (blog post) [read]:
+**gskill**, the closest analogue to Group D (blog post) [read]:
 - Setup: Mini-SWE-agent with gpt-5-mini, a single component `{"skills": ""}` starting empty and injected into the system prompt template, SWE-smith tasks split about 200 train / 50 val / 60 test, reflection by a *stronger* model (`gpt-5.2-pro` default), minibatch 3, Pareto selection, default budget `--max-metric-calls 600`.
 - Results: "Under 300 rollouts", resolve rate went from 55% to 82% (Jinja) and from 24% to 93% (Bleve). Skills transferred to Claude Code (Haiku 4.5: 79.3% → 98.3% on Bleve) and also cut task duration.
 - μ_f: per task `{"Input": {Task ID, Problem[:200]}, "Generated Outputs": {Patch[:500], Agent Trace}, "Feedback": {Status: no_patch|f2p_failed|p2p_regression|all_passed, Test Output (head and tail 500 chars)}, "scores": {...}}` (`gskill/gskill/swe_fitness_fn.py`).
@@ -175,18 +175,18 @@ DSPy `auto` presets (`dspy/teleprompt/gepa/gepa.py`) [read]: `light/medium/heavy
 
 ---
 
-## 3. Gap analysis and design for ELH Arm D
+## 3. Gap analysis and design for ELH Group D
 
 ### 3.1 What ELH has and lacks
 
 **Present in ELH** [read]:
 - Frozen agent (`study-qwen3-coder-30b-a3b`, T=0.7, one request at a time).
-- Byte-identical system prompt. Arm-specific text is allowed **only in the first user message** (`elh/runner/prompts.py::first_user_message`, which wraps memory in `<experience>`; SPEC §6.1 steps 1-2).
+- Byte-identical system prompt. Group-specific text is allowed **only in the first user message** (`elh/runner/prompts.py::first_user_message`, which wraps memory in `<experience>`; SPEC §6.1 steps 1-2).
 - Judge `Verdict{passed, checks{integrity, public_tests, correctness, performance}, detail{cases[], quality{reference_s, budget_s, agent_s, agent_over_reference, large_status, large_correct}}}` (`elh/judge.py`; example rows in `runs/elh.sqlite3`).
 - Ledger category `learning` explicitly covers "SkillLearner reflection and validation episodes" (SPEC §8.1).
 - `skills` table schema (SPEC §9).
 - `dev` split, defined as "SkillLearner validation and harness tuning; never reported" (SPEC §4.3).
-- Arm D contract: "every M episodes, reflect over clusters of successful traces → candidate procedure → validate on dev → promote only if it beats the incumbent; versioned; auto-rollback" (SPEC §10).
+- Group D contract: "every M episodes, reflect over clusters of successful traces → candidate procedure → validate on dev → promote only if it beats the incumbent; versioned; auto-rollback" (SPEC §10).
 
 **Missing** [read]:
 - `elh/learner/` does not exist.
@@ -197,7 +197,7 @@ DSPy `auto` presets (`dspy/teleprompt/gepa/gepa.py`) [read]: `light/medium/heavy
 
 - **Component `procedure`** (start here). A single text block injected into the first user message, e.g. `<procedure>…</procedure>`, placed before `<experience>`. The wrapper text is part of the frozen prompt and **needs a registration bump** (prompts.py says edits require a new registration).
   - Seed it with an empty string (as gskill does), or with a short hand-written checklist.
-  - Arms A-C would see no block, so A/B/C stay byte-identical.
+  - Groups A-C would see no block, so A/B/C stay byte-identical.
 - **Optional second component `experience_preamble`**: replace the fixed sentence "Notes retrieved from your previous work… may or may not apply here." with an evolvable text that tells the agent how to use recalled memories.
   - Only with two components do round-robin and merge mean anything.
   - Start with one component. Fewer moving parts and less budget.
@@ -215,25 +215,25 @@ DSPy `auto` presets (`dspy/teleprompt/gepa/gepa.py`) [read]: `light/medium/heavy
 - `D_confirm`: 15-20 fresh dev tasks. This is the SPEC's "promote only if it beats the incumbent" gate, run **outside** GEPA as a paired comparison: incumbent vs GEPA winner on the same tasks, ideally ×2 replicates. It is needed because GEPA's best-of-pool on `D_pareto` is selection-biased (winner's curse, worse with a stochastic agent at T=0.7).
 
 **Memory state**:
-- Arm D is "as C", so episodes include recalled memory. Run each GEPA invocation against **one fixed read-only snapshot** (`open_snapshot`, created at the trigger point). Otherwise candidate scores drift as the bank changes. SPEC lets dev read the live bank, but a snapshot is required here for comparability.
+- Group D is "as C", so episodes include recalled memory. Run each GEPA invocation against **one fixed read-only snapshot** (`open_snapshot`, created at the trigger point). Otherwise candidate scores drift as the bank changes. SPEC lets dev read the live bank, but a snapshot is required here for comparability.
 - Record `memory_snapshot_id` on every GEPA episode.
 
 **Trigger**: SPEC says "every M episodes". Treat each trigger as one GEPA run, warm-started with `seed_candidate = incumbent`. A fresh run_dir per trigger is cleaner than resuming. Larger M (e.g. 25-50) keeps learning spend bounded.
 
 ### 3.4 Score μ and feedback μ_f from the judge [inf]
 
-**Ceiling problem** [read, `runs/elh.sqlite3`]: Qwen arm A passes 0.90 of checkpoint episodes (n=20) and arm B 0.80 (n=20); B train is 0.78 (n=32). With binary scores and b=3:
+**Ceiling problem** [read, `runs/elh.sqlite3`]: Qwen group A passes 0.90 of checkpoint episodes (n=20) and group B 0.80 (n=20); B train is 0.78 (n=32). With binary scores and b=3:
 - Most minibatches are all-pass. P(all 3 pass) ≈ 0.73 at p=0.9.
 - `skip_perfect_score` then skips the reflection but still spends 3 rollouts.
 - Strict-improvement acceptance has nothing to improve.
 
 **Fixes**:
-- (a) **Graded score.** Reuse arm C's reward so that GEPA optimises the same thing the primary endpoint measures: `r = passed × (1 − normalised_cost)` (SPEC §10), plus partial credit for failures. Example: integrity broken = 0.0, public tests fail = 0.05, correctness fail = 0.1, performance-only fail = 0.3 + 0.2·clip(budget_s/agent_s). With this, a 1.0 score is essentially unreachable, so set `perfect_score` above the maximum or `skip_perfect_score=False`.
+- (a) **Graded score.** Reuse group C's reward so that GEPA optimises the same thing the primary endpoint measures: `r = passed × (1 − normalised_cost)` (SPEC §10), plus partial credit for failures. Example: integrity broken = 0.0, public tests fail = 0.05, correctness fail = 0.1, performance-only fail = 0.3 + 0.2·clip(budget_s/agent_s). With this, a 1.0 score is essentially unreachable, so set `perfect_score` above the maximum or `skip_perfect_score=False`.
 - (b) **Weight `D_feedback` toward harder dev cells.** First measure a per-cause dev baseline. The single dev failure in `runs-dev-v1-20261025` was performance: `large_status: timeout`, agent_over_reference 18×. This biases training only, which is acceptable, because promotion is still decided on stratified `D_confirm`.
 - Optional: `objective_scores = {correctness, performance, integrity, cost}` with `frontier_type="hybrid"`. This keeps candidates that are best on one axis.
 
 **Feedback text**: reuse the `lesson-v2` discipline (SPEC §10).
-- State passed and failed checks separately, with failure wording, not pass wording. This is the exp1 bug, which voided that run's arm B result.
+- State passed and failed checks separately, with failure wording, not pass wording. This is the exp1 bug, which voided that run's group B result.
 - Name any protected files changed.
 - Give the agent's time against `budget_s`, the outcome (submitted / budget_exhausted …), turns and tokens.
 - **Exclude** the oracle files, hidden case sizes/inputs, and `reference_s`, matching the memory policy. Integrity failures are the most important signal to keep explicit, because GEPA will happily evolve text that games anything ungated.
@@ -249,7 +249,7 @@ DSPy `auto` presets (`dspy/teleprompt/gepa/gepa.py`) [read]: `light/medium/heavy
 - Replace the Docker/repo text with ELH's sandbox facts (fresh bash process per call, no network, time limits).
 - Tell it the procedure will be used on *other tickets of other causes and themes*.
 - Forbid ticket-specific identifiers and numbers.
-- Cap length (e.g. ≤ 400 words). Prompt length is inference cost charged to the arm.
+- Cap length (e.g. ≤ 400 words). Prompt length is inference cost charged to the group.
 - Keep the `<curr_param>` and `<side_info>` placeholders.
 
 ### 3.5 Can the `gepa` package be used directly? Yes. [read + inf]
@@ -267,7 +267,7 @@ class ElhProcedureAdapter:          # satisfies gepa.core.adapter.GEPAAdapter
     def evaluate(self, batch: list[TaskInstance], candidate: dict[str, str], capture_traces=False):
         outs, scores, trajs = [], [], []
         for task in batch:          # serial: the alias takes 1 request at a time
-            ep = run_episode(cfg, store, task, client, arm="D", split="dev",
+            ep = run_episode(cfg, store, task, client, group="D", split="dev",
                              memory=snapshot_view, procedure=candidate["procedure"],
                              ledger_category="learning")        # retry infra_error; raise if persistent
             scores.append(score_from_verdict(ep.verdict, ep.cost))
@@ -292,18 +292,18 @@ result = gepa.optimize(seed_candidate={"procedure": incumbent},
 
 **Notes** [read: adapter contract; inf: ELH mapping]:
 - **Infra errors must not score 0.** The adapter contract says to return 0 for *task* failures and to raise for systemic ones. Map ELH `infra_error` (backend identity changed mid-episode, sandbox failure) to retry-then-raise.
-- **Ledger**: every GEPA episode is a normal `episodes` row with `split='dev'`. Its inference and the reflection tokens go to `learning`, not to the arm's `inference` (SPEC §8.1).
+- **Ledger**: every GEPA episode is a normal `episodes` row with `split='dev'`. Its inference and the reflection tokens go to `learning`, not to the group's `inference` (SPEC §8.1).
 - **Versioning**: on promotion, write a `skills` row with `body_sha256`, `validation_json` (the GEPA run summary, D_pareto scores and D_confirm paired result) and `source_episode_ids_json` (the D_feedback episode ids). Store `gepa_state.bin` content-addressed, along with the GEPA commit and config, in the preregistration.
 - **Reflection LM choice**:
   - Gemma (the memory LLM alias) keeps "learning" on one pinned model, consistent with Hindsight.
   - Qwen self-reflection follows the paper's same-model setup. gskill used a much stronger reflector.
-  - Both are local and pinned. Pick one and preregister it. A frontier reflector would make Arm D's gain partly "distillation from a stronger model" and is a confound.
+  - Both are local and pinned. Pick one and preregister it. A frontier reflector would make Group D's gain partly "distillation from a stronger model" and is a confound.
 - **Parallelism**: GEPA's `batch_evaluate` hook allows parallel rollouts, but the alias serialises requests, so expect strictly serial throughput.
 
 ### 3.6 Rollout cost and a realistic minimal budget
 
 **Episode time** [read]:
-- `runs/elh.sqlite3`: Qwen episodes average **55-67 s wall** (arm A checkpoint 67.3 s, n=20; arm B train 55.4 s, n=32; range 28-116 s), including about 2-4 s of oracle time.
+- `runs/elh.sqlite3`: Qwen episodes average **55-67 s wall** (group A checkpoint 67.3 s, n=20; group B train 55.4 s, n=32; range 28-116 s), including about 2-4 s of oracle time.
 - The caller's ~35 s is GPU time. Plan on **~60 s wall per rollout, serial**, i.e. about 60 rollouts/hour.
 
 **Formula** [read, derived from §1.2]: `R ≈ |D_pareto| + N·2b + a·N·|D_pareto|`, where N = iterations and a = acceptance rate.
@@ -317,13 +317,13 @@ result = gepa.optimize(seed_candidate={"procedure": incumbent},
 **Context for that number** [read]: it is in the same range as gskill's "under 300 rollouts" and the paper's 6-179 train rollouts to match GRPO. Those gains came from far lower baselines (24-55% resolve), not 80-90%.
 
 **Fit to the schedule** [inf]:
-- With M=50 and a 200-episode train horizon, that is 4 triggers ≈ 750-900 learning rollouts per (history, arm).
+- With M=50 and a 200-episode train horizon, that is 4 triggers ≈ 750-900 learning rollouts per (history, group).
 - That is 4-5× the train episodes themselves. `amortised_learning` (SPEC §8.2, `horizon_tasks` 1000) will make it visible in cost_per_success.
 - Cheaper options:
   - A single GEPA run at the midpoint.
   - |D_pareto|=6 with `val_evaluation_policy` subsets. The paper flags "dynamically selected validation subsets" as future work (Obs. 1).
   - `cache_evaluation=True`, which only helps on exact repeats.
-- **Smallest meaningful pilot**: one GEPA run at 150 metric calls plus a 40-rollout paired confirm, about 3 h, before committing Arm D's protocol.
+- **Smallest meaningful pilot**: one GEPA run at 150 metric calls plus a 40-rollout paired confirm, about 3 h, before committing Group D's protocol.
 
 **Statistical power** [inf]:
 - At p≈0.85, a 20-task paired confirm cannot resolve gains under about 15-20 pp on pass rate.
@@ -342,4 +342,4 @@ result = gepa.optimize(seed_candidate={"procedure": incumbent},
 7. **Version drift.** [read] HEAD (`7af5f0c`) has many post-paper features (optimize_anything, ComBEE reflectors, parallel sampling strategies, agent-state dirs), and PyPI is 0.1.4. The paper's algorithm corresponds to the defaults described here. Pin the exact version in the preregistration and record it in `runs.config_json`.
 8. **Paper scope.** [read] The headline gains are on QA, IF, privacy and math pipelines with 111-150 training examples and thousands of rollouts. Agentic evidence (gskill, kernels) comes from a blog and from preliminary §5 results, not from controlled comparisons. The reflection-model identity for the main tables is not stated explicitly in v2 (my inference: same as the task model). gskill used a far stronger reflector.
 9. **SPEC mismatch.** [read] SPEC §10 describes D as "reflect over clusters of *successful* traces". GEPA reflects over fresh minibatch rollouts of the *current candidate*, both successes and failures, on dev tasks. ELH `train` traces are not consumed directly, though they could seed the first candidate via one offline reflection over train clusters [inf]. If GEPA is adopted, SPEC §10's D row needs rewording and re-registration.
-10. **Cost accounting.** [inf] GEPA rollouts are real agent episodes on the shared single GPU. Keep them out of timed train/eval windows, as is already done for Hindsight consolidation, so wall-clock and latency measurements of the arms are not disturbed.
+10. **Cost accounting.** [inf] GEPA rollouts are real agent episodes on the shared single GPU. Keep them out of timed train/eval windows, as is already done for Hindsight consolidation, so wall-clock and latency measurements of the groups are not disturbed.

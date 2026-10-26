@@ -2,37 +2,37 @@
 
 Episodes are selected by batch prefix (`episodes.batch_id` is "<experiment>/<history>") or, for
 older runs without a batch id, by run-id prefix. They are grouped by phase (train, or one eval
-label per checkpoint) × arm, pooled over histories and per history, and reported with pass rates
+label per checkpoint) × group, pooled over histories and per history, and reported with pass rates
 (Wilson 95% interval), check failures, outcomes, turns, wall time and compute.
 
 Compute is in GPU-seconds:
 - agent: Σ over the episode's model calls of llama.cpp `timings.prompt_ms + predicted_ms`, as
   recorded by the gateway client in `llm_calls.served_json` (None when a call has no timings);
-- memory LLM: Hindsight's LLM request trace for the arm's training bank (`/llm-requests`).
+- memory LLM: Hindsight's LLM request trace for the group's training bank (`/llm-requests`).
   Retain calls name the episode (`metadata.document_id`); consolidation calls name the facts they
   consolidated (`metadata.source_memory_ids`), which link back to the retain that produced them.
   Calls with no such link fall back to a time window (the stream's last episode that finished
   before the call), flagged as an estimate. Hindsight records request wall time (`duration_ms`),
   not server compute, so this overstates GPU time when the memory LLM serves requests in parallel.
 
-Continual-learning metrics (methods of the cited papers, adapted to arm A as the no-memory baseline):
+Continual-learning metrics (methods of the cited papers, adapted to group A as the no-memory baseline):
 - ΔRR / ΔNL (Hu, Long & Wang 2026, "When Continual Learning Moves to Memory", §2.3): each eval
-  panel is split by arm A's outcome on the same task (labels fixed from A before any other arm is
+  panel is split by group A's outcome on the same task (labels fixed from A before any other group is
   read); RR = pass rate on A-pass tasks (retention; ΔRR < 0 is harmful reuse), NL = pass rate on
   A-fail tasks (new learning). NL is suppressed when fewer than 10 tasks are A-fail.
 - Paired cluster bootstrap by task (Tablan et al. 2026, "Learning on the Job", App. E): one cluster
   per task holding all its episodes over histories × repeats, the same resampled clusters for both
-  arms, seeded, percentile intervals; replicates where a statistic is undefined are dropped and
+  groups, seeded, percentile intervals; replicates where a statistic is undefined are dropped and
   counted.
 - Hold rate (ibid. §3.3.4): P(pass at checkpoint t+1 | pass at t) over tasks measured at
-  successive checkpoints, per arm, against arm A's (re-draw) hold.
+  successive checkpoints, per group, against group A's (re-draw) hold.
 - FWT / BWT (Moves to Memory §2.3) on the sealed and retention splits; None while absent.
 - Retrieval diagnostics (Moves to Memory App. D): coverage, top-1 concentration, and the reach of
   failed-check lessons into eval episodes (pluggable predicate).
 - Steps (Wang et al., "Agent Workflow Memory"): turns, as a paired difference on all tasks and on
-  tasks both arms solved.
+  tasks both groups solved.
 
-Arm D (procedure library): `dev` episodes (the promotion gate, GEPA's search) are learning, not
+Group D (procedure library): `dev` episodes (the promotion gate, GEPA's search) are learning, not
 evaluation, so they are left out of every comparison above and reported in their own section: per
 (run, history) stream the library revisions with their status and gate decision, and the learning
 spend of the procedures: dev episodes (count, agent GPU-s, ledger tokens and USD, all `learning`)
@@ -111,8 +111,8 @@ def _percentile(sorted_xs: list[float], q: float) -> float:
 def cluster_bootstrap(clusters: list[dict[str, float]], stats: dict[str, Callable[[dict], "float | None"]],
                       resamples: int = BOOTSTRAP_RESAMPLES, seed: int = BOOTSTRAP_SEED) -> dict:
     """Percentile bootstrap over clusters. Each cluster is a dict of additive totals (e.g. both
-    arms' episode and pass counts for one task); a replicate resamples clusters with replacement,
-    sums them, and evaluates every statistic on the same draw, so contrasts between arms stay
+    groups' episode and pass counts for one task); a replicate resamples clusters with replacement,
+    sums them, and evaluates every statistic on the same draw, so contrasts between groups stay
     paired. A statistic returning None on a replicate is dropped there and counted as undefined."""
     keys = sorted({k for c in clusters for k in c})
     cols = [[c.get(k, 0.0) for c in clusters] for k in keys]
@@ -224,7 +224,7 @@ def load_episodes(store: Store, batch_prefix: str | None = None, run_id: str | N
             hist = f"{r['run_id']}/h{r['history']}"
         out.append({
             "episode_id": r["episode_id"], "run_id": r["run_id"], "batch_id": r.get("batch_id"),
-            "history": r["history"], "history_label": hist, "arm": r["arm"], "split": r["split"],
+            "history": r["history"], "history_label": hist, "group": r["test_group"], "split": r["split"],
             "checkpoint": r["checkpoint"], "ordinal": r["ordinal"], "phase": phase_of(r["split"], r["checkpoint"]),
             "task_id": r["task_id"], "outcome": r["outcome"], "passed": bool(r["passed"]),
             "checks": verdict.get("checks") or {}, "turns": r["turns"], "wall_s": r["wall_s"],
@@ -285,13 +285,13 @@ def is_llm_call(entry: dict) -> bool:
     return not scope.startswith(NON_LLM_PREFIXES) and scope not in NON_LLM_SCOPES
 
 
-def bank_id_of(run_id: str, history: int, arm: str) -> str:
+def bank_id_of(run_id: str, history: int, group: str) -> str:
     """Training bank name; mirrors `elh.controller.bank_id_for`."""
-    return f"elh-{run_id}-h{history}-{arm}"
+    return f"elh-{run_id}-h{history}-{group}"
 
 
 def attribute_memory(entries: list[dict], stream: list[dict]) -> dict[str, dict]:
-    """Split a bank's traced LLM calls over the train episodes of its (run, history, arm) stream.
+    """Split a bank's traced LLM calls over the train episodes of its (run, history, group) stream.
 
     Returns {episode_id: {"s", "calls", "input_tokens", "output_tokens", "linked", "window"}} plus
     the key None for calls that matched no episode."""
@@ -346,23 +346,23 @@ def attribute_memory(entries: list[dict], stream: list[dict]) -> dict[str, dict]
 
 def add_memory_trace(store: Store, episodes: list[dict], fetch: TraceFetcher | None,
                      memory_url: str | None = None) -> dict:
-    """Fill `memory_s` on episodes. Read-only splits and arm A spend nothing on the memory LLM;
-    learning-arm train episodes get their attributed seconds, or None if the trace is unavailable."""
+    """Fill `memory_s` on episodes. Read-only splits and group A spend nothing on the memory LLM;
+    learning-group train episodes get their attributed seconds, or None if the trace is unavailable."""
     status: dict = {"enabled": fetch is not None, "banks": {}, "unattributed_s": 0.0, "estimated_calls": 0}
     for e in episodes:
-        if e["split"] != "train" or e["arm"] == "A":
+        if e["split"] != "train" or e["group"] == "A":
             e["memory_s"] = 0.0
     if fetch is None:
         return status
     streams: dict[tuple, list[dict]] = defaultdict(list)
     for e in episodes:
-        if e["arm"] != "A":
-            streams[(e["run_id"], e["history"], e["arm"])].append(e)
-    for (run_id, history, arm), stream in streams.items():
+        if e["group"] != "A":
+            streams[(e["run_id"], e["history"], e["group"])].append(e)
+    for (run_id, history, group), stream in streams.items():
         train = [e for e in stream if e["split"] == "train"]
         if not train:
             continue
-        bank = bank_id_of(run_id, history, arm)
+        bank = bank_id_of(run_id, history, group)
         url = memory_url or _memory_url_for_run(store, run_id)
         if not url:
             status["banks"][bank] = "no memory service url"
@@ -399,7 +399,7 @@ def _memory_url_for_run(store: Store, run_id: str) -> str | None:
 
 
 # -- grouping --------------------------------------------------------------------------------
-def group_stats(eps: list[dict]) -> dict:
+def cell_stats(eps: list[dict]) -> dict:
     n = len(eps)
     passes = sum(e["passed"] for e in eps)
     ci = wilson(passes, n)
@@ -446,21 +446,21 @@ def _learning_to_date(train: list[dict], checkpoint: int | None) -> float | None
     return sum(e["memory_s"] for e in first)
 
 
-def grouped(eps: list[dict]) -> list[dict]:
-    """Stats per phase × arm, ordered train first, then evals by checkpoint."""
-    groups: dict[tuple, list[dict]] = defaultdict(list)
+def by_cell(eps: list[dict]) -> list[dict]:
+    """Stats per phase × group, ordered train first, then evals by checkpoint."""
+    cells: dict[tuple, list[dict]] = defaultdict(list)
     for e in eps:
-        groups[(e["phase"], e["arm"])].append(e)
+        cells[(e["phase"], e["group"])].append(e)
     out = []
-    for (phase, arm) in sorted(groups, key=lambda k: (_phase_key(k[0]), k[1] or "")):
-        g = group_stats(groups[(phase, arm)])
-        g.update(phase=phase, arm=arm)
+    for (phase, group) in sorted(cells, key=lambda k: (_phase_key(k[0]), k[1] or "")):
+        g = cell_stats(cells[(phase, group)])
+        g.update(phase=phase, group=group)
         if phase != "train":
-            ck = groups[(phase, arm)][0]["checkpoint"]
+            ck = cells[(phase, group)][0]["checkpoint"]
             per_stream = []
-            for hist in {e["history_label"] for e in groups[(phase, arm)]}:
-                train = [e for e in eps if e["split"] == "train" and e["arm"] == arm and e["history_label"] == hist]
-                per_stream.append(_learning_to_date(train, ck) if arm != "A" else 0.0)
+            for hist in {e["history_label"] for e in cells[(phase, group)]}:
+                train = [e for e in eps if e["split"] == "train" and e["group"] == group and e["history_label"] == hist]
+                per_stream.append(_learning_to_date(train, ck) if group != "A" else 0.0)
             g["learning_s_to_date"] = sum(per_stream) if per_stream and None not in per_stream else None
         out.append(g)
     return out
@@ -474,15 +474,15 @@ def paired(eps: list[dict], base: str, other: str, *, resamples: int = BOOTSTRAP
     cluster) for the pass-rate difference and the agent GPU-s-per-success ratio (other / base)."""
     by: dict[tuple, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
     for e in eps:
-        if e["phase"] != "train" and e["arm"] in (base, other):
-            by[(e["phase"], e["history_label"], e["task_id"])][e["arm"]].append(e)
+        if e["phase"] != "train" and e["group"] in (base, other):
+            by[(e["phase"], e["history_label"], e["task_id"])][e["group"]].append(e)
     phases: dict[str, list[tuple[dict, dict]]] = defaultdict(list)
     clusters: dict[str, dict[str, dict[str, list[dict]]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-    for (phase, _, task), arms in by.items():
-        phases[phase] += list(zip(arms[base], arms[other]))
-        if arms[base] and arms[other]:
-            for arm in (base, other):
-                clusters[phase][task][arm] += arms[arm]
+    for (phase, _, task), groups in by.items():
+        phases[phase] += list(zip(groups[base], groups[other]))
+        if groups[base] and groups[other]:
+            for group in (base, other):
+                clusters[phase][task][group] += groups[group]
     out = []
     for phase in sorted(phases, key=_phase_key):
         pairs = phases[phase]
@@ -498,7 +498,7 @@ def paired(eps: list[dict], base: str, other: str, *, resamples: int = BOOTSTRAP
                     "neither": t[(False, False)], "mcnemar_p": mcnemar_exact(t[(True, False)], t[(False, True)]),
                     "mean_diff": {"turns": diffs("turns"), "agent_gpu_s": diffs("agent_gpu_s"),
                                   "wall_s": diffs("wall_s"),
-                                  # AWM's step reduction, restricted to tasks both arms solved.
+                                  # AWM's step reduction, restricted to tasks both groups solved.
                                   "turns_both_pass": diffs("turns", only_both_pass=True)},
                     "bootstrap": paired_bootstrap(clusters[phase], base, other, resamples=resamples, seed=seed)})
     return out
@@ -512,8 +512,8 @@ def paired_bootstrap(by_task: dict[str, dict[str, list[dict]]], base: str, other
     gpu_complete = True
     for task in sorted(by_task):
         u: dict[str, float] = {}
-        for tag, arm in (("b", base), ("o", other)):
-            es = by_task[task][arm]
+        for tag, group in (("b", base), ("o", other)):
+            es = by_task[task][group]
             u[f"{tag}_n"] = len(es)
             u[f"{tag}_pass"] = sum(e["passed"] for e in es)
             gpu = [e["agent_gpu_s"] for e in es]
@@ -541,27 +541,27 @@ def paired_bootstrap(by_task: dict[str, dict[str, list[dict]]], base: str, other
 
 
 def _comparisons(eps: list[dict], resamples: int = BOOTSTRAP_RESAMPLES, seed: int = BOOTSTRAP_SEED) -> list[dict]:
-    arms = sorted({e["arm"] for e in eps if e["arm"]})
-    if len(arms) < 2:
+    groups = sorted({e["group"] for e in eps if e["group"]})
+    if len(groups) < 2:
         return []
-    base = "A" if "A" in arms else arms[0]
-    return [p for other in arms if other != base for p in paired(eps, base, other, resamples=resamples, seed=seed)]
+    base = "A" if "A" in groups else groups[0]
+    return [p for other in groups if other != base for p in paired(eps, base, other, resamples=resamples, seed=seed)]
 
 
-def _base_arm(eps: list[dict]) -> str | None:
-    arms = sorted({e["arm"] for e in eps if e["arm"]})
-    return ("A" if "A" in arms else arms[0]) if arms else None
+def _base_group(eps: list[dict]) -> str | None:
+    groups = sorted({e["group"] for e in eps if e["group"]})
+    return ("A" if "A" in groups else groups[0]) if groups else None
 
 
 # -- retention / new learning (Moves to Memory ΔRR / ΔNL) ------------------------------------
 def retention_new_learning(eps: list[dict], base: str = "A", control: str | None = None,
                            min_nl_tasks: int = MIN_NL_TASKS) -> list[dict]:
-    """Per eval phase and non-base arm: RR on tasks the base arm passed, NL on tasks it failed.
+    """Per eval phase and non-base group: RR on tasks the base group passed, NL on tasks it failed.
 
     Labels are fixed from `base` alone, per (history, task): pass if every base episode passed,
     fail if none did, mixed otherwise (excluded and counted). Deltas are against `control` (default
-    `base`; give a memory-enabled scratch arm to reproduce the paper's ∅→T control). When the
-    labels come from the same base episodes, the base arm's RR is 1 and NL 0 by construction, so the
+    `base`; give a memory-enabled scratch group to reproduce the paper's ∅→T control). When the
+    labels come from the same base episodes, the base group's RR is 1 and NL 0 by construction, so the
     deltas are B's absolute misses (ΔRR) and gains (ΔNL). NL and ΔNL are withheld (n still shown)
     when fewer than `min_nl_tasks` tasks are base-fail."""
     control = control or base
@@ -574,29 +574,29 @@ def retention_new_learning(eps: list[dict], base: str = "A", control: str | None
         pe = by_phase[phase]
         base_runs: dict[tuple, list[bool]] = defaultdict(list)
         for e in pe:
-            if e["arm"] == base:
+            if e["group"] == base:
                 base_runs[(e["history_label"], e["task_id"])].append(e["passed"])
         if not base_runs:
             continue
         label = {k: "pass" if all(v) else "fail" if not any(v) else "mixed" for k, v in base_runs.items()}
         counts = Counter(label.values())
 
-        def rates(arm: str) -> dict:
+        def rates(group: str) -> dict:
             sub: dict[str, list[bool]] = {"pass": [], "fail": []}
             for e in pe:
                 lab = label.get((e["history_label"], e["task_id"]))
-                if e["arm"] == arm and lab in sub:
+                if e["group"] == group and lab in sub:
                     sub[lab].append(e["passed"])
             return {"rr": _mean(sub["pass"]), "rr_n": len(sub["pass"]),
                     "nl": _mean(sub["fail"]), "nl_n": len(sub["fail"])}
 
         ctl = rates(control)
-        for arm in sorted({e["arm"] for e in pe if e["arm"] and e["arm"] not in (base, control)}):
-            r = rates(arm)
+        for group in sorted({e["group"] for e in pe if e["group"] and e["group"] not in (base, control)}):
+            r = rates(group)
             suppressed = counts["fail"] < min_nl_tasks
             d_rr = r["rr"] - ctl["rr"] if r["rr"] is not None and ctl["rr"] is not None else None
             d_nl = r["nl"] - ctl["nl"] if r["nl"] is not None and ctl["nl"] is not None else None
-            out.append({"phase": phase, "arm": arm, "base": base, "control": control,
+            out.append({"phase": phase, "group": group, "base": base, "control": control,
                         "tasks": {"pass": counts["pass"], "fail": counts["fail"], "mixed": counts["mixed"]},
                         "rr": r["rr"], "rr_n": r["rr_n"], "d_rr": d_rr,
                         "nl": None if suppressed else r["nl"], "nl_n": r["nl_n"],
@@ -607,23 +607,23 @@ def retention_new_learning(eps: list[dict], base: str = "A", control: str | None
 # -- hold rate (Learning on the Job) ---------------------------------------------------------
 def hold_rates(eps: list[dict], base: str = "A", *, resamples: int = BOOTSTRAP_RESAMPLES,
                seed: int = BOOTSTRAP_SEED) -> list[dict]:
-    """P(pass at checkpoint t+1 | pass at t) per arm, over (history, task) measured at successive
+    """P(pass at checkpoint t+1 | pass at t) per group, over (history, task) measured at successive
     checkpoints of one panel (phase name before '@': eval, retention, ...). Repeats at one checkpoint
-    are paired in run order. Also reports conversions (fail → pass), the base arm's hold on the
+    are paired in run order. Also reports conversions (fail → pass), the base group's hold on the
     same panel (its re-draw persistence) and Δhold with a paired cluster bootstrap by task."""
     series: dict[tuple, dict[int, list[bool]]] = defaultdict(lambda: defaultdict(list))
     for e in eps:
         if e["phase"] == "train" or e["checkpoint"] is None:
             continue
         panel = e["phase"].partition("@")[0]
-        series[(panel, e["arm"], e["history_label"], e["task_id"])][e["checkpoint"]].append(e["passed"])
-    # (panel, arm) -> task -> [prev_pass, held, prev_fail, converted]
+        series[(panel, e["group"], e["history_label"], e["task_id"])][e["checkpoint"]].append(e["passed"])
+    # (panel, group) -> task -> [prev_pass, held, prev_fail, converted]
     trans: dict[tuple, dict[str, list[int]]] = defaultdict(lambda: defaultdict(lambda: [0, 0, 0, 0]))
-    for (panel, arm, _, task), by_ck in series.items():
+    for (panel, group, _, task), by_ck in series.items():
         cks = sorted(by_ck)
         for c0, c1 in zip(cks, cks[1:]):
             for p0, p1 in zip(by_ck[c0], by_ck[c1]):
-                t = trans[(panel, arm)][task]
+                t = trans[(panel, group)][task]
                 if p0:
                     t[0] += 1
                     t[1] += p1
@@ -631,14 +631,14 @@ def hold_rates(eps: list[dict], base: str = "A", *, resamples: int = BOOTSTRAP_R
                     t[2] += 1
                     t[3] += p1
     out = []
-    for (panel, arm) in sorted(trans, key=lambda k: (k[0], k[1] or "")):
-        tasks = trans[(panel, arm)]
+    for (panel, group) in sorted(trans, key=lambda k: (k[0], k[1] or "")):
+        tasks = trans[(panel, group)]
         tot = [sum(v[i] for v in tasks.values()) for i in range(4)]
-        row = {"panel": panel, "arm": arm, "transitions": tot[0] + tot[2], "prev_pass": tot[0], "held": tot[1],
+        row = {"panel": panel, "group": group, "transitions": tot[0] + tot[2], "prev_pass": tot[0], "held": tot[1],
                "hold": _ratio(tot[1], tot[0]), "prev_fail": tot[2], "converted": tot[3],
                "conversion": _ratio(tot[3], tot[2]), "base": None, "base_hold": None, "d_hold": None,
                "bootstrap": None}
-        if arm != base and (panel, base) in trans:
+        if group != base and (panel, base) in trans:
             btasks = trans[(panel, base)]
             row["base"] = base
             bp, bh = sum(v[0] for v in btasks.values()), sum(v[1] for v in btasks.values())
@@ -662,31 +662,31 @@ def _acc(eps: list[dict]) -> float | None:
     return _mean([e["passed"] for e in eps])
 
 
-def forward_transfer(eps: list[dict], target_split: str, arm: str, control: str | None = None) -> dict | None:
-    """FWT on a target split = Acc(arm) − Acc(control) on that split's tasks.
+def forward_transfer(eps: list[dict], target_split: str, group: str, control: str | None = None) -> dict | None:
+    """FWT on a target split = Acc(group) − Acc(control) on that split's tasks.
 
-    The paper's control is a memory-enabled scratch run on the target alone (∅→T); name its arm as
-    `control`. Without one, arm A (no memory) is used, which is Learning on the Job's "consumer vs
+    The paper's control is a memory-enabled scratch run on the target alone (∅→T); name its group as
+    `control`. Without one, group A (no memory) is used, which is Learning on the Job's "consumer vs
     its own no-memory baseline" and is marked `control_kind = "no-memory"`. None when the split, the
-    arm or the control has no episodes."""
+    group or the control has no episodes."""
     target = [e for e in eps if e["split"] == target_split]
     ctl = control or "A"
-    a = [e for e in target if e["arm"] == arm]
-    c = [e for e in target if e["arm"] == ctl]
+    a = [e for e in target if e["group"] == group]
+    c = [e for e in target if e["group"] == ctl]
     if not a or not c:
         return None
     acc_a, acc_c = _acc(a), _acc(c)
-    return {"split": target_split, "arm": arm, "control": ctl,
+    return {"split": target_split, "group": group, "control": ctl,
             "control_kind": "scratch" if control else "no-memory",
             "acc": acc_a, "control_acc": acc_c, "n": len(a), "control_n": len(c), "fwt": acc_a - acc_c}
 
 
-def backward_transfer(eps: list[dict], arm: str, panel_split: str = RETENTION_SPLIT,
+def backward_transfer(eps: list[dict], group: str, panel_split: str = RETENTION_SPLIT,
                       reference_checkpoint: int | None = None) -> dict | None:
     """BWT on a fixed panel re-measured at checkpoints: BWT_c = Acc_panel(c) − Acc_panel(ref), with
     ref the first checkpoint after the panel's tasks were learned (default: earliest measured).
-    None when the arm has no episodes on the panel split."""
-    panel = [e for e in eps if e["split"] == panel_split and e["arm"] == arm and e["checkpoint"] is not None]
+    None when the group has no episodes on the panel split."""
+    panel = [e for e in eps if e["split"] == panel_split and e["group"] == group and e["checkpoint"] is not None]
     if not panel:
         return None
     by_ck: dict[int, list[dict]] = defaultdict(list)
@@ -694,7 +694,7 @@ def backward_transfer(eps: list[dict], arm: str, panel_split: str = RETENTION_SP
         by_ck[e["checkpoint"]].append(e)
     ref = reference_checkpoint if reference_checkpoint in by_ck else min(by_ck)
     ref_acc = _acc(by_ck[ref])
-    return {"split": panel_split, "arm": arm, "reference_checkpoint": ref,
+    return {"split": panel_split, "group": group, "reference_checkpoint": ref,
             "checkpoints": [{"checkpoint": ck, "n": len(by_ck[ck]), "acc": _acc(by_ck[ck]),
                              "bwt": _acc(by_ck[ck]) - ref_acc} for ck in sorted(by_ck)]}
 
@@ -702,11 +702,11 @@ def backward_transfer(eps: list[dict], arm: str, panel_split: str = RETENTION_SP
 def transfer_summary(eps: list[dict], scratch_controls: dict[str, str] | None = None,
                      sealed_splits: tuple[str, ...] = SEALED_SPLITS,
                      retention_split: str = RETENTION_SPLIT) -> dict:
-    """FWT per sealed split and BWT on the retention panel for every learning arm; each entry is
-    None when its split is absent. `scratch_controls` maps a learning arm to its scratch arm."""
-    arms = sorted({e["arm"] for e in eps if e["arm"] and e["arm"] != "A"})
+    """FWT per sealed split and BWT on the retention panel for every learning group; each entry is
+    None when its split is absent. `scratch_controls` maps a learning group to its scratch group."""
+    groups = sorted({e["group"] for e in eps if e["group"] and e["group"] != "A"})
     scratch = set((scratch_controls or {}).values())
-    learners = [a for a in arms if a not in scratch]
+    learners = [a for a in groups if a not in scratch]
     return {
         "fwt": {s: {a: forward_transfer(eps, s, a, (scratch_controls or {}).get(a)) for a in learners}
                 for s in sealed_splits},
@@ -805,13 +805,13 @@ def snapshot_bank_sizes(store: Store, snapshot_ids) -> dict[str, int | None]:
 
 
 def _bank_key(e: dict) -> str:
-    return e.get("memory_snapshot_id") or f"live:{e['run_id']}/h{e['history']}/{e['arm']}"
+    return e.get("memory_snapshot_id") or f"live:{e['run_id']}/h{e['history']}/{e['group']}"
 
 
 def retrieval_diagnostics(eps: list[dict], *, bank_sizes: dict[str, int | None] | None = None,
                           predicate: LessonPredicate = failed_check_lesson,
                           sources: dict[str, dict] | None = None) -> list[dict]:
-    """Per phase × arm (arms that retrieved anything):
+    """Per phase × group (groups that retrieved anything):
     - coverage = unique items / retrievals (Moves to Memory App. D);
     - bank_coverage = unique items / units in the bank (snapshot banks with a known size only;
       ids are per bank, since restoring a snapshot assigns new ids);
@@ -824,12 +824,12 @@ def retrieval_diagnostics(eps: list[dict], *, bank_sizes: dict[str, int | None] 
     - same_cause_reach = share whose injected items include one from a source episode of the
       same cause (needs `document_id` on items)."""
     sources = sources or {}
-    groups: dict[tuple, list[dict]] = defaultdict(list)
+    cells: dict[tuple, list[dict]] = defaultdict(list)
     for e in eps:
-        groups[(e["phase"], e["arm"])].append(e)
+        cells[(e["phase"], e["group"])].append(e)
     out = []
-    for (phase, arm) in sorted(groups, key=lambda k: (_phase_key(k[0]), k[1] or "")):
-        ge = groups[(phase, arm)]
+    for (phase, group) in sorted(cells, key=lambda k: (_phase_key(k[0]), k[1] or "")):
+        ge = cells[(phase, group)]
         per_ep = [(e, retrieval_items(e)) for e in ge]
         if not any(items for _, items in per_ep):
             continue
@@ -869,7 +869,7 @@ def retrieval_diagnostics(eps: list[dict], *, bank_sizes: dict[str, int | None] 
         retrieving = sum(top1.values())
         known = len(reach[True]) + len(reach[False])
         out.append({
-            "phase": phase, "arm": arm, "episodes": len(ge), "retrieving": retrieving,
+            "phase": phase, "group": group, "episodes": len(ge), "retrieving": retrieving,
             "retrievals": retrievals, "unique": n_uniq, "coverage": _ratio(n_uniq, retrievals),
             "bank_units": sum(sizes) if sizes and None not in sizes else None, "bank_coverage": bank_cov,
             "top1_concentration": _ratio(top1.most_common(1)[0][1], retrieving) if top1 else None,
@@ -881,19 +881,19 @@ def retrieval_diagnostics(eps: list[dict], *, bank_sizes: dict[str, int | None] 
     return out
 
 
-# -- arm D procedures ------------------------------------------------------------------------
+# -- group D procedures ------------------------------------------------------------------------
 def procedure_summary(store: Store, eps: list[dict]) -> list[dict]:
-    """Per arm-D stream (run, history) of the selection: library revisions (status, size, source,
+    """Per group-D stream (run, history) of the selection: library revisions (status, size, source,
     gate decision) and the procedures' learning spend (dev episodes + induction + reflection)."""
     out = []
-    for run_id, history in sorted({(e["run_id"], e["history"]) for e in eps if e["arm"] == "D"}):
+    for run_id, history in sorted({(e["run_id"], e["history"]) for e in eps if e["group"] == "D"}):
         revs = []
         for r in store.db.execute(
                 "SELECT revision, family, status, COUNT(*) AS n, MIN(created_at) AS created_at, "
                 "MAX(promoted_at) AS promoted_at, MAX(rolled_back_at) AS rolled_back_at, "
                 "MAX(validation_json) AS validation_json, MAX(induction_json) AS induction_json, "
                 "MAX(source_episode_ids_json) AS sources FROM skills WHERE run_id = ? AND history = ? "
-                "AND arm = 'D' GROUP BY revision, family, status ORDER BY revision", (run_id, history)):
+                "AND test_group = 'D' GROUP BY revision, family, status ORDER BY revision", (run_id, history)):
             v = _json_or_none(r["validation_json"]) or {}
             ind = _json_or_none(r["induction_json"]) or {}
             revs.append({"revision": r["revision"], "family": r["family"], "status": r["status"],
@@ -919,7 +919,7 @@ def procedure_summary(store: Store, eps: list[dict]) -> list[dict]:
         gpu = [e["agent_gpu_s"] for e in dev if e["agent_gpu_s"] is not None]
         calls = {r["purpose"]: {"rows": r["n"], "tokens": r["tokens"], "usd": r["usd"]} for r in store.db.execute(
             "SELECT purpose, COUNT(*) AS n, COALESCE(SUM(CASE WHEN unit = 'tokens' THEN units END), 0) AS tokens, "
-            "COALESCE(SUM(usd), 0) AS usd FROM ledger WHERE run_id = ? AND history = ? AND arm = 'D' "
+            "COALESCE(SUM(usd), 0) AS usd FROM ledger WHERE run_id = ? AND history = ? AND test_group = 'D' "
             "AND episode_id IS NULL AND category = 'learning' GROUP BY purpose", (run_id, history))}
         promoted = [r["revision"] for r in revs if r["status"] == "promoted"]
         out.append({"run_id": run_id, "history": history, "revisions": revs,
@@ -935,7 +935,7 @@ def procedure_summary(store: Store, eps: list[dict]) -> list[dict]:
 def _format_procedures(streams: list[dict]) -> list[str]:
     out: list[str] = []
     for st in streams:
-        out += ["", f"== arm D procedures: {st['run_id']} h{st['history']} (active revision "
+        out += ["", f"== group D procedures: {st['run_id']} h{st['history']} (active revision "
                     f"{_f(st['active_revision'], 'd')}) =="]
         if st["revisions"]:
             out += _table([[r["revision"], r["status"], r["source"], r["workflows"], r["sources"], _f(r["after"], "d"),
@@ -961,8 +961,8 @@ def _format_procedures(streams: list[dict]) -> list[str]:
 
 def _block(eps: list[dict], *, resamples: int, seed: int, bank_sizes: dict, predicate: LessonPredicate,
            sources: dict) -> dict:
-    base = _base_arm(eps)
-    return {"groups": grouped(eps), "paired": _comparisons(eps, resamples, seed),
+    base = _base_group(eps)
+    return {"cells": by_cell(eps), "paired": _comparisons(eps, resamples, seed),
             "rr_nl": retention_new_learning(eps, base) if base else [],
             "hold": hold_rates(eps, base, resamples=resamples, seed=seed) if base else [],
             "retrieval": retrieval_diagnostics(eps, bank_sizes=bank_sizes, predicate=predicate, sources=sources)}
@@ -979,7 +979,7 @@ def summarize_batch(store: Store, batch_prefix: str | None = None, *, run_id: st
     if batch_prefix is not None:
         batch_prefix = batch_prefix.rstrip("/") or batch_prefix
     everything = load_episodes(store, batch_prefix, run_id)
-    eps = [e for e in everything if e["split"] != "dev"]  # arm D's gate/search episodes: learning only
+    eps = [e for e in everything if e["split"] != "dev"]  # group D's gate/search episodes: learning only
     trace = add_memory_trace(store, eps, fetch, memory_url)
     texts = attach_injected_texts(store, eps) if read_traces else 0
     bank_sizes = snapshot_bank_sizes(store, sorted({e["memory_snapshot_id"] for e in eps if e["memory_snapshot_id"]}))
@@ -998,7 +998,7 @@ def summarize_batch(store: Store, batch_prefix: str | None = None, *, run_id: st
         "transfer": transfer_summary(eps, scratch_controls),
         "pooled": _block(eps, **kw),
         "per_history": {h: _block([e for e in eps if e["history_label"] == h], **kw) for h in histories},
-        "episode_rows": [{k: e[k] for k in ("episode_id", "history_label", "arm", "phase", "task_id", "passed",
+        "episode_rows": [{k: e[k] for k in ("episode_id", "history_label", "group", "phase", "task_id", "passed",
                                              "outcome", "turns", "wall_s", "agent_gpu_s", "memory_s",
                                              "memory_method", "calls_without_timings")} for e in eps],
     }
@@ -1016,8 +1016,8 @@ def _table(rows: list[list[str]], header: list[str]) -> list[str]:
 
 
 def _format_block(block: dict) -> list[str]:
-    groups = block["groups"]
-    out = _table([[g["phase"], g["arm"], g["n"], g["passes"], _f(g["pass_rate"], ".0%"),
+    cells = block["cells"]
+    out = _table([[g["phase"], g["group"], g["n"], g["passes"], _f(g["pass_rate"], ".0%"),
                    f"{g['ci95'][0]:.0%}-{g['ci95'][1]:.0%}" if g["ci95"] else "-",
                    f"{_f(g['turns']['mean'])}/{_f(g['turns']['median'])}",
                    f"{_f(g['wall_s']['mean'])}/{_f(g['wall_s']['median'])}",
@@ -1025,15 +1025,15 @@ def _format_block(block: dict) -> list[str]:
                    _f(g["memory_s"]["mean"]) + ("~" if g["memory_s"]["estimated"] else ""),
                    _f(g.get("learning_s_to_date")) if g["phase"] != "train" else "",
                    _f(g["gpu_s_per_success"]["with_memory"]), _f(g["gpu_s_per_success"]["agent_only"])]
-                  for g in groups],
-                 ["phase", "arm", "n", "pass", "rate", "95% CI", "turns mean/med", "wall s mean/med",
+                  for g in cells],
+                 ["phase", "group", "n", "pass", "rate", "95% CI", "turns mean/med", "wall s mean/med",
                   "agent GPU s", "mem s", "learn s to date", "GPU s/succ", "agent s/succ"])
     out.append("")
-    out += _table([[g["phase"], g["arm"], *[g["check_failures"].get(k, 0) for k in CHECKS],
+    out += _table([[g["phase"], g["group"], *[g["check_failures"].get(k, 0) for k in CHECKS],
                     " ".join(f"{k}={v}" for k, v in g["outcomes"].items() if v),
                     f"{g['tokens']['prompt_n']}/{g['tokens']['predicted_n']}/{g['tokens']['cache_n']}"]
-                   for g in groups],
-                  ["phase", "arm", "fail:integrity", "public", "correct", "perf", "outcomes",
+                   for g in cells],
+                  ["phase", "group", "fail:integrity", "public", "correct", "perf", "outcomes",
                    "agent tok prompt/pred/cache"])
     if block["paired"]:
         out.append("")
@@ -1055,22 +1055,22 @@ def _format_block(block: dict) -> list[str]:
                            "agent GPU s/succ ratio [95% CI]"])
     if block.get("rr_nl"):
         out.append("")
-        out += _table([[r["phase"], f"{r['arm']} vs {r['control']}",
+        out += _table([[r["phase"], f"{r['group']} vs {r['control']}",
                         f"{r['tasks']['pass']}/{r['tasks']['fail']}/{r['tasks']['mixed']}",
                         _f(r["rr"], ".0%"), _f(r["d_rr"], "+.0%"),
                         f"n<{MIN_NL_TASKS} ({r['tasks']['fail']})" if r["nl_suppressed"] else _f(r["nl"], ".0%"),
                         "-" if r["nl_suppressed"] else _f(r["d_nl"], "+.0%")] for r in block["rr_nl"]],
-                      ["phase", "arm", "A-labelled tasks pass/fail/mixed", "RR", "dRR", "NL", "dNL"])
+                      ["phase", "group", "A-labelled tasks pass/fail/mixed", "RR", "dRR", "NL", "dNL"])
     if block.get("hold"):
         out.append("")
-        out += _table([[h["panel"], h["arm"], h["transitions"], f"{h['held']}/{h['prev_pass']}", _f(h["hold"], ".0%"),
+        out += _table([[h["panel"], h["group"], h["transitions"], f"{h['held']}/{h['prev_pass']}", _f(h["hold"], ".0%"),
                         f"{h['converted']}/{h['prev_fail']}", _f(h["base_hold"], ".0%"),
                         _est_ci(h["bootstrap"]["stats"]["d_hold"], "+.0%") if h["bootstrap"] else "-"]
                        for h in block["hold"]],
-                      ["panel", "arm", "transitions", "held", "hold", "converted", "A hold", "d hold [95% CI]"])
+                      ["panel", "group", "transitions", "held", "hold", "converted", "A hold", "d hold [95% CI]"])
     if block.get("retrieval"):
         out.append("")
-        out += _table([[r["phase"], r["arm"], f"{r['retrieving']}/{r['episodes']}", r["retrievals"], r["unique"],
+        out += _table([[r["phase"], r["group"], f"{r['retrieving']}/{r['episodes']}", r["retrievals"], r["unique"],
                         _f(r["coverage"], ".0%"),
                         f"{_f(r['bank_coverage'], '.0%')} of {r['bank_units']}" if r["bank_units"] else "-",
                         _f(r["top1_concentration"], ".0%"),
@@ -1078,7 +1078,7 @@ def _format_block(block: dict) -> list[str]:
                         f"{_f(r['pass_with_lesson'], '.0%')}/{_f(r['pass_without_lesson'], '.0%')}",
                         _f(r["lesson_best_rank"], ".0f"),
                         _f(r["same_cause_reach"], ".0%")] for r in block["retrieval"]],
-                      ["phase", "arm", "retrieving", "items", "unique", "uniq/items", "bank coverage",
+                      ["phase", "group", "retrieving", "items", "unique", "uniq/items", "bank coverage",
                        "top-1 conc", "lesson reach (n)", "pass w/ / w/o lesson", "lesson rank", "same-cause"])
     return out
 
@@ -1097,13 +1097,13 @@ def _est_ci(s: dict | None, spec: str, suffix: str = "") -> str:
 def _format_transfer(tr: dict) -> list[str]:
     rows = [[f"FWT {s}", a, f"{_f(v['acc'], '.0%')} vs {v['control']} {_f(v['control_acc'], '.0%')} ({v['control_kind']})",
              _f(v["fwt"], "+.0%")]
-            for s, by_arm in tr["fwt"].items() for a, v in by_arm.items() if v]
+            for s, by_group in tr["fwt"].items() for a, v in by_group.items() if v]
     rows += [[f"BWT {v['split']}@{c['checkpoint']}", a, f"{_f(c['acc'], '.0%')} (n={c['n']}) vs @{v['reference_checkpoint']}",
               _f(c["bwt"], "+.0%")]
              for a, v in tr["bwt"].items() if v for c in v["checkpoints"]]
     if not rows:
         return ["FWT/BWT: no sealed or retention episodes in this selection"]
-    return _table(rows, ["metric", "arm", "accuracy", "value"])
+    return _table(rows, ["metric", "group", "accuracy", "value"])
 
 
 def format_summary(summary: dict) -> str:
@@ -1112,7 +1112,7 @@ def format_summary(summary: dict) -> str:
     lines = [f"{what}: {summary['episodes']} episodes, {len(summary['histories'])} histories"]
     mt = summary["memory_trace"]
     if not mt["enabled"]:
-        lines.append("memory-LLM trace: off (learning-arm train cost unknown)")
+        lines.append("memory-LLM trace: off (learning-group train cost unknown)")
     else:
         for bank, st in mt["banks"].items():
             lines.append(f"memory-LLM trace {bank}: {st}")
@@ -1127,13 +1127,13 @@ def format_summary(summary: dict) -> str:
     if "bootstrap" in summary:
         bs, rs = summary["bootstrap"], summary["retrieval_source"]
         lines.append(f"bootstrap: paired by task cluster (histories x repeats pooled), {bs['resamples']} resamples, "
-                     f"seed {bs['seed']}; RR/NL: tasks labelled by arm A, NL withheld below {MIN_NL_TASKS} A-fail "
+                     f"seed {bs['seed']}; RR/NL: tasks labelled by group A, NL withheld below {MIN_NL_TASKS} A-fail "
                      f"tasks; retrieval: ids from the episode row, texts from {rs['episodes_with_injected_texts']} "
                      f"traces, {rs['rich_records']} rich retrieval records")
         lines += _format_transfer(summary["transfer"])
     if summary.get("dev_episodes"):
-        lines.append(f"{summary['dev_episodes']} dev episodes (arm D gate / GEPA, charged as learning) are left out "
-                     "of the comparisons; see the arm D procedures section")
+        lines.append(f"{summary['dev_episodes']} dev episodes (group D gate / GEPA, charged as learning) are left out "
+                     "of the comparisons; see the group D procedures section")
     lines += ["", "== pooled over histories =="] + _format_block(summary["pooled"])
     if len(summary["histories"]) > 1:
         for h, block in summary["per_history"].items():

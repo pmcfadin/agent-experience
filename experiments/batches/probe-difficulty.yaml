@@ -1,11 +1,11 @@
 # How hard is each cpu_mem cause for the frozen agent with no memory? Picks the causes for the
-# next experiments: we need tasks arm A fails often enough to measure new learning (Moves to Memory
+# next experiments: we need tasks group A fails often enough to measure new learning (Moves to Memory
 # withholds dNL below 10 baseline failures). Seeds 2900+ stay clear of the usual 2000-2010 eval range.
 name: probe-difficulty
 base_config: experiments/phase0-local.yaml
 family: cpu_mem
 histories: 1
-arms: [A]
+groups: [A]
 phases:
   - eval:
       label: probe

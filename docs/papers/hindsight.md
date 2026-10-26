@@ -1,4 +1,4 @@
-# Hindsight (Latimer et al.): paper, Hindsight 1.1.0 API, and what it means for Arm B
+# Hindsight (Latimer et al.): paper, Hindsight 1.1.0 API, and what it means for Group B
 
 Date: 2026-10-25. Scope: read-only. No repo file was edited and no bank was written. The snapshot bank's
 content fingerprint (`b9db0adbd5d3772a`, 85 units) was the same before and after every recall and the reflect call.
@@ -34,7 +34,7 @@ Sources:
      - A ticket-restatement world fact scores **+3.06** with the context prefix, matching `cross_encoder_score` in the server trace exactly.
      - Observations have no `context`, score about −9.4, end up with `final` ≈ 0.01, and never reach the top 5 of a mixed-type recall.
    - **Practical effect:** whether the agent sees a lesson depends on luck. It happens only when the failed episode's ticket happens to resemble the current one, as with ticket 2005 (#6864 inventory) against the failed episode on #6853 invoice.
-3. **[OBS] BM25 contributes nothing for ticket-shaped queries.** The trace shows `bm25_count: 0` in every arm.
+3. **[OBS] BM25 contributes nothing for ticket-shaped queries.** The trace shows `bm25_count: 0` in every group.
    - Hindsight keeps only the 16 lowest-document-frequency query tokens (`bm25_term_selection.py`, `bm25_max_query_terms=16`).
    - For a new ticket those are the novel words ("inventory", "stock", "#6864"), which by construction are not in the bank.
    - Semantic and graph retrieval do all the work.
@@ -239,7 +239,7 @@ What we send today (hindsight.py):
 | `tags`, `tags_match` (`any`, `all`, `any_strict`, `all_strict`, `exact`) | none / `any` | Filter by tags. | **Not useful today.** All 85 units carry the same `family:cpu_mem` tag. [OBS] It becomes useful if retain adds outcome tags (see §5). |
 | `tag_groups` | none | Boolean and/or/not tag expressions; `resolve: "fuzzy"`. | Same as above. Enables things like "outcome:failed AND family:X". |
 | `min_scores` | none | Per-stage score floors (semantic, keyword, reranker, final). | Low. |
-| `query_timestamp`, `temporal_window` | now / none | Temporal anchor and temporal-arm window; ranks, does not filter. | Low. All units are dated the same day, and recency changes scores by at most ±10%. |
+| `query_timestamp`, `temporal_window` | now / none | Temporal anchor and temporal-group window; ranks, does not filter. | Low. All units are dated the same day, and recency changes scores by at most ±10%. |
 | `include.entities` | `{max_tokens: 500}` | Adds entity observations to the response. | Low (we ignore it). Turning it off saves a little time. |
 | `include.chunks` | off | Returns the raw source chunks, i.e. our full rendered episode record. | **Medium.** Lets us inject the verbatim record, including the "Protected files the agent changed: …" line, instead of the extracted paraphrase. |
 | `include.source_facts` | off | Source facts for observation results. | Low. |
@@ -402,7 +402,7 @@ Latency is 0.4–1.8 s per recall, dominated by CPU cross-encoder time.
 
 ---
 
-## 5. Recommendation: what "using Hindsight as the paper intends" means for Arm B
+## 5. Recommendation: what "using Hindsight as the paper intends" means for Group B
 
 Ranked by expected impact on surfacing lessons, with cost and protocol risk noted. Everything here is [INF], grounded in the observations above.
 
@@ -431,10 +431,10 @@ Ranked by expected impact on surfacing lessons, with cost and protocol risk note
    - Gives a deterministic `tag_groups` recall such as `{"tags":["outcome:failed"],"match":"any_strict"}` for a "known failure modes" slot.
    - Also lets consolidation build failure-only observations.
 6. **Use `include.chunks` to inject the verbatim record. Impact: low to medium.** The chunk carries the explicit "Protected files the agent changed …" line rather than Gemma's paraphrase.
-7. **Use reflect only as an ablation, not as the primary Arm B mechanism.**
+7. **Use reflect only as an ablation, not as the primary Group B mechanism.**
    - It works (§0.6), but it costs about 43 s and about 44k tokens per episode, and its injected text is nondeterministic.
    - If tested, log the exact text and charge it as `learning`. A mental model gives most of the benefit with refresh cost paid at retain time.
-8. **No-ops:** `budget` (irrelevant below about 300 units), `query_timestamp`/`temporal_window`, disposition traits (reflect only), and directives (hand-written rules would confound the arms).
+8. **No-ops:** `budget` (irrelevant below about 300 units), `query_timestamp`/`temporal_window`, disposition traits (reflect only), and directives (hand-written rules would confound the groups).
 
 **Protocol notes:**
 - Options 1, 4 and 5 change what is stored, so they need a new registration and a fresh training run.

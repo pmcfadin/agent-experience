@@ -1,4 +1,4 @@
-"""Arm D's procedure optimiser: GEPA (Agrawal et al., ICLR 2026) over one text component.
+"""Group D's procedure optimiser: GEPA (Agrawal et al., ICLR 2026) over one text component.
 
 The component is a `<procedure>` block shown to the frozen agent. GEPA itself is the `gepa`
 package, pinned in pyproject.toml (0.1.4; the paper's algorithm is its default configuration).
@@ -7,7 +7,7 @@ This module supplies what GEPA leaves to the user (papers/gepa.md §3):
 - `ProcedureAdapter`: GEPA's adapter. `evaluate` runs dev-split episodes through an injected
   `run_dev_episode(task, procedure_text)` (the controller's job: a fixed read-only memory snapshot,
   ledger category `learning`) and scores each with partial credit per judge check plus a cost term;
-  an integrity violation scores 0. `make_reflective_dataset` writes the "Feedback" with arm B's
+  an integrity violation scores 0. `make_reflective_dataset` writes the "Feedback" with group B's
   lesson-v2 wording (`render_episode`), from a whitelisted verdict: never reference timings, hidden
   test inputs, the oracle or a reference solution.
 - `ReflectionLM`: text in, text out over our `ModelClient` (the same frozen agent model, as in the
@@ -56,8 +56,8 @@ FORBIDDEN_SPLITS = ("train", "checkpoint", "sealed_familiar", "sealed_novel_comb
 
 
 def procedure_block(text: str) -> str:
-    """How a procedure is shown to the agent (first user message, before `<experience>`). Arm D
-    only; an empty procedure adds nothing, so arms A-C stay byte-identical."""
+    """How a procedure is shown to the agent (first user message, before `<experience>`). Group D
+    only; an empty procedure adds nothing, so groups A-C stay byte-identical."""
     text = text.strip()
     return f"<procedure>\n{text}\n</procedure>" if text else ""
 
@@ -349,7 +349,7 @@ def text_sha(text: str) -> str:
 # carry ticket specifics forward and teach the cause rather than a way of working, which would
 # contaminate the novel-cause/novel-combo splits (H3). This template, adapted from gskill's
 # (gskill/train_optimize_anything.py), asks for a general procedure, forbids ticket specifics and
-# caps length (prompt tokens are cost charged to the arm). It keeps GEPA's two placeholders and
+# caps length (prompt tokens are cost charged to the group). It keeps GEPA's two placeholders and
 # its single ``` output block, so GEPA's own renderer and extractor are used unchanged.
 REFLECTION_PROMPT = """You are improving a short working procedure for an AI coding agent.
 
@@ -531,7 +531,7 @@ def run_gepa(config: GepaConfig, seed_procedure: str, pools: DevPools, run_dev_e
     its TaskInstance; `split_of(task_id)` must say "dev" for all of them.
 
     `promotion_check=False` skips the paired check on the promotion pool (`promote` is then False
-    and `promotion` None): the batch runner gates every arm-D candidate, AWM or GEPA, with
+    and `promotion` None): the batch runner gates every group-D candidate, AWM or GEPA, with
     `workflows.promote` on that pool instead, so there is one promotion rule."""
     import gepa
 

@@ -21,7 +21,7 @@ reference timing or the hidden test inputs. Harness assistance, adapted from the
 
 Prompt texts are the paper's (App. A.4, A.5, A.7 and the released `spark_agent.py`), with the
 customer-service wording swapped for ours. Left out on purpose: optional further lessons (we keep
-one rule per episode), memory feedback ratings (arm C territory) and twin-situation branch rules
+one rule per episode), memory feedback ratings (group C territory) and twin-situation branch rules
 (they need a store that honours "Supersedes").
 
 Every model call's usage is returned so the controller can charge it to the ledger as `learning`.

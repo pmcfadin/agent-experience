@@ -1,29 +1,29 @@
 """Batch experiment runner: one short YAML file per experiment, run in sequence by `elh run-batch`.
 
 An experiment file names a registration file (`base_config`), optional dotted `overrides`, the
-arms and histories, and an ordered list of phases:
+groups and histories, and an ordered list of phases:
 
     name: exp1-memory-helps
     base_config: experiments/phase0-local.yaml
     overrides: {"memory_service.record_format": "ticket-v0"}   # optional
     family: cpu_mem
     histories: 1
-    arms: [A, B]
+    groups: [A, B]
     phases:
       - train: {tasks: {causes: [queue_pop_front], themes: [billing, logistics], seeds: [1000, 1005]}}
       - eval:  {label: after-10, tasks: {causes: [queue_pop_front], themes: [inventory], seeds: [2000, 2010]}}
-    dev: {tasks: {causes: [queue_pop_front], themes: [billing], seeds: [3000, 3006]}}   # arm D only
+    dev: {tasks: {causes: [queue_pop_front], themes: [billing], seeds: [3000, 3006]}}   # group D only
 
 Each experiment registers its own run: config `name` = `<base name>-<experiment name>`, with the
-overrides applied and `arms`/`histories`/`families` taken from the experiment, so run ids and
+overrides applied and `groups`/`histories`/`families` taken from the experiment, so run ids and
 Hindsight banks never collide with other experiments. A batch refuses to start if its run already
 has episodes from this experiment (rename it to run again; there is no resume).
 
-Phases run in order per history. `train`: learning arms (B...) only, split "train", against the live
-bank. `eval`: every arm, split "checkpoint", `checkpoint` = train episodes scheduled so far in that
-history; learning arms read a snapshot of their bank taken (or reused) at that point; within a phase
-arms are interleaved per task so backend drift hits them equally. `retention`: like `eval` but split
-"retention" and train cells only (SPEC §4.3); after arm D's last episode of a retention phase the
+Phases run in order per history. `train`: learning groups (B...) only, split "train", against the live
+bank. `eval`: every group, split "checkpoint", `checkpoint` = train episodes scheduled so far in that
+history; learning groups read a snapshot of their bank taken (or reused) at that point; within a phase
+groups are interleaved per task so backend drift hits them equally. `retention`: like `eval` but split
+"retention" and train cells only (SPEC §4.3); after group D's last episode of a retention phase the
 rollback rule compares the panel with the previous retention phase (`retention_rollback`).
 
 Tasks expand as cause x theme x seed (seeds are a half-open range [start, end)), then a shuffle
@@ -31,7 +31,7 @@ seeded by (schedule.seed, history, phase index): reproducible, but the order dif
 histories. Seed convention: train tasks use seeds 1000+, eval tasks 2000+, dev tasks 3000-3999, so
 they never overlap.
 
-Arm D (SPEC §10). The `dev` panel is required with arm D; its (cause, theme) cells must be train
+Group D (SPEC §10). The `dev` panel is required with group D; its (cause, theme) cells must be train
 cells and no eval or retention cell. After each D train episode, if `workflows.should_induce` (every
 `induce_every` train episodes, and only when a verified success joined the pool since the last
 induction), a candidate library is made: `awm` induces it from the verified train successes
@@ -62,7 +62,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from elh.controller import memory_for, open_snapshot, run_id_for, run_single_episode, snapshot_memory
 from elh.learner import workflows as wf
@@ -71,7 +71,7 @@ from elh.registry import ExperimentConfig
 from elh.runner.models import InfraError
 from elh.tasks.base import TaskInstance, get_family
 
-KNOWN_ARMS = ("A", "B", "C", "D")
+KNOWN_GROUPS = ("A", "B", "C", "D")
 DEV_SEEDS = (3000, 4000)   # [start, end) every dev seed must fall in
 
 
@@ -101,7 +101,7 @@ class PhaseSpec(_Strict):
 
 
 class DevSpec(_Strict):
-    """Arm D's dev panel: the tasks of the promotion gate (and of GEPA's search)."""
+    """Group D's dev panel: the tasks of the promotion gate (and of GEPA's search)."""
 
     tasks: TaskSpec
 
@@ -135,16 +135,16 @@ class Experiment(_Strict):
     overrides: dict[str, Any] = Field(default_factory=dict)
     family: str = "cpu_mem"
     histories: int = Field(1, ge=1)
-    arms: list[str] = Field(min_length=1)
+    groups: list[str] = Field(min_length=1, validation_alias=AliasChoices("groups", "arms"))  # "arms": legacy key
     phases: list[Phase] = Field(min_length=1)
     dev: DevSpec | None = None
 
-    @field_validator("arms")
+    @field_validator("groups")
     @classmethod
-    def _arms(cls, v: list[str]) -> list[str]:
-        bad = [a for a in v if a not in KNOWN_ARMS]
+    def _groups(cls, v: list[str]) -> list[str]:
+        bad = [a for a in v if a not in KNOWN_GROUPS]
         if bad or len(set(v)) != len(v):
-            raise ValueError(f"arms must be distinct values from {KNOWN_ARMS}, got {v}")
+            raise ValueError(f"groups must be distinct values from {KNOWN_GROUPS}, got {v}")
         return v
 
 
@@ -155,7 +155,7 @@ class Step:
     history: int
     phase: str        # label
     kind: str         # train | eval | retention
-    arm: str
+    group: str
     task: TaskInstance
     after: int        # train episodes scheduled before this step in its history
     ordinal: int      # train: position in the train stream; eval/retention: position in the phase
@@ -186,10 +186,10 @@ def load_experiment(path: str | Path) -> tuple[Experiment, ExperimentConfig]:
     exp = Experiment.model_validate(yaml.safe_load(path.read_text()))
     base = yaml.safe_load(_resolve(exp.base_config, path.parent).read_text())
     for key, value in exp.overrides.items():
-        if key.split(".")[0] in ("name", "arms", "histories", "families"):
+        if key.split(".")[0] in ("name", "groups", "histories", "families"):
             raise KeyError(f"override {key!r}: set it in the experiment file, not as an override")
         _set_dotted(base, key, value)
-    base.update(name=f"{base['name']}-{exp.name}", arms=list(exp.arms), histories=exp.histories,
+    base.update(name=f"{base['name']}-{exp.name}", groups=list(exp.groups), histories=exp.histories,
                 families=[exp.family])
     cfg = ExperimentConfig.model_validate(base)
     family = get_family(exp.family)
@@ -207,7 +207,7 @@ def load_experiment(path: str | Path) -> tuple[Experiment, ExperimentConfig]:
 
 def _check_cells(exp: Experiment) -> None:
     """SPEC §4.3 over (cause, theme) cells: retention and dev use train cells only; dev never uses a
-    cell an eval or retention phase measures; dev seeds stay in DEV_SEEDS. Arm D needs a dev panel."""
+    cell an eval or retention phase measures; dev seeds stay in DEV_SEEDS. Group D needs a dev panel."""
     cells = {k: set() for k in PHASE_KINDS}
     for ph in exp.phases:
         cells[ph.kind] |= ph.spec.tasks.cells()
@@ -215,8 +215,8 @@ def _check_cells(exp: Experiment) -> None:
     if extra:
         raise ValueError(f"retention phases may only use train cells; not trained: {sorted(extra)}")
     if exp.dev is None:
-        if "D" in exp.arms:
-            raise ValueError("arm D needs a `dev` section (the promotion gate's task panel)")
+        if "D" in exp.groups:
+            raise ValueError("group D needs a `dev` section (the promotion gate's task panel)")
         return
     dev = exp.dev.tasks
     if not (DEV_SEEDS[0] <= dev.seeds[0] and dev.seeds[1] <= DEV_SEEDS[1]):
@@ -251,7 +251,7 @@ def expand_tasks(family, spec: TaskSpec, *, seed: int, history: int, phase_index
 
 
 def dev_tasks(exp: Experiment, cfg: ExperimentConfig, history: int) -> list[TaskInstance]:
-    """Arm D's dev panel for one history (same tasks in every history, order shuffled per history)."""
+    """Group D's dev panel for one history (same tasks in every history, order shuffled per history)."""
     if exp.dev is None:
         return []
     return expand_tasks(get_family(exp.family), exp.dev.tasks, seed=cfg.schedule.seed, history=history,
@@ -259,10 +259,10 @@ def dev_tasks(exp: Experiment, cfg: ExperimentConfig, history: int) -> list[Task
 
 
 def schedule(exp: Experiment, cfg: ExperimentConfig) -> list[Step]:
-    """The full ordered episode list: per history, phases in order; arms interleaved per task.
-    Arm D's dev episodes are not scheduled here: they run when an induction makes a candidate."""
+    """The full ordered episode list: per history, phases in order; groups interleaved per task.
+    Group D's dev episodes are not scheduled here: they run when an induction makes a candidate."""
     family = get_family(exp.family)
-    learners = [a for a in exp.arms if a != "A"]
+    learners = [a for a in exp.groups if a != "A"]
     steps: list[Step] = []
     for h in range(exp.histories):
         n_train = 0
@@ -274,16 +274,16 @@ def schedule(exp: Experiment, cfg: ExperimentConfig) -> list[Step]:
                     n_train += 1
             else:
                 for j, task in enumerate(tasks):
-                    steps += [Step(h, label, ph.kind, a, task, n_train, j) for a in exp.arms]
+                    steps += [Step(h, label, ph.kind, a, task, n_train, j) for a in exp.groups]
     return steps
 
 
 def induction_points(exp: Experiment, cfg: ExperimentConfig) -> list[int]:
-    """Train-episode counts after which arm D may induce (each only if a new verified success joined
+    """Train-episode counts after which group D may induce (each only if a new verified success joined
     the pool since the last induction)."""
-    if "D" not in exp.arms or cfg.workflows is None:
+    if "D" not in exp.groups or cfg.workflows is None:
         return []
-    n = sum(1 for s in schedule(exp, cfg) if s.history == 0 and s.kind == "train" and s.arm == "D")
+    n = sum(1 for s in schedule(exp, cfg) if s.history == 0 and s.kind == "train" and s.group == "D")
     m = cfg.workflows.induce_every
     return list(range(m, n + 1, m))
 
@@ -303,12 +303,12 @@ def batch_id(exp: Experiment, step: Step) -> str:
 
 def print_schedule(exp: Experiment, cfg: ExperimentConfig, steps: list[Step], out=print) -> None:
     out(f"experiment {exp.name}: run {run_id_for(cfg)}, {len(steps)} scheduled episodes")
-    groups: dict[tuple, list[Step]] = defaultdict(list)
+    cells: dict[tuple, list[Step]] = defaultdict(list)
     for s in steps:
-        groups[(s.history, s.phase, s.kind, s.arm)].append(s)
-    for (h, label, kind, arm), ss in groups.items():
+        cells[(s.history, s.phase, s.kind, s.group)].append(s)
+    for (h, label, kind, group), ss in cells.items():
         where = f"train episodes {ss[0].after + 1}-{ss[-1].after + 1}" if kind == "train" else f"after {ss[0].after}"
-        out(f"h{h} {label} ({kind}, {where}) arm {arm}: {len(ss)} tasks")
+        out(f"h{h} {label} ({kind}, {where}) group {group}: {len(ss)} tasks")
         for s in ss:
             out(f"    {s.task.task_id}")
     if exp.dev is None:
@@ -323,7 +323,7 @@ def print_schedule(exp: Experiment, cfg: ExperimentConfig, steps: list[Step], ou
     w = cfg.workflows
     gate = gate_tasks_per_induction(exp, cfg)
     per = 2 * gate * w.repeats
-    out(f"arm D ({cfg.procedure_source}): induction points after train episodes {points} per history "
+    out(f"group D ({cfg.procedure_source}): induction points after train episodes {points} per history "
         f"(each only if a new verified success joined the pool)")
     if cfg.procedure_source == "gepa":
         out(f"  GEPA search: up to {cfg.gepa.max_metric_calls} dev episodes per induction")
@@ -337,8 +337,8 @@ def print_schedule(exp: Experiment, cfg: ExperimentConfig, steps: list[Step], ou
 
 
 @dataclass
-class _ArmD:
-    """Arm D's learning state across a batch, per history."""
+class _GroupD:
+    """Group D's learning state across a batch, per history."""
 
     make_induction_client: Callable[[], Any]
     make_reflection_client: Callable[[], Any]
@@ -364,7 +364,7 @@ def run_batch(exp: Experiment, cfg: ExperimentConfig, store, make_client: Callab
               make_induction_client: Callable[[], Any] | None = None,
               make_reflection_client: Callable[[], Any] | None = None) -> list[dict]:
     """Run the schedule in order. An InfraError skips that episode; anything else stops the batch.
-    Returns one result dict per scheduled episode, plus one per arm-D dev episode (kind "dev").
+    Returns one result dict per scheduled episode, plus one per group-D dev episode (kind "dev").
 
     `make_induction_client()` gives AWM's induction model (default: the registered agent model,
     `workflows.make_induction_client`); `make_reflection_client()` gives GEPA's reflection model
@@ -377,49 +377,49 @@ def run_batch(exp: Experiment, cfg: ExperimentConfig, store, make_client: Callab
                            "rename the experiment to run it again")
 
     steps = schedule(exp, cfg)
-    last_retention_d = {(s.history, s.phase): i for i, s in enumerate(steps) if s.kind == "retention" and s.arm == "D"}
-    armd = _ArmD(make_induction_client or (lambda: wf.make_induction_client(cfg.model)),
+    last_retention_d = {(s.history, s.phase): i for i, s in enumerate(steps) if s.kind == "retention" and s.group == "D"}
+    group_d = _GroupD(make_induction_client or (lambda: wf.make_induction_client(cfg.model)),
                  make_reflection_client or _default_reflection_client(cfg))
-    live: dict[tuple[int, str], Any] = {}        # (history, arm) -> training bank
-    snaps: dict[tuple[int, str, int], str] = {}  # (history, arm, after) -> snapshot id
+    live: dict[tuple[int, str], Any] = {}        # (history, group) -> training bank
+    snaps: dict[tuple[int, str, int], str] = {}  # (history, group, after) -> snapshot id
     results: list[dict] = []
     for n, s in enumerate(steps, 1):
         split = SPLIT_OF_KIND[s.kind]
-        if s.arm == "A":  # never scheduled for train phases
+        if s.group == "A":  # never scheduled for train phases
             memory = NullMemory()
         elif s.kind == "train":
-            if (s.history, s.arm) not in live:
-                live[s.history, s.arm] = memory_for(cfg, s.arm, s.history, "train", store=store)
-            memory = live[s.history, s.arm]
+            if (s.history, s.group) not in live:
+                live[s.history, s.group] = memory_for(cfg, s.group, s.history, "train", store=store)
+            memory = live[s.history, s.group]
         else:
-            key = (s.history, s.arm, s.after)
+            key = (s.history, s.group, s.after)
             if key not in snaps:
                 snaps[key] = _snapshot(cfg, store, live, run_id, *key, family=exp.family)
             memory = open_snapshot(cfg, store, snaps[key])
-        res = {"history": s.history, "phase": s.phase, "kind": s.kind, "arm": s.arm,
+        res = {"history": s.history, "phase": s.phase, "kind": s.kind, "group": s.group,
                "task_id": s.task.task_id, "passed": None, "turns": None, "wall_s": None, "error": None}
         t0 = time.monotonic()
         try:
             _, result, verdict = run_single_episode(
-                cfg, store, s.task, make_client(s.task), arm=s.arm, split=split, history=s.history,
+                cfg, store, s.task, make_client(s.task), group=s.group, split=split, history=s.history,
                 ordinal=s.ordinal, checkpoint=s.after if s.kind != "train" else None, memory=memory,
                 sandbox_backend=sandbox_backend, batch_id=batch_id(exp, s))
             res.update(passed=verdict.passed, turns=result.turns, wall_s=result.wall_s)
-            out(f"[{n}/{len(steps)}] h{s.history} {s.phase} {s.arm} {s.task.task_id} "
+            out(f"[{n}/{len(steps)}] h{s.history} {s.phase} {s.group} {s.task.task_id} "
                 f"passed={int(verdict.passed)} turns={result.turns} wall={result.wall_s:.1f}s")
         except InfraError as exc:
             res["error"] = str(exc)
-            out(f"[{n}/{len(steps)}] h{s.history} {s.phase} {s.arm} {s.task.task_id} "
+            out(f"[{n}/{len(steps)}] h{s.history} {s.phase} {s.group} {s.task.task_id} "
                 f"INFRA ERROR after {time.monotonic() - t0:.1f}s: {exc}")
         results.append(res)
-        if s.arm == "D" and s.kind == "train":
-            results += learn_procedures(exp, cfg, store, make_client, armd, history=s.history,
+        if s.group == "D" and s.kind == "train":
+            results += learn_procedures(exp, cfg, store, make_client, group_d, history=s.history,
                                         done=s.ordinal + 1, sandbox_backend=sandbox_backend, out=out)
         if last_retention_d.get((s.history, s.phase)) == n - 1:
             d = retention_rollback(store, cfg, run_id=run_id, history=s.history, family=exp.family,
                                    batch=batch_id(exp, s), checkpoint=s.after)
             if d is not None:
-                out(f"h{s.history} {s.phase} arm D retention check: "
+                out(f"h{s.history} {s.phase} group D retention check: "
                     f"{'ROLLED BACK' if d.promote else 'held'} ({'; '.join(d.reasons)})")
     return results
 
@@ -437,41 +437,41 @@ def _charge(store, cfg: ExperimentConfig, history: int, entries, purpose: str) -
     for e in entries:
         store.insert("ledger", {"run_id": run_id_for(cfg), "episode_id": None, "category": e.category,
                                 "component": e.component, "units": e.units, "unit": e.unit, "usd": e.usd,
-                                "history": history, "arm": "D", "purpose": purpose})
+                                "history": history, "test_group": "D", "purpose": purpose})
 
 
-def learn_procedures(exp: Experiment, cfg: ExperimentConfig, store, make_client, armd: _ArmD, *, history: int,
+def learn_procedures(exp: Experiment, cfg: ExperimentConfig, store, make_client, group_d: _GroupD, *, history: int,
                      done: int, sandbox_backend: str | None = None, out=print) -> list[dict]:
-    """Arm D's learning step after its `done`-th train episode of a history: maybe induce a
+    """Group D's learning step after its `done`-th train episode of a history: maybe induce a
     candidate, then run the paired dev gate and record the decision. Returns the dev results."""
     w = cfg.workflows
     run_id, fam = run_id_for(cfg), exp.family
     pool = wf.eligible_pool(store, run_id, history, "D", fam)
     pool_ids = [r["episode_id"] for r in pool]
-    if not wf.should_induce(done, pool_ids, armd.last_pool.get(history, []), w):
+    if not wf.should_induce(done, pool_ids, group_d.last_pool.get(history, []), w):
         return []
-    armd.last_pool[history] = pool_ids
-    index = armd.inductions[history] = armd.inductions.get(history, 0) + 1
-    inc_rev, inc_lib = wf.promoted_library(store, run_id=run_id, history=history, arm="D", family=fam)
+    group_d.last_pool[history] = pool_ids
+    index = group_d.inductions[history] = group_d.inductions.get(history, 0) + 1
+    inc_rev, inc_lib = wf.promoted_library(store, run_id=run_id, history=history, group="D", family=fam)
     panel = dev_tasks(exp, cfg, history)
     results: list[dict] = []
     if cfg.procedure_source == "awm":
-        ind = wf.induce(store, pool, armd.induction_client(), cfg=w,
+        ind = wf.induce(store, pool, group_d.induction_client(), cfg=w,
                         seed=wf.induction_seed(run_id, history, "D", fam, index), family=fam)
         _charge(store, cfg, history, wf.learning_entries(cfg, ind), "awm_induction")
         rev = wf.record_candidate(store, ind, run_id=run_id, history=history)
         gate = panel
-        out(f"h{history} arm D induction {index} after {done} train episodes: {len(pool)} verified successes, "
+        out(f"h{history} group D induction {index} after {done} train episodes: {len(pool)} verified successes, "
             f"{len(ind.library)} workflows" + (f" -> candidate revision {rev}" if rev else " (empty; nothing to validate)"))
     else:
-        rev, gate, gepa_results = _gepa_candidate(exp, cfg, store, make_client, armd, history=history, done=done,
+        rev, gate, gepa_results = _gepa_candidate(exp, cfg, store, make_client, group_d, history=history, done=done,
                                                   incumbent=inc_lib, sandbox_backend=sandbox_backend, out=out)
         results += gepa_results
-        out(f"h{history} arm D GEPA {index} after {done} train episodes"
+        out(f"h{history} group D GEPA {index} after {done} train episodes"
             + (f" -> candidate revision {rev}" if rev else ": no candidate beyond the incumbent"))
     if rev is None:
         return results
-    cand_lib = wf.load_library(store, run_id=run_id, history=history, arm="D", family=fam, revision=rev)
+    cand_lib = wf.load_library(store, run_id=run_id, history=history, group="D", family=fam, revision=rev)
     sides = {"incumbent": (inc_rev, inc_lib), "candidate": (rev, cand_lib)}
     view = memory_for(cfg, "D", history, "dev", store=store)
     rows: dict[str, list] = {"incumbent": [], "candidate": []}
@@ -482,7 +482,7 @@ def learn_procedures(exp: Experiment, cfg: ExperimentConfig, store, make_client,
             random.Random(f"{cfg.schedule.seed}/h{history}/gate{index}/{k}/{task.task_id}").shuffle(order)
             for role in order:
                 try:
-                    eid, _, _, res = _dev_episode(exp, cfg, store, make_client, armd, task, view, history=history,
+                    eid, _, _, res = _dev_episode(exp, cfg, store, make_client, group_d, task, view, history=history,
                                             done=done, procedures=sides[role], label=role,
                                             sandbox_backend=sandbox_backend, out=out)
                 except InfraError as exc:
@@ -504,9 +504,9 @@ def learn_procedures(exp: Experiment, cfg: ExperimentConfig, store, make_client,
         **decision.stats, "source": cfg.procedure_source, "after_train_episodes": done, "induction": index,
         "incumbent_revision": inc_rev, "gate_task_ids": [t.task_id for t in gate],
         "incumbent_episode_ids": rows.get("incumbent_ids", []), "candidate_episode_ids": rows.get("candidate_ids", [])})
-    wf.decide_candidate(store, run_id=run_id, history=history, arm="D", family=fam, revision=rev, decision=decision)
+    wf.decide_candidate(store, run_id=run_id, history=history, group="D", family=fam, revision=rev, decision=decision)
     st = decision.stats
-    out(f"h{history} arm D gate for revision {rev} vs {inc_rev if inc_rev is not None else 'none'}: "
+    out(f"h{history} group D gate for revision {rev} vs {inc_rev if inc_rev is not None else 'none'}: "
         f"{'PROMOTED' if decision.promote else 'rejected'} "
         f"(mean reward {st.get('incumbent_mean_reward', float('nan')):.3f} -> "
         f"{st.get('candidate_mean_reward', float('nan')):.3f}, passes {st.get('incumbent_passes', '-')} -> "
@@ -514,15 +514,15 @@ def learn_procedures(exp: Experiment, cfg: ExperimentConfig, store, make_client,
     return results
 
 
-def _dev_episode(exp, cfg, store, make_client, armd: _ArmD, task: TaskInstance, view, *, history: int, done: int,
+def _dev_episode(exp, cfg, store, make_client, group_d: _GroupD, task: TaskInstance, view, *, history: int, done: int,
                  procedures, label: str, sandbox_backend, out, retries: int = 1):
-    """One arm-D dev episode with an explicit library, charged as learning. An InfraError is retried
+    """One group-D dev episode with an explicit library, charged as learning. An InfraError is retried
     `retries` times, then raised."""
     for attempt in range(retries + 1):
-        seq = armd.dev_seq[history] = armd.dev_seq.get(history, 0) + 1
+        seq = group_d.dev_seq[history] = group_d.dev_seq.get(history, 0) + 1
         try:
             eid, result, verdict = run_single_episode(
-                cfg, store, task, make_client(task), arm="D", split="dev", history=history, ordinal=seq,
+                cfg, store, task, make_client(task), group="D", split="dev", history=history, ordinal=seq,
                 checkpoint=done, memory=view, sandbox_backend=sandbox_backend, batch_id=f"{exp.name}/{history}",
                 charge_as="learning", procedures=procedures)
         except InfraError as exc:
@@ -533,12 +533,12 @@ def _dev_episode(exp, cfg, store, make_client, armd: _ArmD, task: TaskInstance, 
         out(f"  h{history} dev@{done} {label} {task.task_id} passed={int(verdict.passed)} turns={result.turns} "
             f"wall={result.wall_s:.1f}s")
         return eid, result, verdict, {"history": history, "phase": f"dev@{done}-{label}", "kind": "dev",
-                                      "arm": "D", "task_id": task.task_id, "passed": verdict.passed,
+                                      "test_group": "D", "task_id": task.task_id, "passed": verdict.passed,
                                       "turns": result.turns, "wall_s": result.wall_s, "error": None}
     raise AssertionError("unreachable")
 
 
-def _gepa_candidate(exp, cfg, store, make_client, armd: _ArmD, *, history: int, done: int, incumbent,
+def _gepa_candidate(exp, cfg, store, make_client, group_d: _GroupD, *, history: int, done: int, incumbent,
                     sandbox_backend, out) -> tuple[int | None, list[TaskInstance], list[dict]]:
     """GEPA seeded with the incumbent's text on the dev panel's reflection/validation pools; the
     winner (if it differs from the seed) becomes a candidate revision, gated on the promotion pool."""
@@ -555,7 +555,7 @@ def _gepa_candidate(exp, cfg, store, make_client, armd: _ArmD, *, history: int, 
     def run_dev(task: TaskInstance, procedure: str) -> go.DevRollout:
         lib = wf.library_from_procedure(fam, procedure)
         eid, result, verdict, res = _dev_episode(
-            exp, cfg, store, make_client, armd, task, view, history=history, done=done, procedures=(None, lib),
+            exp, cfg, store, make_client, group_d, task, view, history=history, done=done, procedures=(None, lib),
             label="gepa", sandbox_backend=sandbox_backend, out=out, retries=0)  # GEPA's adapter retries
         results.append(res)
         final_ws = store.get_workspace(store.episode(eid)["final_workspace_sha256"])
@@ -563,7 +563,7 @@ def _gepa_candidate(exp, cfg, store, make_client, armd: _ArmD, *, history: int, 
                              workspace_diff(task.workspace, final_ws))
 
     seed_text = wf.procedure_text(incumbent)
-    outcome = go.run_gepa(g, seed_text, pools, run_dev, armd.reflection_client(), tasks=panel,
+    outcome = go.run_gepa(g, seed_text, pools, run_dev, group_d.reflection_client(), tasks=panel,
                           split_of=lambda _t: "dev", promotion_check=False)
     _charge(store, cfg, history, go.reflection_ledger_entries(cfg, cfg.model.id, outcome.reflection_calls),
             "gepa_reflection")
@@ -589,15 +589,15 @@ def _gepa_candidate(exp, cfg, store, make_client, armd: _ArmD, *, history: int, 
 
 def retention_rollback(store, cfg: ExperimentConfig, *, run_id: str, history: int, family: str, batch: str,
                        checkpoint: int) -> wf.GateDecision | None:
-    """Auto-rollback hook (SPEC §10), run after arm D's last episode of a retention phase.
+    """Auto-rollback hook (SPEC §10), run after group D's last episode of a retention phase.
 
-    Compares arm D's retention episodes at `checkpoint` with those of the most recent earlier
+    Compares group D's retention episodes at `checkpoint` with those of the most recent earlier
     retention checkpoint of the same batch and history, paired by (task, repeat in run order) on the
     tasks both measured, with `workflows.rollback`. Rolls back (`workflows.apply_rollback`) only when
     the rule fires, the library pinned at this checkpoint differs from the earlier one, and it is
     still the promoted revision. Returns the decision (None when there is no earlier panel)."""
     rows = store.db.execute(
-        "SELECT * FROM episodes WHERE run_id = ? AND history = ? AND arm = 'D' AND split = 'retention' "
+        "SELECT * FROM episodes WHERE run_id = ? AND history = ? AND test_group = 'D' AND split = 'retention' "
         "AND batch_id = ? AND checkpoint <= ? ORDER BY started_at, episode_id",
         (run_id, history, batch, checkpoint)).fetchall()
     earlier = sorted({r["checkpoint"] for r in rows if r["checkpoint"] < checkpoint})
@@ -625,7 +625,7 @@ def retention_rollback(store, cfg: ExperimentConfig, *, run_id: str, history: in
              "previous_revisions": sorted(prev_revs, key=str), "revisions": sorted(cur_revs, key=str)}
     if not decision.promote:
         return wf.GateDecision(False, decision.reasons, stats)
-    promoted = wf.promoted_revision(store, run_id=run_id, history=history, arm="D", family=family)
+    promoted = wf.promoted_revision(store, run_id=run_id, history=history, group="D", family=family)
     reasons = list(decision.reasons)
     if len(cur_revs) != 1 or cur_revs == prev_revs:
         reasons.append("not rolled back: the library did not change between the two checkpoints")
@@ -634,36 +634,36 @@ def retention_rollback(store, cfg: ExperimentConfig, *, run_id: str, history: in
     if cur_rev is None or promoted != cur_rev:
         reasons.append(f"not rolled back: revision {cur_rev} is no longer the promoted one ({promoted})")
         return wf.GateDecision(False, tuple(reasons), stats)
-    now = wf.apply_rollback(store, run_id=run_id, history=history, arm="D", family=family,
+    now = wf.apply_rollback(store, run_id=run_id, history=history, group="D", family=family,
                             evidence={**decision.to_dict(), **stats})
     return wf.GateDecision(True, tuple(reasons) + (f"revision {cur_rev} rolled back; active now: {now}",),
                            {**stats, "active_revision": now})
 
 
-def _snapshot(cfg: ExperimentConfig, store, live: dict, run_id: str, history: int, arm: str, after: int, *,
+def _snapshot(cfg: ExperimentConfig, store, live: dict, run_id: str, history: int, group: str, after: int, *,
               family: str | None = None) -> str:
-    """Snapshot id for (history, arm) after `after` train episodes: reused if one exists."""
+    """Snapshot id for (history, group) after `after` train episodes: reused if one exists."""
     row = store.db.execute("SELECT snapshot_id FROM memory_snapshots WHERE run_id = ? AND history = ? "
-                           "AND arm = ? AND after_episode = ?", (run_id, history, arm, after)).fetchone()
+                           "AND test_group = ? AND after_episode = ?", (run_id, history, group, after)).fetchone()
     if row:
         return row[0]
-    if (history, arm) not in live:  # eval before any training: snapshot the (empty) bank
-        live[history, arm] = memory_for(cfg, arm, history, "train", store=store)
-    return snapshot_memory(cfg, store, live[history, arm], history=history, arm=arm, after_episode=after,
+    if (history, group) not in live:  # eval before any training: snapshot the (empty) bank
+        live[history, group] = memory_for(cfg, group, history, "train", store=store)
+    return snapshot_memory(cfg, store, live[history, group], history=history, group=group, after_episode=after,
                            family=family)
 
 
 def summarize(results: list[dict]) -> list[str]:
-    """One line per (history, phase, arm): n, pass rate, mean turns, infra errors."""
-    groups: dict[tuple, list[dict]] = defaultdict(list)
+    """One line per (history, phase, group): n, pass rate, mean turns, infra errors."""
+    cells: dict[tuple, list[dict]] = defaultdict(list)
     for r in results:
-        groups[(r["history"], r["phase"], r["arm"])].append(r)
-    lines = [f"{'hist':4s} {'phase':16s} {'arm':3s} {'n':>3s} {'pass':>6s} {'turns':>6s} {'infra':>5s}"]
-    for (h, phase, arm), rs in groups.items():
+        cells[(r["history"], r["phase"], r["group"])].append(r)
+    lines = [f"{'hist':4s} {'phase':16s} {'group':5s} {'n':>3s} {'pass':>6s} {'turns':>6s} {'infra':>5s}"]
+    for (h, phase, group), rs in cells.items():
         ok = [r for r in rs if r["error"] is None]
         rate = f"{sum(r['passed'] for r in ok) / len(ok):.2f}" if ok else "-"
         turns = f"{statistics.mean(r['turns'] for r in ok):.1f}" if ok else "-"
-        lines.append(f"h{h:<3d} {phase:16s} {arm:3s} {len(ok):3d} {rate:>6s} {turns:>6s} {len(rs) - len(ok):5d}")
+        lines.append(f"h{h:<3d} {phase:16s} {group:5s} {len(ok):3d} {rate:>6s} {turns:>6s} {len(rs) - len(ok):5d}")
     return lines
 
 

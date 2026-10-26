@@ -198,7 +198,7 @@ Rules for EVERY memory you write:
   - **Hold rate** = P(pass at t+1 | pass at t), pooled over all transitions. This is the
     operational *retention* measure, and its complement is the regression rate.
   - **Floor stratum** = tasks the baseline never solves in any of 4 trials. **Competent stratum** =
-    the rest. Labels are fixed mechanically from the baseline before the memory arms are examined.
+    the rest. Labels are fixed mechanically from the baseline before the memory groups are examined.
   - **Conversion** = a floor task solved in at least one trial.
   - For no-memory or frozen-store conditions, hold measures "re-draw persistence"
     (≈ Σp_i²/Σp_i) and serves as the reference level (App. D).
@@ -410,7 +410,7 @@ B, but the gain does not transfer.
    `BWT_c = Acc_retention(snapshot_c) − Acc_retention(snapshot_at_first_learn)`, where
    "first learn" is the checkpoint right after the panel's cells were trained. For a per-cause
    view, compute it per cause: train on cause X, then on cause Y, then re-probe X.
-2. **ΔRR/ΔNL on every evaluation panel.** Split each eval panel by **arm A's** outcome on the same
+2. **ΔRR/ΔNL on every evaluation panel.** Split each eval panel by **group A's** outcome on the same
    tasks (A-pass = easy, A-fail = hard), with labels fixed from A before B is examined, as both
    papers do.
    - Report ΔRR (B − A on the A-pass subset) as *harmful reuse*. Exp1's integrity breaks fall
@@ -418,7 +418,7 @@ B, but the gain does not transfer.
    - Report ΔNL as *new learning*.
    - This needs A run on the identical tasks, which SPEC §11 already does.
 3. **Hold rate (from paper 1) for repeated measurement of the retention panel.** P(pass at
-   checkpoint c+1 | pass at c) per task, against arm A's re-draw persistence Σp²/Σp as the
+   checkpoint c+1 | pass at c) per task, against group A's re-draw persistence Σp²/Σp as the
    reference.
 4. **Log retrieval diagnostics for every recall:**
    - memory ids returned and their rank;
@@ -521,10 +521,10 @@ What we have **[read: SPEC §10, `elh/memory/hindsight.py`]**:
      hunks) so it credits the decisive change rather than the last one.
    - On FAIL: give it the failed checks, which lesson-v2 already does. Under `integrity` failure,
      the AVOID rule must name the protected files changed. This matches the validator's role.
-4. **Instruction grade (optional arm/ablation).** Paper 1's largest gain (2.6×) comes from handing
+4. **Instruction grade (optional group/ablation).** Paper 1's largest gain (2.6×) comes from handing
    the *verified solution* to the reflection after a failure. For us that would be the reference
    diff after a failed train episode. **[inf]** This conflicts with "never the oracle" in SPEC §10,
-   so treat it as a separate pre-registered condition ("B-instr"), never the default arm B.
+   so treat it as a separate pre-registered condition ("B-instr"), never the default group B.
 5. **Write-time validator.**
    - Reject a rule whose THEN clause lacks the decision-critical strings drawn from the
      harness-known facts: e.g. the names of the protected files touched, or the function/construct
@@ -543,18 +543,18 @@ What we have **[read: SPEC §10, `elh/memory/hindsight.py`]**:
        intended fix;
      - re-search when a new situation appears;
      - before `submit`, re-read any VERIFIED RULE.
-   - **[inf]** For arm B as specified (a harness-injected top-5 at the start), add a variant
+   - **[inf]** For group B as specified (a harness-injected top-5 at the start), add a variant
      "B-nudge" rather than replacing B.
    - Note that agent-driven search adds model tokens to the *episode*, not to learning, which
      affects cost-per-success accounting.
-8. **Feedback / trust (this is arm C territory).**
+8. **Feedback / trust (this is group C territory).**
    - Paper 1's `memory_feedback`, with outcome-anchored rubrics (A.6), feeds a trust score used in
      ranking. That maps onto our UtilityLearner's Q.
    - **[inf]** Paper 1 shows the signal can be the agent's outcome-anchored per-item rating instead
      of a learned Q. Consider it as C's update rule or as an ablation.
 9. **Evaluation protocol.**
-   - Adopt **hold rate** and the **floor/competent strata** (labels fixed from arm A).
-   - Use a **cluster bootstrap over tasks with paired resampling across arms**, B = 10,000, and a
+   - Adopt **hold rate** and the **floor/competent strata** (labels fixed from group A).
+   - Use a **cluster bootstrap over tasks with paired resampling across groups**, B = 10,000, and a
      published seed. SPEC §12 already has a hierarchical bootstrap; add the pairing.
    - Report pass^1 and the per-checkpoint curve. pass^k is not useful under learning.
    - **[inf]** Paper 1's within-task repeated-trial design does not match our sealed-split design.
@@ -581,7 +581,7 @@ What we have **[read: SPEC §10, `elh/memory/hindsight.py`]**:
 4. **Evaluation protocol (H3/H5).**
    - Add **scratch controls**: a memory-enabled run on target task T from an empty bank.
    - Add **eval-only probes** of earlier causes after later training.
-   - Report **FWT, BWT, ΔRR, ΔNL** (labels from arm A), plus **coverage, top-1 concentration and
+   - Report **FWT, BWT, ΔRR, ΔNL** (labels from group A), plus **coverage, top-1 concentration and
      key-vs-context diversity** of retrievals.
    - Run sequences in both directions for at least one cause pair.
    - They used 2 runs; our histories play the same role. Keep intervals, which they did not

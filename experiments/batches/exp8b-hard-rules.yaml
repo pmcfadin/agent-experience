@@ -10,7 +10,7 @@ overrides:
   rules: {enabled: true}
 family: cpu_mem
 histories: 1
-arms: [A, B]
+groups: [A, B]
 phases:
   - train:
       tasks: {causes: [quadratic_membership], themes: [billing, logistics, telemetry, course_registration, network_flows], seeds: [1000, 1003]}

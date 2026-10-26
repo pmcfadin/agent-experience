@@ -1,4 +1,4 @@
-"""Frozen prompts (SPEC §6). Byte-identical across arms; any edit requires a new registration."""
+"""Frozen prompts (SPEC §6). Byte-identical across groups; any edit requires a new registration."""
 
 from __future__ import annotations
 

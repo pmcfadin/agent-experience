@@ -38,7 +38,7 @@ def test_train_episode_writes_and_retains_a_rule(tmp_path):
         "content": "WHEN a batch job pops from the front of a list THEN use collections.deque.popleft",
         "query": "batch job slow popping from the front of a list"})])
     store, bank = Store(tmp_path), Bank()
-    eid, _, verdict = run_single_episode(cfg, store, task, client, arm="B", split="train", memory=bank,
+    eid, _, verdict = run_single_episode(cfg, store, task, client, group="B", split="train", memory=bank,
                                          sandbox_backend="local")
     assert verdict.passed
     rule = bank.retained[0]["rule"]
@@ -54,6 +54,6 @@ def test_rules_off_by_default(tmp_path):
     family = get_family("cpu_mem")
     task = family.generate("queue_pop_front", "billing", 3)
     store, bank = Store(tmp_path), Bank()
-    eid, _, _ = run_single_episode(cfg, store, task, scripted_client("reference", task, family), arm="B",
+    eid, _, _ = run_single_episode(cfg, store, task, scripted_client("reference", task, family), group="B",
                                    split="train", memory=bank, sandbox_backend="local")
     assert "rule" not in bank.retained[0] and store.episode(eid)["rule_json"] is None

@@ -18,7 +18,7 @@ Phase 0 code is implemented; see §13 for what has and has not been verified.
 | Thinking / effort | n/a for the local model; Sonnet comparison: adaptive thinking, `effort: medium` | Any `reasoning_content` the gateway returns is kept in the trace and never sent back. |
 | Refusal fallbacks (Sonnet comparison) | **off** | Server-side fallback would silently switch models mid-episode and break the frozen-model control. A `refusal` stop ends the episode as `outcome=refused` and is reported separately. |
 | Sampling | local model: `temperature 0.7, top_p 0.8` (Qwen3-Coder recommended), preregistered | Model nondeterminism is handled by replicated learning histories, not by seeds. |
-| Agent tools | `bash` + `submit` (local model: function tools; Sonnet: Anthropic-defined `bash_20250124` + strict `submit`) | Identical across arms. Each bash call is a fresh process in the workspace (files persist, shell state does not); the system prompt says so. Memory never appears as a tool in v1 (see §6.2). |
+| Agent tools | `bash` + `submit` (local model: function tools; Sonnet: Anthropic-defined `bash_20250124` + strict `submit`) | Identical across groups. Each bash call is a fresh process in the workspace (files persist, shell state does not); the system prompt says so. Memory never appears as a tool in v1 (see §6.2). |
 | Sandbox | `UserSandbox`: a throwaway Unix user per sandbox in `dev`, with an nftables network block and systemd-scope CPU/memory/task limits (§5) | Containers don't run in `dev` (nesting stays off, by owner decision 2026-10-25). `LocalSandbox` exists for development only and is never used for confirmatory data. |
 | Memory service | dedicated Hindsight instance for the experiment | Pinned version and embedder, isolated banks. Its LLM is the `study-gemma4-26b-a4b` alias (pinned the same way), charged as `learning`. Never the shared household instance. |
 | Language / tooling | Python 3.12, `uv`, SQLite, JSONL traces | Parquet export for analysis. |
@@ -31,7 +31,7 @@ experiments/
   phase0-local.yaml         registration files (one per run family; immutable once a run starts)
 elh/
   registry.py               ExperimentConfig (pydantic) + load/hash; price table
-  controller.py             schedules (history × arm × episode); split enforcement; snapshots
+  controller.py             schedules (history × group × episode); split enforcement; snapshots
   cli.py                    `elh ...` entry point
   tasks/
     base.py                 TaskFamily / TaskInstance / Oracle contracts
@@ -76,13 +76,13 @@ model:
   pin: {weights_sha256: "...", weights_file: "...", quantization: "...", server: "...", context_tokens: 65536}
 prices_usd_per_mtok:            # pinned; ledger never looks prices up live (shadow prices for local)
   study-qwen3-coder-30b-a3b: {input: 0.05, output: 0.20}
-budgets:                        # identical for every arm
+budgets:                        # identical for every group
   max_turns: 40
   max_total_tokens: 400000
   wall_clock_seconds: 1200
   bash_timeout_seconds: 120
 sandbox: {backend: podman, image: "localhost/elh-cpu-mem@sha256:...", cpus: 2, memory_mb: 2048, network: none}
-arms: [A]                       # Phase 0: A only
+groups: [A]                       # Phase 0: A only
 histories: 1                    # independent learning histories (task orders)
 families: [cpu_mem]
 schedule:
@@ -244,8 +244,8 @@ episode's wall-clock budget. Instead, the owner approved isolating episodes in `
 A manual tool-use loop over the Anthropic Messages API (no tool runner, no Agent SDK) so that every
 request body is under harness control and recorded:
 
-1. Build `system` = frozen system prompt (byte-identical across arms) + nothing else.
-2. First user message = memory block (arms B–D; empty for A) + task ticket.
+1. Build `system` = frozen system prompt (byte-identical across groups) + nothing else.
+2. First user message = memory block (groups B–D; empty for A) + task ticket.
 3. Loop: call model → append the full `response.content` (append-only history; never edit earlier
    turns) → execute every `tool_use` block → return all `tool_result`s in one user message.
 4. Stop on: `submit` tool call, `end_turn` without tool calls (counts as implicit submit), budget
@@ -258,7 +258,7 @@ request body is under harness control and recorded:
 
 v1 injects recalled memory **once**, at episode start, as a fixed, delimited block in the first user
 message, capped at `memory_token_budget` tokens. Rationale: the exact items shown and their order
-are known (`retrieved_memory_ids`), and arms differ only in that block. A mid-episode `recall` tool
+are known (`retrieved_memory_ids`), and groups differ only in that block. A mid-episode `recall` tool
 is a planned ablation, not part of the primary comparison.
 
 **Agent-issued search (implemented, off by default, 2026-10-25).** `run_episode(..., search=fn)`
@@ -286,7 +286,7 @@ retained without the rule and the rule is a second retain item (`render_rule` + 
 <query>`, tags `family:…`, `rule`, `rule:<kind>`, document `<episode_id>:rule`) under the bank
 retain strategy `rule-verbatim` = `{retain_extraction_mode: chunks}`: one `world` unit holding the
 text as written, no LLM call. Recall fills its first `rules.recall_k` (2) slots from a rule-only
-recall by the ticket text (`tags: [rule]`, `tags_match: any_strict`), the rest as before; arms C/D
+recall by the ticket text (`tags: [rule]`, `tags_match: any_strict`), the rest as before; groups C/D
 show those rules first and let the utility learner rerank the other `k2 - len(rules)` episodes
 (shown rules are logged in `retrieval_json.rules` and get no Q update). `search_memory` returns rule
 hits first. Remaining deviation: the paper retrieves rules only through the agent's own queries;
@@ -325,11 +325,11 @@ categories:
   recorded);
 - `learning` — Hindsight retain/reflect LLM + embedding calls, reranking, SkillLearner reflection
   and validation episodes, storage;
-- `eval_overhead` — judge runs (reported, never charged to arms).
+- `eval_overhead` — judge runs (reported, never charged to groups).
 
 ### 8.2 Primary endpoint
 
-`cost_per_success(arm) = (Σ inference + Σ tool_compute + amortised_learning) / verified_successes`
+`cost_per_success(group) = (Σ inference + Σ tool_compute + amortised_learning) / verified_successes`
 on the sealed split, where `amortised_learning = total_learning_spend × (n_sealed / horizon_tasks)`.
 `horizon_tasks` is preregistered; the report also shows the sensitivity values and the
 inference-only cost.
@@ -338,7 +338,7 @@ inference-only cost.
 
 ```sql
 runs(run_id PK, name, config_hash, config_json, started_at, git_rev, harness_version)
-episodes(episode_id PK, run_id, history, arm, split, checkpoint, ordinal,
+episodes(episode_id PK, run_id, history, group, split, checkpoint, ordinal,
          task_id, family, cause, theme, seed, task_hash,
          model_id, sandbox_backend, sandbox_image,
          outcome,           -- submitted | implicit_submit | budget_exhausted | refused | infra_error
@@ -350,8 +350,8 @@ episodes(episode_id PK, run_id, history, arm, split, checkpoint, ordinal,
 llm_calls(call_id PK, episode_id, turn, request_id, model, stop_reason,
           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, latency_s)
 ledger(entry_id PK, run_id, episode_id NULL, category, component, units, unit, usd,
-       history NULL, arm NULL, purpose NULL)  -- last three: spend with no episode (arm D induction/reflection)
-memory_snapshots(snapshot_id PK, run_id, history, arm, after_episode, source_bank_id, bank_id,
+       history NULL, group NULL, purpose NULL)  -- last three: spend with no episode (group D induction/reflection)
+memory_snapshots(snapshot_id PK, run_id, history, group, after_episode, source_bank_id, bank_id,
                  bank_export_sha256, content_sha256, learner_state_sha256, library_revision NULL,
                  created_at)
 skills(skill_id, revision, run_id, history, status, body_sha256, source_episode_ids_json,
@@ -377,18 +377,18 @@ class Learner(Protocol):
     def propose_skill(self) -> SkillCandidate | None: ...                    # D only
 ```
 
-Arm wiring:
+Group wiring:
 
-| Arm | Memory | Learner |
+| Group | Memory | Learner |
 |---|---|---|
 | A | `NullMemory` | none |
 | B | `HindsightMemory` (relevance recall) | none |
 | C | `HindsightMemory` | `UtilityLearner`: two-phase retrieval (relevance top-N → rerank by learned Q); Q updated from verified reward `r = passed × (1 − normalised_cost)` |
 | D | as C (own bank `…-D`, own utility table) | + procedure library shown first inside the `<experience>` block (system prompt unchanged; `workflows.experience_block`). Source `procedure_source: awm` (default): every `workflows.induce_every` train episodes, if a verified success joined the pool, AWM regenerates the whole library from D's verified `train` successes, one sampled per (cause, theme) cell (`elh/learner/workflows.py`); `gepa`: GEPA, seeded with the incumbent's text, searches on dev episodes (`elh/learner/gepa_opt.py`). Either way the candidate is versioned (`skills`) and promoted only by the paired dev gate below; auto-rollback if the retention panel drops |
 
-**Arm D's dev validation loop (2026-10-25).** Registration: `workflows` (cadence, gate, caps;
+**Group D's dev validation loop (2026-10-25).** Registration: `workflows` (cadence, gate, caps;
 required), `utility` (as C; required), `gepa` (required when `procedure_source: gepa`). An experiment
-with arm D names a `dev` panel (train cells only, never a cell an eval or retention phase measures,
+with group D names a `dev` panel (train cells only, never a cell an eval or retention phase measures,
 seeds 3000–3999). After D's n-th train episode, when `should_induce` fires: AWM induces a candidate
 (its model calls are ledger rows `learning` with no episode, `purpose = awm_induction`), or GEPA runs
 on the dev panel split deterministically into reflection / validation / promotion pools (its dev
@@ -407,14 +407,14 @@ D episode records `procedure_ids` (`skill_id@revision`), `procedure_revision` an
 episode of a `retention` phase, its panel is compared (paired by task) with the previous retention
 checkpoint by `workflows.rollback`; the promoted revision is rolled back only if the rule fires, the
 library differs between the two checkpoints and that revision is still the promoted one. Dev
-episodes are excluded from the analysis comparisons and reported in the arm D section (revisions,
+episodes are excluded from the analysis comparisons and reported in the group D section (revisions,
 decisions, learning spend).
 
 Only `train` episodes call `retain`/`observe`. Checkpoint, sealed and retention episodes use
 `open_readonly(snapshot)`; the controller passes them a read-only view and asserts that bank
 contents and learner state hashes are unchanged afterwards.
 
-Each (history, arm) gets its own Hindsight bank: `elh-<run>-h<history>-<arm>`.
+Each (history, group) gets its own Hindsight bank: `elh-<run>-h<history>-<group>`.
 
 **Deployment (2026-10-25).** `services/hindsight/` runs Hindsight natively in dev, in its own
 locked environment (`hindsight-api-slim==1.1.0`, `uv.lock`), started by `serve.sh` under the systemd
@@ -440,26 +440,26 @@ the oracle or reference timing) for experiments comparing the two formats.
 **`lesson-v2` (2026-10-25, registration v6)** replaces `lesson-v1`, which described a failed check
 with its pass wording: a failed integrity check was stored as "failed because it left the tests and
 harness untouched", the opposite of what happened. In exp1 (first run) Hindsight extracted exactly
-that lesson and arm B broke integrity on 3/10 eval tickets against 1/10 for A, so that run's arm B
+that lesson and group B broke integrity on 3/10 eval tickets against 1/10 for A, so that run's group B
 result is void. v2 states passed and failed checks separately and names the protected files the
 agent changed. `lesson-v1` stays selectable only to reproduce old runs. The
 memory LLM's tokens from each retain are charged as `learning`. The controller waits until the
 bank has no active operations (consolidation runs in the background after a retain) before the
 next recall, so memory work never overlaps a timed episode.
 
-**Snapshots (2026-10-25).** `snapshot_memory` (CLI `elh snapshot --arm B --after n`) waits for the
+**Snapshots (2026-10-25).** `snapshot_memory` (CLI `elh snapshot --group B --after n`) waits for the
 training bank to go idle, exports it with Hindsight's bank transfer (data and bank config, no
 audit/LLM history), stores the archive as a content-addressed blob (`runs/snapshots/`) and
-restores it into the snapshot bank `elh-<run>-h<history>-<arm>-e<n>` (re-embedding only, no LLM
+restores it into the snapshot bank `elh-<run>-h<history>-<group>-e<n>` (re-embedding only, no LLM
 call; imports run against the empty host bank `elh-transfer`). A restore gives memories new ids
 and recomputes similarity links, so banks are compared by a content fingerprint (every memory
 unit's type, state, tags and text, plus the document count), recorded as `content_sha256`; the
 snapshot is refused unless the restored bank matches the live one. `open_snapshot` returns a
 read-only view, re-restoring from the archive if the bank is gone and refusing if its fingerprint
-has drifted. Arm D's snapshot also pins its library: `library_revision`, and `learner_state_sha256`
-is the sha256 of a stored "learner" blob, canonical JSON `{format: arm-d-state-v1,
+has drifted. Group D's snapshot also pins its library: `library_revision`, and `learner_state_sha256`
+is the sha256 of a stored "learner" blob, canonical JSON `{format: group-d-state-v1,
 utility_state_sha256, library: {family, revision, library_sha256, state_sha256}}`
-(`workflows.arm_d_state`), so the hash changes if the utility table or the library changes;
+(`workflows.group_d_state`), so the hash changes if the utility table or the library changes;
 `open_snapshot` restores both and re-checks the library against it, and read-only D episodes
 re-check that the library they showed is unchanged. Checkpoint, sealed and retention episodes must name a snapshot (`--snapshot`); `dev`
 may read the live bank read-only. Every read-only episode fingerprints the bank before recall and
@@ -469,12 +469,12 @@ snapshot used.
 ## 11. Controller and schedule
 
 For each history h (independent seed → independent task order):
-1. Arm A runs only on evaluation splits (it doesn't learn, so it has no training phase).
-2. Arms B–D run the same ordered train sequence; after episode n ∈ checkpoints, snapshot and run
+1. Group A runs only on evaluation splits (it doesn't learn, so it has no training phase).
+2. Groups B–D run the same ordered train sequence; after episode n ∈ checkpoints, snapshot and run
    the checkpoint panel + retention panel against the snapshot.
-3. After the final train episode, run the sealed splits (all arms, same tasks).
+3. After the final train episode, run the sealed splits (all groups, same tasks).
 
-Episodes of different (history, arm) streams run in parallel; within a stream they are strictly
+Episodes of different (history, group) streams run in parallel; within a stream they are strictly
 sequential (learning depends on order).
 
 ## 12. Analysis (Phase 1+)
@@ -483,7 +483,7 @@ sequential (learning depends on order).
   (resample histories, then tasks stratified by family/cause); one-sided test of ≥20% reduction.
 - Correctness gate: one-sided non-inferiority on pass rate, margin preregistered (proposal: 2 pp)
   — the margin and sample size are set from pilot variance before the confirmatory run.
-- Ablations: B vs A, C vs B, D vs C. Curves: metric vs checkpoint per arm (H2). Split-wise results
+- Ablations: B vs A, C vs B, D vs C. Curves: metric vs checkpoint per group (H2). Split-wise results
   for H3. Retention deltas for H5.
 
 ## 13. Phase plan and exit criteria
@@ -491,8 +491,8 @@ sequential (learning depends on order).
 | Phase | Deliverable | Exit criterion |
 |---|---|---|
 | 0 | registry, cpu_mem family + validator, Local/Podman sandboxes, judge, agent loop, ledger, store, CLI | `validate-family cpu_mem` passes; one real episode with the registered model runs end-to-end in the confirmatory sandbox, with its trace, ledger rows and verdict; re-generating the task and re-grading the stored final workspace reproduces the verdict |
-| 1 | Hindsight adapter (dedicated instance), arms A/B/basic C, second family, checkpoints, analysis v1 | 50-episode pilot with an interpretable learning curve and variance estimates → power analysis |
-| 2 | SkillLearner, all four arms, four families, preregistration, sealed run | protocol locked; sealed test completed |
+| 1 | Hindsight adapter (dedicated instance), groups A/B/basic C, second family, checkpoints, analysis v1 | 50-episode pilot with an interpretable learning curve and variance estimates → power analysis |
+| 2 | SkillLearner, all four groups, four families, preregistration, sealed run | protocol locked; sealed test completed |
 
 ### Phase 0 status (2026-10-24)
 
@@ -506,7 +506,7 @@ model turned the `seen` list into a set but left `blocked` as a list, so the lar
 out; the verdict re-grades identically. Every call recorded the same backend identity. Then, on
 UserSandbox with the v2 registration: `queue_pop_front/telemetry/2` passed every check (30 turns,
 75 s, agent 0.97× the reference time) and re-grades identically; the 360-check family validation
-also passes on UserSandbox. Arm B: a scripted `train` episode retained into its bank (memory-LLM tokens
+also passes on UserSandbox. Group B: a scripted `train` episode retained into its bank (memory-LLM tokens
 in the ledger as `learning`), and a later read-only dev episode on a related ticket got five
 recalled memories while the bank's counts stayed unchanged. Recall mostly returns restatements of
 the earlier ticket; the useful verdict detail is thin, which is worth watching in the pilot. Not yet verified: `/props` capture (§14).
@@ -521,9 +521,9 @@ the earlier ticket; the useful verdict detail is thin, which is worth watching i
    `context_tokens` is the per-request 65536: `--ctx-size 131072` over 2 slots). No Forgejo token.
 3. ~~Backend `/props`~~ (done 2026-10-25: `wintermute-props-relay` on `127.0.0.1:4120`, read-only,
    `GET /coder/props` and `/gemma/props` only). Every episode fetches the agent's `/props` (and the
-   memory LLM's on arm B), stores it, and is an infra error if the weights file, build or
+   memory LLM's on group B), stores it, and is an infra error if the weights file, build or
    per-request context differs from the pin; the relay is sent no credentials.
 4. ~~Confirmatory sandbox~~ (decided 2026-10-25: UserSandbox in dev, §5).
 5. ~~Dedicated Hindsight~~ and ~~checkpoint snapshots~~ (done 2026-10-25, §10). First real-model
-   `train` episodes on arm B ran 2026-10-25 (retain, learning ledger, recall into the next episode).
+   `train` episodes on group B ran 2026-10-25 (retain, learning ledger, recall into the next episode).
 6. Optional: Anthropic credentials for the Sonnet comparison configuration.

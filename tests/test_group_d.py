@@ -1,4 +1,4 @@
-"""Arm D end to end (elh/batch.py, elh/controller.py): scripted agents, an in-memory stand-in for
+"""Group D end to end (elh/batch.py, elh/controller.py): scripted agents, an in-memory stand-in for
 Hindsight, AWM induction and GEPA, the paired dev gate, snapshot-pinned libraries, the retention
 rollback hook, the batch report, and the config hashes of the registrations already in use."""
 
@@ -111,8 +111,8 @@ class Aware:
 
 
 def _experiment(tmp_path, **kw) -> Path:
-    doc = {"name": f"armd-{uuid.uuid4().hex[:8]}", "base_config": str(BASE), "family": "cpu_mem", "histories": 1,
-           "arms": ["A", "B", "C", "D"],
+    doc = {"name": f"group_d-{uuid.uuid4().hex[:8]}", "base_config": str(BASE), "family": "cpu_mem", "histories": 1,
+           "groups": ["A", "B", "C", "D"],
            "overrides": {"utility": UTILITY, "workflows": {"induce_every": 1, "repeats": 1},
                          "memory_service.llm.props_url": ""},  # no /props fetch from scripted runs
            "phases": [{"train": {"tasks": {"causes": ["queue_pop_front"], "themes": ["billing", "logistics"],
@@ -139,12 +139,12 @@ def _rows(store, sql, *args):
 
 
 # -- the scripted end-to-end batch -------------------------------------------------------------
-def test_arm_d_batch_end_to_end(tmp_path, fake_hindsight):
+def test_group_d_batch_end_to_end(tmp_path, fake_hindsight):
     exp, cfg = load_experiment(_experiment(tmp_path))
     store = Store(tmp_path / "runs")
     clients = []
 
-    def make_client(task):  # the logistics train ticket fails for every arm
+    def make_client(task):  # the logistics train ticket fails for every group
         c = scripted_client("wrong", task, FAMILY) if task.theme == "logistics" else Aware(task)
         clients.append((task, c))
         return c
@@ -156,7 +156,7 @@ def test_arm_d_batch_end_to_end(tmp_path, fake_hindsight):
     assert all(r["error"] is None for r in results)
 
     # Induction saw only D's verified train success: one induction, from the billing episode.
-    d_train = {r["theme"]: r for r in _rows(store, "SELECT * FROM episodes WHERE arm = 'D' AND split = 'train'")}
+    d_train = {r["theme"]: r for r in _rows(store, "SELECT * FROM episodes WHERE test_group = 'D' AND split = 'train'")}
     assert d_train["billing"]["passed"] == 1 and d_train["logistics"]["passed"] == 0
     skills = _rows(store, "SELECT * FROM skills WHERE run_id = ?", run_id)
     assert {r["revision"] for r in skills} == {1}
@@ -165,7 +165,7 @@ def test_arm_d_batch_end_to_end(tmp_path, fake_hindsight):
 
     # The paired gate: incumbent (no library) vs candidate, 1 dev task x 1 repeat, charged as learning.
     dev = _rows(store, "SELECT * FROM episodes WHERE split = 'dev' ORDER BY ordinal")
-    assert len(dev) == 2 and {r["arm"] for r in dev} == {"D"} and {r["batch_id"] for r in dev} == {f"{exp.name}/0"}
+    assert len(dev) == 2 and {r["test_group"] for r in dev} == {"D"} and {r["batch_id"] for r in dev} == {f"{exp.name}/0"}
     assert {r["seed"] for r in dev} == {3000}
     revs = sorted(json.loads(r["retrieval_json"])["procedure_revision"] or 0 for r in dev)
     assert revs == [0, 1]
@@ -179,37 +179,37 @@ def test_arm_d_batch_end_to_end(tmp_path, fake_hindsight):
     assert "learning" not in train_cats and "tool_compute" in train_cats
 
     # Promotion recorded, with the gate's evidence.
-    assert wf.revision_status(store, run_id=run_id, history=0, arm="D", family="cpu_mem", revision=1) == "promoted"
+    assert wf.revision_status(store, run_id=run_id, history=0, group="D", family="cpu_mem", revision=1) == "promoted"
     v = json.loads(skills[0]["validation_json"])
     assert v["promote"] and v["source"] == "awm" and v["after_train_episodes"] == induced_after
     assert v["candidate_mean_reward"] > v["incumbent_mean_reward"]
     assert sorted(v["incumbent_episode_ids"] + v["candidate_episode_ids"]) == sorted(r["episode_id"] for r in dev)
 
     # Snapshot pins revision 1; its learner state covers the utility table and the library.
-    snap = store.db.execute("SELECT * FROM memory_snapshots WHERE arm = 'D'").fetchone()
+    snap = store.db.execute("SELECT * FROM memory_snapshots WHERE test_group = 'D'").fetchone()
     assert snap["library_revision"] == 1
     state = json.loads(store.get_blob("learner", snap["learner_state_sha256"]))
-    lib1 = wf.load_library(store, run_id=run_id, history=0, arm="D", family="cpu_mem", revision=1)
-    assert snap["learner_state_sha256"] == wf.arm_d_state_sha256(state["utility_state_sha256"], 1, lib1)
+    lib1 = wf.load_library(store, run_id=run_id, history=0, group="D", family="cpu_mem", revision=1)
+    assert snap["learner_state_sha256"] == wf.group_d_state_sha256(state["utility_state_sha256"], 1, lib1)
     assert store.get_blob("learner", state["utility_state_sha256"])  # the utility table, restorable
-    c_snap = store.db.execute("SELECT * FROM memory_snapshots WHERE arm = 'C'").fetchone()
+    c_snap = store.db.execute("SELECT * FROM memory_snapshots WHERE test_group = 'C'").fetchone()
     assert c_snap["library_revision"] is None
 
     # D's eval episode saw the snapshot-pinned library first in its experience block; A-C saw none.
-    evals = {r["arm"]: r for r in _rows(store, "SELECT * FROM episodes WHERE split = 'checkpoint'")}
+    evals = {r["test_group"]: r for r in _rows(store, "SELECT * FROM episodes WHERE split = 'checkpoint'")}
     rd = json.loads(evals["D"]["retrieval_json"])
     assert rd["procedure_revision"] == 1 and rd["procedure_source"] == "snapshot"
     assert rd["procedure_ids"] == wf.procedure_ids(lib1, 1) and rd["ranker"] == "utility"
     first = _first_message(store, evals["D"])
     assert first.startswith("<experience>") and wf.render_procedure_block(lib1) in first
     assert first.index(wf.PROCEDURE_HEADER) < first.index("[elh-")  # procedures before recalled notes
-    for arm in "ABC":
-        assert wf.PROCEDURE_HEADER not in _first_message(store, evals[arm])
-        assert "procedure_ids" not in json.loads(evals[arm]["retrieval_json"])
+    for group in "ABC":
+        assert wf.PROCEDURE_HEADER not in _first_message(store, evals[group])
+        assert "procedure_ids" not in json.loads(evals[group]["retrieval_json"])
 
     # The batch report shows the library revisions, the decision and the learning cost.
     text = format_summary(summarize_batch(store, exp.name, resamples=0))
-    assert "arm D procedures" in text and "promoted" in text and "dev episodes" in text
+    assert "group D procedures" in text and "promoted" in text and "dev episodes" in text
     assert "2 dev episodes" in text
     assert all(p["phase"] != "dev" for p in summarize_batch(store, exp.name, resamples=0)["episode_rows"])
 
@@ -217,15 +217,15 @@ def test_arm_d_batch_end_to_end(tmp_path, fake_hindsight):
     ind = wf.Induction(wf.assemble_library("cpu_mem", SCRIPTED_WORKFLOWS.replace("Verify the fix", "Check it"),
                                            max_library_tokens=10_000)[0], "x", "p", ["e"], {}, "m", 0, [])
     r2 = wf.record_candidate(store, ind, run_id=run_id, history=0)
-    wf.decide_candidate(store, run_id=run_id, history=0, arm="D", family="cpu_mem", revision=r2,
+    wf.decide_candidate(store, run_id=run_id, history=0, group="D", family="cpu_mem", revision=r2,
                         decision=wf.GateDecision(True, ("test",), {}))
     mem = controller.open_snapshot(cfg, store, snap["snapshot_id"])
     assert mem.procedures[0] == 1 and mem.procedures[1] == lib1
     task = FAMILY.generate("queue_pop_front", "inventory", 2005)
-    eid, _, _ = controller.run_single_episode(cfg, store, task, Aware(task), arm="D", split="checkpoint",
+    eid, _, _ = controller.run_single_episode(cfg, store, task, Aware(task), group="D", split="checkpoint",
                                               checkpoint=2, memory=mem, sandbox_backend="local")
     assert json.loads(store.episode(eid)["retrieval_json"])["procedure_revision"] == 1
-    assert wf.promoted_revision(store, run_id=run_id, history=0, arm="D", family="cpu_mem") == r2
+    assert wf.promoted_revision(store, run_id=run_id, history=0, group="D", family="cpu_mem") == r2
 
     # A tampered pinned library is refused when the snapshot is opened.
     store.db.execute("UPDATE skills SET body = body || ' ' WHERE revision = 1 AND position = 0")
@@ -234,10 +234,10 @@ def test_arm_d_batch_end_to_end(tmp_path, fake_hindsight):
         controller.open_snapshot(cfg, store, snap["snapshot_id"])
 
 
-def test_arm_d_with_gepa(tmp_path, fake_hindsight):
+def test_group_d_with_gepa(tmp_path, fake_hindsight):
     """GEPA seeded with the (empty) incumbent, searching on the dev panel's reflection/validation
     pools; the winner is gated by workflows.promote on the promotion pool."""
-    path = _experiment(tmp_path, arms=["A", "D"],
+    path = _experiment(tmp_path, groups=["A", "D"],
                        overrides={"procedure_source": "gepa",
                                   "gepa": {"max_metric_calls": 4, "reflection_minibatch_size": 1}},
                        phases=[{"train": {"tasks": {"causes": ["queue_pop_front"], "themes": ["billing"],
@@ -265,9 +265,9 @@ def test_arm_d_with_gepa(tmp_path, fake_hindsight):
     cats = {r[0] for r in store.db.execute("SELECT DISTINCT l.category FROM ledger l JOIN episodes e "
                                            "USING (episode_id) WHERE e.split = 'dev'")}
     assert cats == {"learning"}
-    lib = wf.load_library(store, run_id=run_id, history=0, arm="D", family="cpu_mem", revision=1)
+    lib = wf.load_library(store, run_id=run_id, history=0, group="D", family="cpu_mem", revision=1)
     assert wf.procedure_text(lib).startswith("1. Reproduce the slowness")
-    ev = store.db.execute("SELECT * FROM episodes WHERE split = 'checkpoint' AND arm = 'D'").fetchone()
+    ev = store.db.execute("SELECT * FROM episodes WHERE split = 'checkpoint' AND test_group = 'D'").fetchone()
     assert json.loads(ev["retrieval_json"])["procedure_revision"] == 1
 
 
@@ -285,7 +285,7 @@ def test_dev_panel_rules(tmp_path):
         load_experiment(_experiment(tmp_path, dev=dev(["billing"], (2000, 2002))))
     with pytest.raises(ValueError, match="needs a `dev` section"):
         load_experiment(_experiment(tmp_path, dev=None))
-    with pytest.raises(ValidationError, match="arm D needs"):
+    with pytest.raises(ValidationError, match="group D needs"):
         load_experiment(_experiment(tmp_path, overrides={"workflows": None}))
     with pytest.raises(ValidationError, match="gepa"):
         load_experiment(_experiment(tmp_path, overrides={"procedure_source": "gepa"}))
@@ -296,7 +296,7 @@ def test_dev_panel_rules(tmp_path):
 
 
 def test_exp7_dry_run_shows_dev_panel_and_induction_points(capsys):
-    exp, cfg = load_experiment(ROOT / "experiments" / "batches" / "exp7-arm-d.yaml")
+    exp, cfg = load_experiment(ROOT / "experiments" / "batches" / "exp7-group-d.yaml")
     steps = schedule(exp, cfg)
     assert len(steps) == 15 * 3 + 10 * 4
     print_schedule(exp, cfg, steps)
@@ -307,7 +307,7 @@ def test_exp7_dry_run_shows_dev_panel_and_induction_points(capsys):
     assert cfg.utility == load_experiment(ROOT / "experiments" / "batches" / "exp6-papers-bc.yaml")[1].utility
 
 
-# Registrations already in use: adding arm D's fields must not move their hashes (run ids, banks).
+# Registrations already in use: adding group D's fields must not move their hashes (run ids, banks).
 KNOWN_HASHES = {
     "experiments/phase0-local.yaml": "5390cd5fb2fcddb59e438125765deb3a5efed7a81284a3f85c484360094d7e0f",
     "experiments/phase0-sonnet.yaml": "a55fad880d8708ceda2914d41f17b42d979bc23b46556e76302cd5858226dc6b",
@@ -318,10 +318,15 @@ KNOWN_HASHES = {
     "experiments/batches/exp5-dose.yaml": "a6c22d611cbb97d2774eb0548f6b1505216bbe178f9af9e301be84a24765e7ad",
     "experiments/batches/exp6-papers-bc.yaml": "749350de06672d88c324703eeb2b861c847b23d7822cc3d8813c2317a9add792",
     # pinned when RulesConfig.store / recall_k were added (values from before that change)
-    "experiments/batches/exp7-arm-d.yaml": "1e8a415510bd70e87e4ca13337d914b34b0fa8c051192d1005c50dd2185bc343",
+    "experiments/batches/exp7-group-d.yaml": "916b5af2800d59cd6e901f85383559bb19a67f05cbc82c2cecf584e4cde2ebdf",  # renamed from exp7-arm-d, which never ran
     "experiments/batches/exp8a-hard-memory.yaml": "45ef717de862efdf36b705319fe3c5e3a35c9454d1c507bd20a973e9e2381e4e",
     "experiments/batches/exp8b-hard-rules.yaml": "d9fc6b33ba246e1eb8ff7c3ce0f9341ca74b97f9abced2bb7bdc91e2558618fe",
     "experiments/batches/exp9-hard-cd.yaml": "b2578129177cf680c7d4ee23a176a7a12726f3316ed883e92a14abf5f1a4da1a",
+    # pinned when arms were renamed to test groups (these runs exist)
+    "experiments/batches/exp10-hard-verbatim.yaml": "99a924816cf087b4eae016fcc476ad32b7db4d89838e9bcb0b8b7bc7685d0ef4",
+    "experiments/batches/exp11-hard-replicate.yaml": "afd3a814bffc41cdbb354a0c104c429e4c538d5c8d10967e0e048eb1f67961ad",
+    "experiments/batches/exp12-scan-join.yaml": "f0f2e94a40d2a4b429bcb28348438e075ca6007779ca8778e9efe8ae9ee5a417",
+    "experiments/batches/exp13-histories.yaml": "fc408c98d150e05a7e759df16dfa62fef1a13661a7fa395bb547334953fa5967",
     "experiments/batches/probe-difficulty.yaml": "a8051420eea2169d474d9583b152fa50d7e5500060bd70c3874e0a423102eb64",
 }
 
@@ -336,7 +341,7 @@ def test_existing_config_hashes_unchanged(rel):
 # -- retention rollback hook -------------------------------------------------------------------
 def _retention_row(store, run_id, ck, task_id, passed, revision):
     store.insert("episodes", {
-        "episode_id": uuid.uuid4().hex, "run_id": run_id, "history": 0, "arm": "D", "split": "retention",
+        "episode_id": uuid.uuid4().hex, "run_id": run_id, "history": 0, "test_group": "D", "split": "retention",
         "checkpoint": ck, "task_id": task_id, "family": "cpu_mem", "outcome": "submitted", "passed": int(passed),
         "verdict_json": json.dumps({"passed": passed, "checks": {"integrity": True}}), "input_tokens": 1000,
         "output_tokens": 100, "cache_read_tokens": 0, "cache_write_tokens": 0, "batch_id": "x/0",
@@ -346,7 +351,7 @@ def _retention_row(store, run_id, ck, task_id, passed, revision):
 def _promote(store, run_id, text):
     lib = wf.assemble_library("cpu_mem", text, max_library_tokens=10_000)[0]
     rev = wf.record_candidate(store, wf.Induction(lib, text, "p", ["e"], {}, "m", 0, []), run_id=run_id, history=0)
-    wf.decide_candidate(store, run_id=run_id, history=0, arm="D", family="cpu_mem", revision=rev,
+    wf.decide_candidate(store, run_id=run_id, history=0, group="D", family="cpu_mem", revision=rev,
                         decision=wf.GateDecision(True, ("test",), {}))
     return rev
 
@@ -364,8 +369,8 @@ def test_retention_rollback_hook(tmp_path):
     _retention_row(store, run_id, 10, "t2", False, r2)
     d = retention_rollback(store, cfg, checkpoint=10, **scope)
     assert d.promote and "rolled back" in d.reasons[-1] and d.stats["active_revision"] == r1
-    assert wf.revision_status(store, run_id=run_id, history=0, arm="D", family="cpu_mem", revision=r2) == "rolled_back"
-    assert wf.promoted_revision(store, run_id=run_id, history=0, arm="D", family="cpu_mem") == r1
+    assert wf.revision_status(store, run_id=run_id, history=0, group="D", family="cpu_mem", revision=r2) == "rolled_back"
+    assert wf.promoted_revision(store, run_id=run_id, history=0, group="D", family="cpu_mem") == r1
     for t in ("t1", "t2"):  # back on revision 1: the panel recovers, nothing to roll back
         _retention_row(store, run_id, 15, t, True, r1)
     d = retention_rollback(store, cfg, checkpoint=15, **scope)
@@ -375,7 +380,7 @@ def test_retention_rollback_hook(tmp_path):
         _retention_row(store, run_id, 20, t, False, r1)
     d = retention_rollback(store, cfg, checkpoint=20, **scope)
     assert not d.promote and "did not change" in d.reasons[-1]
-    assert wf.promoted_revision(store, run_id=run_id, history=0, arm="D", family="cpu_mem") == r1
+    assert wf.promoted_revision(store, run_id=run_id, history=0, group="D", family="cpu_mem") == r1
 
 
 def test_run_single_episode_guards(tmp_path, fake_hindsight):
@@ -384,17 +389,38 @@ def test_run_single_episode_guards(tmp_path, fake_hindsight):
     task = FAMILY.generate("queue_pop_front", "billing", 1000)
     mem = controller.memory_for(cfg, "D", 0, "train", store=store)
     with pytest.raises(ValueError, match="charge_as"):
-        controller.run_single_episode(cfg, store, task, Aware(task), arm="D", split="train", memory=mem,
+        controller.run_single_episode(cfg, store, task, Aware(task), group="D", split="train", memory=mem,
                                       sandbox_backend="local", charge_as="eval_overhead")
     with pytest.raises(ValueError, match="dev validation"):
-        controller.run_single_episode(cfg, store, task, Aware(task), arm="D", split="train", memory=mem,
+        controller.run_single_episode(cfg, store, task, Aware(task), group="D", split="train", memory=mem,
                                       sandbox_backend="local", procedures=(None, wf.WorkflowLibrary("cpu_mem")))
     with pytest.raises(ValueError, match="workflows"):
         controller.memory_for(cfg.model_copy(update={"workflows": None}), "D", 0, "train", store=store)
     # A dev episode on the live bank leaves bank, learner and library as they were.
     view = controller.memory_for(cfg, "D", 0, "dev", store=store)
     eid, _, _ = controller.run_single_episode(cfg, store, task, ScriptedClient([[("submit", {"summary": "x"})]]),
-                                              arm="D", split="dev", memory=view, sandbox_backend="local",
+                                              group="D", split="dev", memory=view, sandbox_backend="local",
                                               charge_as="learning")
     r = json.loads(store.episode(eid)["retrieval_json"])
     assert r["procedure_revision"] is None and r["procedure_ids"] == [] and r["procedure_source"] == "promoted"
+
+
+def test_legacy_arm_names_still_load(tmp_path):
+    """Stores and registrations from before the rename: `arm` columns and the `arms` key."""
+    import sqlite3
+
+    from elh.registry import ExperimentConfig
+    from elh.store import Store
+
+    db = sqlite3.connect(tmp_path / "elh.sqlite3")
+    db.execute("CREATE TABLE episodes (episode_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, history INTEGER, arm TEXT)")
+    db.execute("INSERT INTO episodes VALUES ('e1', 'r1', 0, 'B')")
+    db.commit()
+    db.close()
+    store = Store(tmp_path)
+    assert store.episode("e1")["test_group"] == "B"
+
+    exp, cfg = load_experiment(ROOT / "experiments" / "batches" / "exp10-hard-verbatim.yaml")
+    legacy = cfg.model_dump(mode="json")
+    legacy["arms"] = legacy.pop("groups")
+    assert ExperimentConfig.model_validate(legacy).config_hash == cfg.config_hash

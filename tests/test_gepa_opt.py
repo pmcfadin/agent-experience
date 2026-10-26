@@ -1,4 +1,4 @@
-"""GEPA procedure optimiser (arm D): scoring, feedback hygiene, dev-only pools, reflection LM, and
+"""GEPA procedure optimiser (group D): scoring, feedback hygiene, dev-only pools, reflection LM, and
 a full GEPA run with a fake agent and a fake reflector."""
 
 import json

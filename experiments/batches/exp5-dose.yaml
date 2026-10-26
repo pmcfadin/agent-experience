@@ -5,7 +5,7 @@ name: exp5-dose
 base_config: experiments/phase0-local.yaml
 family: cpu_mem
 histories: 1
-arms: [A, B]
+groups: [A, B]
 phases:
   - train: {tasks: {causes: [queue_pop_front], themes: &themes [billing, logistics, telemetry, course_registration, network_flows], seeds: [1000, 1001]}}
   - eval: {label: after-5, tasks: &eval {causes: [queue_pop_front], themes: [inventory], seeds: [2000, 2010]}}

@@ -1,4 +1,4 @@
-"""Arm C UtilityLearner (MemRL two-phase retrieval, C-SPEC variant). No server needed."""
+"""Group C UtilityLearner (MemRL two-phase retrieval, C-SPEC variant). No server needed."""
 
 import math
 
@@ -26,7 +26,7 @@ CANDS = [
     unit("u5", "D", 0.79),    # below delta
     unit("u6", "E", 0.805),   # passes delta, 4th by sim -> beyond k1
     unit("u7", None, 0.86),   # observation: no document
-    unit("u8", "F", None),    # semantic arm did not surface it
+    unit("u8", "F", None),    # semantic group did not surface it
 ]
 
 CFG = UtilityConfig(k1=3, k2=2, delta=0.80, sim_mean=0.82, sim_std=0.02)
@@ -41,8 +41,8 @@ def store(tmp_path):
     return Store(tmp_path)
 
 
-def learner(store, cfg=CFG, arm="C", history=0):
-    return UtilityLearner.for_store(store, "run1", history, arm, cfg)
+def learner(store, cfg=CFG, group="C", history=0):
+    return UtilityLearner.for_store(store, "run1", history, group, cfg)
 
 
 def test_hand_computed_example(store):
@@ -119,7 +119,7 @@ def test_q_floor_and_q_min(store):
     L = learner(store, CFG.model_copy(update={"q_floor": -0.1}))
     L.observe(["A"], -1.0)
     assert L.q("A") == pytest.approx(-0.1)
-    L2 = learner(store, CFG.model_copy(update={"q_min": -0.2}), arm="C2")
+    L2 = learner(store, CFG.model_copy(update={"q_min": -0.2}), group="C2")
     L2.observe(["C"], -1.0)
     t = L2.rank_with_trace(Task(), CANDS)[1]
     assert {r.document_id: r.status for r in t.docs}["C"] == "below_q_min"
@@ -133,7 +133,7 @@ def test_observe_dedupes_persists_and_isolates(store):
     assert L.visits("A") == 1
     again = learner(store)
     assert again.table() == L.table() and again.state_sha256() == L.state_sha256()
-    assert learner(store, arm="D").table() == {}
+    assert learner(store, group="D").table() == {}
     assert learner(store, history=1).table() == {}
     log = store.db.execute("SELECT document_id, q_before, q_after FROM learner_utility_updates "
                            "WHERE episode_id = 'e1' ORDER BY document_id").fetchall()
@@ -212,7 +212,7 @@ def test_spec_reward_never_demotes(store):
     for _ in range(5):
         L.observe(["bad"], reward(False, 0.1, "spec"))
     assert L.q("bad") == 0.0 == L.q("never-used")
-    L2 = learner(store, arm="C-signed")
+    L2 = learner(store, group="C-signed")
     L2.observe(["bad"], reward(False, 0.1))
     assert L2.q("bad") < L2.q("never-used")
 

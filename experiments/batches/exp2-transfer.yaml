@@ -4,7 +4,7 @@ name: exp2-transfer
 base_config: experiments/phase0-local.yaml
 family: cpu_mem
 histories: 1
-arms: [A, B]
+groups: [A, B]
 phases:
   - train:
       tasks: {causes: [queue_pop_front], themes: [billing, logistics, telemetry, course_registration, network_flows], seeds: [1000, 1003]}

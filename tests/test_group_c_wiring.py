@@ -1,4 +1,4 @@
-"""Arm C in the controller: utility rerank at recall, Q update after a train episode, frozen
+"""Group C in the controller: utility rerank at recall, Q update after a train episode, frozen
 learner on read-only splits, learner state recorded with the episode's retrieval."""
 
 import json
@@ -29,7 +29,7 @@ class FakeBank:
                 for i in range(4)]
 
     def recall(self, task, k):
-        raise AssertionError("arm C must rerank candidates, not take the service's top k")
+        raise AssertionError("group C must rerank candidates, not take the service's top k")
 
     def retain(self, episode):
         self.retained.append(episode["episode_id"])
@@ -50,7 +50,7 @@ def test_train_episode_reranks_then_updates_q(setup):
     learner = UtilityLearner.for_store(store, "r", 0, "C", UCFG)
     bank = FakeBank(learner)
     eid, _, verdict = run_single_episode(cfg, store, task, scripted_client("reference", task, family),
-                                         arm="C", split="train", memory=bank, sandbox_backend="local")
+                                         group="C", split="train", memory=bank, sandbox_backend="local")
     assert verdict.passed and bank.retained == [eid]
     trace = learner.last_trace
     assert trace.selected_document_ids == ["ep3", "ep2"]  # all Q equal at start: similarity decides
@@ -65,7 +65,7 @@ def test_train_episode_reranks_then_updates_q(setup):
 def test_failed_train_episode_demotes(setup):
     cfg, store, family, task = setup
     learner = UtilityLearner.for_store(store, "r", 0, "C", UCFG)
-    run_single_episode(cfg, store, task, scripted_client("wrong", task, family), arm="C", split="train",
+    run_single_episode(cfg, store, task, scripted_client("wrong", task, family), group="C", split="train",
                        memory=FakeBank(learner), sandbox_backend="local")
     assert learner.q("ep3") < 0  # spec-signed: a failure pulls Q towards -1
 
@@ -76,11 +76,11 @@ def test_read_only_split_uses_frozen_learner(setup):
     live.observe(["ep0"], 1.0)
     view = live.readonly_view()
     before = view.state_sha256()
-    eid, _, _ = run_single_episode(cfg, store, task, scripted_client("reference", task, family), arm="C",
+    eid, _, _ = run_single_episode(cfg, store, task, scripted_client("reference", task, family), group="C",
                                    split="dev", memory=FakeBank(view, readonly=True), sandbox_backend="local")
     assert view.state_sha256() == before and view.last_trace is not None
     with pytest.raises(ValueError, match="read-only view"):
-        run_single_episode(cfg, store, task, scripted_client("reference", task, family), arm="C",
+        run_single_episode(cfg, store, task, scripted_client("reference", task, family), group="C",
                            split="train", memory=FakeBank(view), sandbox_backend="local")
 
 

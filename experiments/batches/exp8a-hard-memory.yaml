@@ -1,6 +1,6 @@
-# Hard tickets: quadratic_membership, which arm A failed 3 of 3 in the difficulty probe (all too
-# slow; the reference fix validates). Same arm B as exp6 (Hindsight as intended). Pair with exp8b,
-# which differs only by Learning on the Job's rules and agent memory search; arm A runs in both,
+# Hard tickets: quadratic_membership, which group A failed 3 of 3 in the difficulty probe (all too
+# slow; the reference fix validates). Same group B as exp6 (Hindsight as intended). Pair with exp8b,
+# which differs only by Learning on the Job's rules and agent memory search; group A runs in both,
 # which also measures A's run-to-run noise. 12 eval tickets so dNL (Moves to Memory) can be reported
 # if A fails at least 10.
 name: exp8a-hard-memory
@@ -10,7 +10,7 @@ overrides:
   memory_service.recall_types: [experience]
 family: cpu_mem
 histories: 1
-arms: [A, B]
+groups: [A, B]
 phases:
   - train:
       tasks: {causes: [quadratic_membership], themes: [billing, logistics, telemetry, course_registration, network_flows], seeds: [1000, 1003]}

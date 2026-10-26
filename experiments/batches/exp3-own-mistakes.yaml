@@ -4,7 +4,7 @@ name: exp3-own-mistakes
 base_config: experiments/phase0-local.yaml
 family: cpu_mem
 histories: 1
-arms: [A, B]
+groups: [A, B]
 phases:
   - train:
       tasks: {causes: [quadratic_membership, nested_scan_join, queue_pop_front, repeated_sort_min, exponential_recursion], themes: [billing, logistics, telemetry], seeds: [1000, 1001]}

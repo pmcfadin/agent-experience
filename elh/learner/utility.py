@@ -1,15 +1,15 @@
-"""Arm C: UtilityLearner, MemRL two-phase retrieval over the memory service's candidates (SPEC §10).
+"""Group C: UtilityLearner, MemRL two-phase retrieval over the memory service's candidates (SPEC §10).
 
 Method: MemRL (arXiv 2601.03192 v2, §4.2-§4.3, Table 8; code github.com/MemTensor/MemRL @ c1b322ca,
 `memrl/service/memory_service.py:1254-1506`, `memrl/service/value_driven.py:181-220`). Variant
-**C-SPEC**: the candidate pool is the list Hindsight's recall already returned for arm B, so arm C
-differs from arm B only in which candidates are injected and in what order.
+**C-SPEC**: the candidate pool is the list Hindsight's recall already returned for test_group B, so test_group C
+differs from test_group B only in which candidates are injected and in what order.
 
 Unit of utility. MemRL keeps one utility Q per memory (one memory per episode). Hindsight extracts
 several memory units from each retained episode and gives them new ids on every snapshot restore,
 but keeps `document_id` (= our episode_id) stable. So Q is keyed by **document_id**: all units of
 one episode share that episode's Q. Units without a document_id (Hindsight observations, which are
-consolidated across documents) have no utility and are dropped from arm C's pool (logged).
+consolidated across documents) have no utility and are dropped from test_group C's pool (logged).
 
 Retrieval (per call to `rank`):
 
@@ -17,7 +17,7 @@ Retrieval (per call to `rank`):
    units' similarity scores (`doc_sim_agg`, default "max"): MemRL compares the query with one
    intent per memory; the best-matching unit is the closest analogue, and a mean would penalise
    episodes from which the service extracted more facts. Units with no similarity score (the
-   semantic arm did not surface them) do not count towards the max; an episode with no scored unit
+   semantic test_group did not surface them) do not count towards the max; an episode with no scored unit
    is dropped.
 2. Phase A (paper Eq. 6): keep episodes with sim > delta (`gate_inclusive=True` gives the code's
    >=), sort by sim, keep the top k1.
@@ -52,7 +52,7 @@ Paper vs code (config knobs; defaults follow the PAPER):
 - Deviation of C-SPEC from the paper: similarity is ticket-vs-extracted-unit (Hindsight's score),
   not ticket-vs-stored-ticket (MemRL's intent).
 
-State: the Q table lives in SQLite (`learner_utility`), one row per (run_id, history, arm,
+State: the Q table lives in SQLite (`learner_utility`), one row per (run_id, history, test_group,
 document_id), with an append-only log of updates (`learner_utility_updates`). `state_sha256()`
 hashes the canonical JSON of the config and the table; `snapshot()` stores that same JSON as a
 content-addressed blob whose digest *is* the state hash, so `load_snapshot(store, sha)` gives a
@@ -77,13 +77,13 @@ from elh.memory.base import MemoryItem
 
 TABLES = """
 CREATE TABLE IF NOT EXISTS learner_utility (
-    run_id TEXT NOT NULL, history INTEGER NOT NULL, arm TEXT NOT NULL, document_id TEXT NOT NULL,
+    run_id TEXT NOT NULL, history INTEGER NOT NULL, test_group TEXT NOT NULL, document_id TEXT NOT NULL,
     q REAL NOT NULL, visits INTEGER NOT NULL,
-    PRIMARY KEY (run_id, history, arm, document_id)
+    PRIMARY KEY (run_id, history, test_group, document_id)
 );
 CREATE TABLE IF NOT EXISTS learner_utility_updates (
     entry_id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, history INTEGER NOT NULL,
-    arm TEXT NOT NULL, episode_id TEXT, document_id TEXT NOT NULL,
+    test_group TEXT NOT NULL, episode_id TEXT, document_id TEXT NOT NULL,
     reward REAL NOT NULL, q_before REAL NOT NULL, q_after REAL NOT NULL
 );
 """
@@ -144,7 +144,7 @@ def episode_cost_usd(db: sqlite3.Connection, episode_id: str,
 
 # -- config ------------------------------------------------------------------------------------
 class UtilityConfig(BaseModel):
-    """Arm C hyperparameters. Defaults follow the paper (Table 8, BCB/LLB column for k1/k2).
+    """Group C hyperparameters. Defaults follow the paper (Table 8, BCB/LLB column for k1/k2).
     `sim_mean`, `sim_std` and `delta` have no default: they depend on our embedder and corpus and
     must be estimated (`estimate_similarity_stats`) and registered before the run."""
 
@@ -298,11 +298,11 @@ def _canonical(cfg: UtilityConfig, table: dict[str, tuple[float, int]]) -> bytes
 
 
 class UtilityLearner:
-    """Q table for one (run_id, history, arm), persisted in the experiment store's SQLite DB."""
+    """Q table for one (run_id, history, test_group), persisted in the experiment store's SQLite DB."""
 
-    def __init__(self, db: sqlite3.Connection, run_id: str, history: int, arm: str, config: UtilityConfig):
+    def __init__(self, db: sqlite3.Connection, run_id: str, history: int, group: str, config: UtilityConfig):
         self.db = db
-        self.run_id, self.history, self.arm = run_id, history, arm
+        self.run_id, self.history, self.group = run_id, history, group
         self.config = config
         self.readonly = False
         self.snapshot_sha256: str | None = None
@@ -311,12 +311,12 @@ class UtilityLearner:
             db.executescript(TABLES)
         self._q: dict[str, tuple[float, int]] = {
             r[0]: (float(r[1]), int(r[2])) for r in db.execute(
-                "SELECT document_id, q, visits FROM learner_utility WHERE run_id = ? AND history = ? AND arm = ?",
-                (run_id, history, arm))}
+                "SELECT document_id, q, visits FROM learner_utility WHERE run_id = ? AND history = ? AND test_group = ?",
+                (run_id, history, group))}
 
     @classmethod
-    def for_store(cls, store, run_id: str, history: int, arm: str, config: UtilityConfig) -> "UtilityLearner":
-        return cls(store.db, run_id, history, arm, config)
+    def for_store(cls, store, run_id: str, history: int, group: str, config: UtilityConfig) -> "UtilityLearner":
+        return cls(store.db, run_id, history, group, config)
 
     # -- state ---------------------------------------------------------------------------------
     def q(self, document_id: str) -> float:
@@ -344,14 +344,14 @@ class UtilityLearner:
     def readonly_view(self) -> "UtilityLearner":
         """A frozen copy of the current state (e.g. `dev` reading the live learner)."""
         view = object.__new__(UtilityLearner)
-        view.db, view.run_id, view.history, view.arm = None, self.run_id, self.history, self.arm
+        view.db, view.run_id, view.history, view.group = None, self.run_id, self.history, self.group
         view.config, view._q = self.config, dict(self._q)
         view.readonly, view.snapshot_sha256, view.last_trace = True, None, None
         return view
 
     @classmethod
     def load_snapshot(cls, store, state_sha256: str, *, config: UtilityConfig | None = None,
-                      run_id: str = "", history: int = -1, arm: str = "") -> "UtilityLearner":
+                      run_id: str = "", history: int = -1, group: str = "") -> "UtilityLearner":
         """Read-only learner from a stored state blob. `config`, if given, must equal the stored one."""
         body = json.loads(store.get_blob("learner", state_sha256))
         if body.get("format") != STATE_FORMAT:
@@ -360,7 +360,7 @@ class UtilityLearner:
         if config is not None and config != stored_cfg:
             raise ValueError(f"learner state {state_sha256} was taken under a different UtilityConfig")
         view = object.__new__(cls)
-        view.db, view.run_id, view.history, view.arm = None, run_id, history, arm
+        view.db, view.run_id, view.history, view.group = None, run_id, history, group
         view.config = stored_cfg
         view._q = {doc: (float(q), int(v)) for doc, (q, v) in body["q"].items()}
         view.readonly, view.snapshot_sha256, view.last_trace = True, state_sha256, None
@@ -482,13 +482,13 @@ class UtilityLearner:
                 if cfg.q_floor is not None:
                     after = max(cfg.q_floor, after)
                 self.db.execute(
-                    "INSERT INTO learner_utility (run_id, history, arm, document_id, q, visits) VALUES (?, ?, ?, ?, ?, ?) "
-                    "ON CONFLICT (run_id, history, arm, document_id) DO UPDATE SET q = excluded.q, visits = excluded.visits",
-                    (self.run_id, self.history, self.arm, doc, after, visits + 1))
+                    "INSERT INTO learner_utility (run_id, history, test_group, document_id, q, visits) VALUES (?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT (run_id, history, test_group, document_id) DO UPDATE SET q = excluded.q, visits = excluded.visits",
+                    (self.run_id, self.history, self.group, doc, after, visits + 1))
                 self.db.execute(
-                    "INSERT INTO learner_utility_updates (run_id, history, arm, episode_id, document_id, reward, q_before, q_after) "
+                    "INSERT INTO learner_utility_updates (run_id, history, test_group, episode_id, document_id, reward, q_before, q_after) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (self.run_id, self.history, self.arm, episode_id, doc, reward, before, after))
+                    (self.run_id, self.history, self.group, episode_id, doc, reward, before, after))
                 new[doc] = after
         for doc, q in new.items():
             self._q[doc] = (q, self._q.get(doc, (cfg.q_init, 0))[1] + 1)
