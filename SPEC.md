@@ -7,6 +7,8 @@ exit criteria. Where the proposal leaves a choice open, the decision taken here 
 
 Status: draft v0.1 (2026-10-24). Covers Phase 0 in full detail and Phases 1–2 at contract level.
 Phase 0 code is implemented; see §13 for what has and has not been verified.
+2026-10-28: two hypotheses added (H6 memory vs static prompt, H7 memory-made personality; §12),
+static-prompt control groups planned (§6.2), and the phase plan reordered (§13).
 
 ---
 
@@ -292,6 +294,24 @@ show those rules first and let the utility learner rerank the other `k2 - len(ru
 hits first. Remaining deviation: the paper retrieves rules only through the agent's own queries;
 here they are also recalled by the ticket text at episode start.
 
+**Static-prompt controls (planned, 2026-10-28; for H6).** Groups that carry a fixed block instead
+of retrieved memory, so that "memory" and "a better prompt" can be told apart. The block sits in the
+same first-message slot as B's `<experience>` block, so position is the same and only selection
+differs (Decision; the alternative, appending it to the system prompt, is noted in
+`docs/design/house-lib-family.md` §9). Groups:
+
+- `P-all`: all of a history's B rules at the end of training, frozen, in training order, not capped
+  by `memory_token_budget`;
+- `P-oracle`: B's rules for the task's own lessons only; `P-wrong`: the same number of tokens of rules
+  for other lessons;
+- `P-hand`: hand-written statements of every lesson (`house_lib` only);
+- `A0`: memory-group instructions with an empty block;
+- for H7: `SPR`, a persona as a static block re-inserted every episode, and a placebo bank (matched
+  length and format, neutral content).
+
+P-all, P-oracle and P-wrong are built per history from that history's frozen B snapshot. The system
+prompt stays byte-identical across all groups. Block tokens are charged as `inference` on every turn.
+
 ### 6.3 Model client
 
 `ModelClient.create(**request) -> Response` with two implementations: `AnthropicClient` (real API,
@@ -485,6 +505,19 @@ sequential (learning depends on order).
   — the margin and sample size are set from pilot variance before the confirmatory run.
 - Ablations: B vs A, C vs B, D vs C. Curves: metric vs checkpoint per group (H2). Split-wise results
   for H3. Retention deltas for H5.
+- **H6 (memory vs static prompt, added 2026-10-28).** Retrieved memory (B) beats a static prompt with
+  the same content (P-all) once lessons are numerous or conflict across contexts; at few lessons
+  P-all matches or beats B. Test: mixed-effects logistic regression `pass ~ group × log2(L) × c +
+  (1 | task) + (1 | history)` over the `house_lib` grid (`docs/design/house-lib-family.md` §7), with
+  per-lesson check pass as a second outcome. Refuted if P-all ≥ B at every lesson count.
+- **H7 (memory-made personality, added 2026-10-28).** A memory history gives one frozen model a
+  working style, measured from trace features (caution, exploration, boldness, persistence, style),
+  that is (a) repeatable across replicate runs of one snapshot, (b) distinct between histories
+  beyond group A's run-to-run noise (between-history ICC), (c) consistent across task families,
+  (d) caused by the bank (it moves with a bank swap and disappears with deletion or a placebo bank)
+  and (e) retained after later interfering episodes. All trait scores are adjusted for pass/fail and
+  ticket difficulty. Questionnaire self-reports are not used as evidence. Background:
+  `reports/Agent personality through memory.md`.
 
 ## 13. Phase plan and exit criteria
 
@@ -493,6 +526,21 @@ sequential (learning depends on order).
 | 0 | registry, cpu_mem family + validator, Local/Podman sandboxes, judge, agent loop, ledger, store, CLI | `validate-family cpu_mem` passes; one real episode with the registered model runs end-to-end in the confirmatory sandbox, with its trace, ledger rows and verdict; re-generating the task and re-grading the stored final workspace reproduces the verdict |
 | 1 | Hindsight adapter (dedicated instance), groups A/B/basic C, second family, checkpoints, analysis v1 | 50-episode pilot with an interpretable learning curve and variance estimates → power analysis |
 | 2 | SkillLearner, all four groups, four families, preregistration, sealed run | protocol locked; sealed test completed |
+
+### Revised order (2026-10-28)
+
+H6 and H7 bear on how H1 should be read: if a static prompt matches memory, a cheaper-per-success
+result means less. Their controls therefore go into the confirmatory protocol before it is locked.
+All three questions need more than three histories, so one replicated set of histories serves them
+together. Groups C and D did not beat B in the pilot and move out of the core grid into extensions.
+
+| Step | Work | Exit criterion | Cost (≈ 2 min per episode) |
+|---|---|---|---|
+| 1 | H7 go/no-go: trace-feature reanalysis of exp13 (3 histories × A/B/C), A's histories as the noise null | B/C histories differ more than A's after competence adjustment; if not, H7 is dropped or reframed as lineage-specific knowledge | hours, no episodes |
+| 2 | H6 on `cpu_mem`: P-all (and A0) from exp13's frozen B snapshots, same test tickets | P-all vs B per history reported; a tie is the expected result at 5 causes | ≈ 2 GPU hours |
+| 3 | `house_lib` family: generator, oracle instrumentation, `validate-family`, then calibration (guessability and learnability filters) | validation passes; every lesson kept is unguessable by A and followable with its gold text | engineering, then ≈ 1.5 days |
+| 4 | Core `house_lib` grid: A, B, P-all, P-oracle, P-hand × L ∈ {4, 16, 64} × c ∈ {0, 0.5}, 8–10 histories, 3–5 replicate runs per probe ticket per snapshot | H6 test as in §12; H7 repeatability and between-history ICC | ≥ 4.5 days (that figure is for 3 histories; scales with history count); a 2-world go/no-go first |
+| 5 | Lock the protocol, including the H6/H7 controls and the history count from a power analysis, then run the sealed confirmatory study | protocol locked; sealed test completed | as Phase 2, larger |
 
 ### Phase 0 status (2026-10-24)
 
@@ -526,3 +574,8 @@ the earlier ticket; the useful verdict detail is thin, which is worth watching i
 5. ~~Dedicated Hindsight~~ and ~~checkpoint snapshots~~ (done 2026-10-25, §10). First real-model
    `train` episodes on group B ran 2026-10-25 (retain, learning ledger, recall into the next episode).
 6. Optional: Anthropic credentials for the Sonnet comparison configuration.
+7. `house_lib` design decisions (`docs/design/house-lib-family.md` §9): whether lessons only judge
+   feedback can reveal are in the main grid; P-all as raw rules or also condensed; context size at
+   64 lessons; library size.
+8. Number of histories for the confirmatory study (8–10 proposed, set by power analysis after
+   step 4) and the GPU time that implies.

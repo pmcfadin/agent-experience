@@ -176,18 +176,17 @@ where it appears differ.
 | A0 | nothing, but memory-group instructions and an empty `<experience>` block | first message | separates the scaffolding from the content |
 | B | Hindsight bank + verbatim rules (as exp10–13) | first message, retrieved per task | memory |
 | C / D | as now | as now | secondary; not in the core grid |
-| **P-all** | all of B's rules at the end of training, frozen, in training order | system prompt | **key control**: same content as B, no per-task retrieval |
-| P-oracle | B's rules for the task's own lessons only (by `signature.lessons`) | system prompt | upper bound on retrieval quality |
-| P-wrong | same number of tokens of B's rules for other lessons | system prompt | rules out "more text helps" |
-| P-hand | `gold_text` of every lesson in the world | system prompt | best possible static prompt |
+| **P-all** | all of B's rules at the end of training, frozen, in training order | first message | **key control**: same content as B, no per-task retrieval |
+| P-oracle | B's rules for the task's own lessons only (by `signature.lessons`) | first message | upper bound on retrieval quality |
+| P-wrong | same number of tokens of B's rules for other lessons | first message | rules out "more text helps" |
+| P-hand | `gold_text` of every lesson in the world | first message | best possible static prompt |
 | W-hand | `gold_text` as `HANDBOOK.md` in the workspace | workspace | static docs the agent must look up itself |
 | F-fix / F-ret | 3 passed training trajectories, fixed vs retrieved by ticket similarity | first message | few-shot comparison |
-| G-opt | prompt optimised with GEPA (and an ACE playbook as a variant) on train episodes, same episode budget as B's training | system prompt | prompt optimisation comparison |
+| G-opt | prompt optimised with GEPA (and an ACE playbook as a variant) on train episodes, same episode budget as B's training | first message | prompt optimisation comparison |
 
 P-all, P-oracle and P-wrong are built per history from that history's B bank, so content is matched
-exactly. P-hand and W-hand are the same for every history. All system-prompt variants keep the
-frozen system prompt byte-identical and append one delimited block; this is an addition to SPEC
-§6.2, which today fixes the system prompt across groups.
+exactly. P-hand and W-hand are the same for every history. Static blocks sit in the first message
+in the same slot as B's block, and the system prompt stays byte-identical (SPEC §6.2).
 
 Prompt cost is counted: P-all and P-hand pay their block on every turn (cache reads included), and
 cost per success (H1's endpoint) shows it.
@@ -250,10 +249,9 @@ no-go before running the full grid.
 2. **Rule pool for P-all.** One rule per training episode (verbatim, as now) means 2L rules, some
    duplicates or wrong. Use them as is (matched to B), or also test a condensed version (an
    ACE-style merged playbook)? Proposed: as is for P-all, condensed as part of G-opt.
-3. **System-prompt arms.** These need a SPEC §6.2 change (system prompt fixed except one appended
-   block). Alternative: put the static block in the first message like B, which makes position the
-   same and isolates retrieval, at the cost of being less like a real "system prompt" deployment.
-   Proposed: first message, same position as B's block, so only selection differs.
+3. ~~**Where the static block goes.**~~ Decided 2026-10-28 (SPEC §6.2): the first message, in the
+   same slot as B's block, so only selection differs. Appending it to the system prompt instead
+   would be more like a real deployment but would also change position.
 4. **Context size.** At L = 64, P-all is about 128 rules (~8–10k tokens). Check against the pinned
    context size and `memory_token_budget`; B stays capped, and P-all deliberately is not.
 5. **Library realism.** Generated `acmecore` will be small (~1–2k lines). Bigger makes lookup costlier
