@@ -48,11 +48,13 @@ It compares retrieved memory with the same rules frozen into a prompt, as the nu
 grows. No published study has run that comparison.
 [Design](docs/design/house-lib-family.md) · [review](reports/Memory%20vs%20prompt%20datasets.md)
 
-**2. Can memory give an agent a personality it keeps?** Measured by behaviour, not questionnaires:
-does a memory history give one frozen model a working style that is stable, distinct from other
-histories, caused by its memory, and kept over time? Prior work shows stable styles between
-different models and persona drift within one, but has never tested a memory-made style in a single
-model. A cheap first check reanalyses experiment 13's traces.
+**2. Can memory give an agent a personality it keeps?** Measured by behaviour, not questionnaires.
+Experiment 13's traces showed no style specific to one learning history, but memory moved every
+history the same way: fewer, larger edits and fewer test runs. The question is now whether memory
+changes a frozen model's working style, beyond its effect on success, and whether that change is
+caused by the memory and kept over time. Whether each history gets a style of its own stays a
+secondary question for the replicated runs. Prior work shows stable styles between different models
+and persona drift within one, but has never tested a memory-made style in a single model.
 [Review](reports/Agent%20personality%20through%20memory.md)
 
 Related work for all three questions: [literature](docs/literature.md).
@@ -61,7 +63,9 @@ Related work for all three questions: [literature](docs/literature.md).
 into the confirmatory study before its protocol is locked. One replicated set of 8–10 histories
 serves all three questions.
 
-1. Reanalyse experiment 13's traces for personality signals: a go/no-go for question 2 (hours, no GPU).
+1. ~~Reanalyse experiment 13's traces for personality signals.~~ Done: no history-specific style,
+   but memory shifted every history's working style the same way, so question 2 now asks whether
+   memory changes working style ([note](docs/h7-exp13-reanalysis.md)).
 2. Run the all-rules prompt on the current bug tickets using experiment 13's memory banks (about 2 GPU
    hours; a tie is expected with five bug types).
 3. Build, validate and calibrate the `house_lib` task family.

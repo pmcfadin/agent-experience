@@ -8,7 +8,8 @@ exit criteria. Where the proposal leaves a choice open, the decision taken here 
 Status: draft v0.1 (2026-10-24). Covers Phase 0 in full detail and Phases 1–2 at contract level.
 Phase 0 code is implemented; see §13 for what has and has not been verified.
 2026-10-28: two hypotheses added (H6 memory vs static prompt, H7 memory-made personality; §12),
-static-prompt control groups planned (§6.2), and the phase plan reordered (§13).
+static-prompt control groups planned (§6.2), and the phase plan reordered (§13). Step 1 done the
+same day: no history-specific style in exp13, so H7 was reframed (§12).
 
 ---
 
@@ -510,14 +511,19 @@ sequential (learning depends on order).
   P-all matches or beats B. Test: mixed-effects logistic regression `pass ~ group × log2(L) × c +
   (1 | task) + (1 | history)` over the `house_lib` grid (`docs/design/house-lib-family.md` §7), with
   per-lesson check pass as a second outcome. Refuted if P-all ≥ B at every lesson count.
-- **H7 (memory-made personality, added 2026-10-28).** A memory history gives one frozen model a
-  working style, measured from trace features (caution, exploration, boldness, persistence, style),
-  that is (a) repeatable across replicate runs of one snapshot, (b) distinct between histories
-  beyond group A's run-to-run noise (between-history ICC), (c) consistent across task families,
-  (d) caused by the bank (it moves with a bank swap and disappears with deletion or a placebo bank)
-  and (e) retained after later interfering episodes. All trait scores are adjusted for pass/fail and
-  ticket difficulty. Questionnaire self-reports are not used as evidence. Background:
-  `reports/Agent personality through memory.md`.
+- **H7 (memory-made working style, added 2026-10-28, reframed the same day).** Primary: carried
+  memory changes a frozen model's working style, measured from trace features (caution,
+  exploration, boldness, persistence, style), beyond what its effect on pass rate explains. Test:
+  B vs A, A0 and a placebo bank on the `house_lib` grid, trait scores adjusted for pass/fail and
+  ticket difficulty, with (d) causation by bank swap or deletion and (e) retention after later
+  interfering episodes. Secondary: whether a history gives the model a style of its own, i.e.
+  (a) repeatable across replicate runs of one snapshot, (b) distinct between histories beyond
+  group A's run-to-run noise (between-history ICC) and (c) consistent across task families;
+  answered from step 4's replicated histories. Reason: the step 1 reanalysis of exp13
+  (`docs/h7-exp13-reanalysis.md`) found no history-specific signal (0–1 of 13 features per
+  group, history attribution at chance) but a shared shift in all memory histories: fewer, larger
+  source edits and fewer verification runs. Questionnaire self-reports are not used as evidence.
+  Background: `reports/Agent personality through memory.md`.
 
 ## 13. Phase plan and exit criteria
 
@@ -536,7 +542,7 @@ together. Groups C and D did not beat B in the pilot and move out of the core gr
 
 | Step | Work | Exit criterion | Cost (≈ 2 min per episode) |
 |---|---|---|---|
-| 1 | H7 go/no-go: trace-feature reanalysis of exp13 (3 histories × A/B/C), A's histories as the noise null | B/C histories differ more than A's after competence adjustment; if not, H7 is dropped or reframed as lineage-specific knowledge | hours, no episodes |
+| 1 | H7 go/no-go: trace-feature reanalysis of exp13 (3 histories × A/B/C), A's histories as the noise null | B/C histories differ more than A's after competence adjustment; if not, H7 is dropped or reframed. **Done 2026-10-28: no-go; H7 reframed** (§12, `docs/h7-exp13-reanalysis.md`) | hours, no episodes |
 | 2 | H6 on `cpu_mem`: P-all (and A0) from exp13's frozen B snapshots, same test tickets | P-all vs B per history reported; a tie is the expected result at 5 causes | ≈ 2 GPU hours |
 | 3 | `house_lib` family: generator, oracle instrumentation, `validate-family`, then calibration (guessability and learnability filters) | validation passes; every lesson kept is unguessable by A and followable with its gold text | engineering, then ≈ 1.5 days |
 | 4 | Core `house_lib` grid: A, B, P-all, P-oracle, P-hand × L ∈ {4, 16, 64} × c ∈ {0, 0.5}, 8–10 histories, 3–5 replicate runs per probe ticket per snapshot | H6 test as in §12; H7 repeatability and between-history ICC | ≥ 4.5 days (that figure is for 3 histories; scales with history count); a 2-world go/no-go first |
@@ -574,8 +580,9 @@ the earlier ticket; the useful verdict detail is thin, which is worth watching i
 5. ~~Dedicated Hindsight~~ and ~~checkpoint snapshots~~ (done 2026-10-25, §10). First real-model
    `train` episodes on group B ran 2026-10-25 (retain, learning ledger, recall into the next episode).
 6. Optional: Anthropic credentials for the Sonnet comparison configuration.
-7. `house_lib` design decisions (`docs/design/house-lib-family.md` §9): whether lessons only judge
-   feedback can reveal are in the main grid; P-all as raw rules or also condensed; context size at
-   64 lessons; library size.
+7. ~~`house_lib` design decisions~~ (decided 2026-10-28, `docs/design/house-lib-family.md` §9):
+   `hidden` lessons are an extension, not in the main grid; P-all uses raw rules, condensed rules
+   belong to G-opt; the context size is raised if P-all at 64 lessons does not fit; the library
+   starts small, with size as a later parameter.
 8. Number of histories for the confirmatory study (8–10 proposed, set by power analysis after
    step 4) and the GPU time that implies.

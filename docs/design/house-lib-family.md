@@ -243,16 +243,18 @@ no-go before running the full grid.
 
 ## 9. Open decisions
 
-1. **Visibility.** Should `hidden` lessons be in the main grid? They are learnable only from judge
+1. ~~**Visibility.**~~ Decided 2026-10-28: main grid uses `source` and `doc` only; `hidden` is an
+   extension. Original question: should `hidden` lessons be in the main grid? They are learnable only from judge
    feedback, so A can never pass them. That is the purest memory test but the least realistic.
    Alternative: main grid uses `source` and `doc` only; `hidden` is an extension.
-2. **Rule pool for P-all.** One rule per training episode (verbatim, as now) means 2L rules, some
+2. ~~**Rule pool for P-all.**~~ Decided 2026-10-28: as proposed. One rule per training episode (verbatim, as now) means 2L rules, some
    duplicates or wrong. Use them as is (matched to B), or also test a condensed version (an
    ACE-style merged playbook)? Proposed: as is for P-all, condensed as part of G-opt.
 3. ~~**Where the static block goes.**~~ Decided 2026-10-28 (SPEC §6.2): the first message, in the
    same slot as B's block, so only selection differs. Appending it to the system prompt instead
    would be more like a real deployment but would also change position.
-4. **Context size.** At L = 64, P-all is about 128 rules (~8–10k tokens). Check against the pinned
+4. ~~**Context size.**~~ Decided 2026-10-28: if P-all at L = 64 plus a full episode does not fit the
+   pinned context, raise the llama.cpp context (a recorded pin change) rather than truncate. At L = 64, P-all is about 128 rules (~8–10k tokens). Check against the pinned
    context size and `memory_token_budget`; B stays capped, and P-all deliberately is not.
-5. **Library realism.** Generated `acmecore` will be small (~1–2k lines). Bigger makes lookup costlier
+5. ~~**Library realism.**~~ Decided 2026-10-28: as proposed. Generated `acmecore` will be small (~1–2k lines). Bigger makes lookup costlier
    (helps the memory case, raises cost); proposed: start small, and add size as a later parameter.
