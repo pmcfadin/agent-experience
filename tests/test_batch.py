@@ -1,5 +1,6 @@
 """Batch runner (elh/batch.py): experiment files, schedule expansion, scripted end-to-end runs."""
 
+import json
 import os
 import urllib.request
 import uuid
@@ -15,6 +16,7 @@ from elh.cli import main
 from elh.controller import bank_id_for, run_id_for
 from elh.memory.hindsight import HindsightMemory
 from elh.runner.models import InfraError
+from elh.runner.prompts import system_prompt, tools
 from elh.runner.scripts import scripted_client
 from elh.store import Store
 from elh.tasks.base import get_family
@@ -44,7 +46,7 @@ def test_bundled_experiments_load(path):
     exp, cfg = load_experiment(path)
     assert cfg.name == f"phase0-local-{exp.name}"
     steps = schedule(exp, cfg)
-    assert {s.group for s in steps if s.kind == "train"} == set(exp.groups) - {"A"}
+    assert {s.group for s in steps if s.kind == "train"} <= set(exp.groups) - set(batch.NON_LEARNING)
     assert all(s.task.seed >= 2000 if s.kind == "eval" else 1000 <= s.task.seed < 2000 for s in steps)
     assert all(3000 <= t.seed < 4000 for t in batch.dev_tasks(exp, cfg, 0))
     if "D" in exp.groups:  # a dev panel without group D is unused (experiments 11-13 kept experiment 10's)
@@ -157,3 +159,68 @@ def test_group_b_trains_then_evaluates_on_a_snapshot(tmp_path):
                 HindsightMemory(URL, b).delete_bank()
             except InfraError:
                 pass
+
+
+# --- static-prompt groups (P-all, A0; SPEC §6.2) -------------------------------------------------
+
+def _source_rules(store, name: str, history: int, n: int, *, skip: int | None = None) -> None:
+    """Fake a learning group's train stream: n episodes in `<name>/<history>`, one rule each."""
+    store.ensure_run("src-run", "src", 1, "x", "{}", None, None)
+    for i in reversed(range(n)):  # inserted out of order: the block must follow the ordinal
+        rule = None if i == skip else {"kind": "verified", "when": f"case {i}", "then": f"do {i}",
+                                        "query": f"q{i}", "title": f"T{i}"}
+        store.insert("episodes", {"episode_id": f"ep{history}-{i}", "run_id": "src-run", "history": history,
+                                  "test_group": "B", "split": "train", "ordinal": i,
+                                  "batch_id": f"{name}/{history}"})
+        store.db.execute("UPDATE episodes SET rule_json = ? WHERE episode_id = ?",
+                         (json.dumps({"rule": rule}), f"ep{history}-{i}"))
+    store.db.commit()
+
+
+def _static_exp(tmp_path, **kw):
+    return _write(tmp_path, groups=["P-all", "A0"], static={"from_experiment": "src", "group": "B", "after": 3},
+                  overrides={"memory_service.agent_search": True},
+                  phases=[{"eval": {"label": "after-3", "tasks": {"causes": ["queue_pop_front"], "themes": ["inventory"],
+                                                                   "seeds": [2000, 2002]}}}], **kw)
+
+
+def test_p_all_needs_a_static_source(tmp_path):
+    with pytest.raises(ValidationError, match="static"):
+        load_experiment(_write(tmp_path, groups=["P-all"]))
+
+
+def test_static_groups_never_train(tmp_path):
+    exp, cfg = load_experiment(_write(tmp_path, groups=["A", "B", "P-all", "A0"],
+                                      static={"from_experiment": "src", "after": 2}))
+    assert {s.group for s in schedule(exp, cfg) if s.kind == "train"} == {"B"}
+
+
+def test_p_all_block_is_the_source_rules_in_training_order(tmp_path):
+    store = Store(tmp_path / "runs")
+    _source_rules(store, "src", 0, 4, skip=1)
+    exp, _ = load_experiment(_static_exp(tmp_path))
+    mem = batch.static_memory(store, exp, 0, "P-all")
+    assert [it.memory_id for it in mem.recall(None, 1)] == ["rule-00", "rule-02"]  # k ignored; no rule at 1; stops at after
+    assert mem.items[1].text == "VERIFIED RULE: WHEN case 2 THEN do 2\nSituation: q2"
+    assert mem.search("anything", 5) == []
+    with pytest.raises(RuntimeError):
+        mem.retain({})
+    assert batch.static_memory(store, exp, 0, "A0").items == []
+    with pytest.raises(RuntimeError, match="ordinals"):
+        batch.static_memory(store, exp, 1, "P-all")  # no source stream for history 1
+
+
+def test_static_groups_end_to_end(tmp_path):
+    store = Store(tmp_path / "runs")
+    _source_rules(store, "src", 0, 3)
+    exp, cfg = load_experiment(_static_exp(tmp_path))
+    results = run_batch(exp, cfg, store, _client, sandbox_backend="local", out=lambda _: None)
+    assert [r["group"] for r in results] == ["P-all", "A0"] * 2 and all(r["passed"] for r in results)
+    rows = store.db.execute("SELECT test_group, checkpoint, trace_sha256, retrieval_json FROM episodes "
+                            "WHERE batch_id LIKE ? ORDER BY test_group", (f"{exp.name}/%",)).fetchall()
+    for group, checkpoint, sha, retrieval in rows:
+        assert checkpoint == 3 and json.loads(retrieval)["ranker"] == "static"
+        start = json.loads(store.get_blob("traces", sha).decode().splitlines()[0])
+        assert start["system"] == system_prompt(True) and start["tools"] == tools(True)  # memory-group instructions
+        assert ("rule-02" in start["first_message"]) == (group == "P-all")
+        assert ("<experience>" in start["first_message"]) == (group == "P-all")

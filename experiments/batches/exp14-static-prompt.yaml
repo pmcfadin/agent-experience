@@ -1,0 +1,21 @@
+# H6 step 2 (SPEC §13): does a static prompt holding all of B's rules match retrieved memory on the
+# current tickets? P-all shows each exp13 history's 15 B rules (frozen after training, training
+# order, uncapped) in B's first-message slot; A0 shows an empty block. Both keep B's memory-group
+# instructions and search_memory tool, whose searches return nothing. Same test tickets as exp13
+# (quadratic_membership/inventory, seeds [2024, 2036)); compare with exp13's B and A per history.
+# With five causes every lesson fits in one prompt, so a tie is the expected result.
+name: exp14-static-prompt
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  rules: {enabled: true, store: verbatim}
+family: cpu_mem
+histories: 3
+groups: [P-all, A0]
+static: {from_experiment: exp13-histories, group: B, after: 15}
+phases:
+  - eval:
+      label: after-15
+      tasks: {causes: [quadratic_membership], themes: [inventory], seeds: [2024, 2036]}

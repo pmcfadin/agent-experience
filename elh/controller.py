@@ -14,7 +14,7 @@ from elh.learner import workflows as wf
 from elh.learner.rules import write_rule
 from elh.learner.utility import UtilityLearner, episode_cost_usd
 from elh.ledger import compute_entry, usage_entries
-from elh.memory.base import Memory, NullMemory, render_memory_block
+from elh.memory.base import Memory, NullMemory, StaticMemory, render_memory_block
 from elh.memory.hindsight import HindsightMemory, is_rule_item, restore_bank, usage_to_ledger, workspace_diff
 from elh.registry import ExperimentConfig
 from elh.runner.agent import EpisodeResult, run_episode
@@ -119,6 +119,8 @@ def memory_for(cfg: ExperimentConfig, group: str, history: int, split: str, *,
             learner = UtilityLearner.for_store(store, run_id_for(cfg), history, group, cfg.utility)
             mem.learner = learner.readonly_view() if split in READ_ONLY_SPLITS else learner
         return mem
+    if group in ("P-all", "A0"):
+        raise ValueError(f"group {group} is a static-prompt control; it runs from a batch (elh/batch.py static_memory)")
     raise ValueError(f"group {group} is not implemented yet")
 
 
@@ -284,7 +286,8 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
             retrieval["rules"] = [_logged(it) for it in rules]
     else:
         items = memory.recall(task, memory_k)
-        retrieval = {"ranker": "service", "k": memory_k, "items": [_logged(it) for it in items]}
+        ranker = "static" if isinstance(memory, StaticMemory) else "service"  # static: every item, uncapped
+        retrieval = {"ranker": ranker, "k": memory_k, "items": [_logged(it) for it in items]}
         if verbatim_rules:
             retrieval["rules"] = [_logged(it) for it in items if is_rule_item(it)]
         if hasattr(memory, "recall_candidates"):  # read-only; shows where un-injected memories ranked

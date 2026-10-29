@@ -313,6 +313,15 @@ differs (Decision; the alternative, appending it to the system prompt, is noted 
 P-all, P-oracle and P-wrong are built per history from that history's frozen B snapshot. The system
 prompt stays byte-identical across all groups. Block tokens are charged as `inference` on every turn.
 
+*Implemented (2026-10-28): P-all and A0* (`elh/batch.py` `static_memory`, `StaticMemory` in
+`elh/memory/base.py`; experiment `exp14-static-prompt`). P-all's block is the source group's rules
+from its first `static.after` train episodes, read from `episodes.rule_json` and rendered exactly
+as B's verbatim rule items (`render_rule_verbatim`), in training order; episodes that wrote no rule
+are skipped. Decision: when `agent_search` is on, both groups keep B's system prompt, tool list and
+`<memory_check>` reminder, and `search_memory` returns "No matching memories found.", so the
+instructions match B's and only the block differs. Their episodes log `ranker: static` and
+`checkpoint = static.after`.
+
 ### 6.3 Model client
 
 `ModelClient.create(**request) -> Response` with two implementations: `AnthropicClient` (real API,
@@ -543,7 +552,7 @@ together. Groups C and D did not beat B in the pilot and move out of the core gr
 | Step | Work | Exit criterion | Cost (≈ 2 min per episode) |
 |---|---|---|---|
 | 1 | H7 go/no-go: trace-feature reanalysis of exp13 (3 histories × A/B/C), A's histories as the noise null | B/C histories differ more than A's after competence adjustment; if not, H7 is dropped or reframed. **Done 2026-10-28: no-go; H7 reframed** (§12, `docs/h7-exp13-reanalysis.md`) | hours, no episodes |
-| 2 | H6 on `cpu_mem`: P-all (and A0) from exp13's frozen B snapshots, same test tickets | P-all vs B per history reported; a tie is the expected result at 5 causes | ≈ 2 GPU hours |
+| 2 | H6 on `cpu_mem`: P-all (and A0) from exp13's frozen B snapshots, same test tickets | P-all vs B per history reported; a tie is the expected result at 5 causes | 72 episodes, ≈ 3 GPU hours |
 | 3 | `house_lib` family: generator, oracle instrumentation, `validate-family`, then calibration (guessability and learnability filters) | validation passes; every lesson kept is unguessable by A and followable with its gold text | engineering, then ≈ 1.5 days |
 | 4 | Core `house_lib` grid: A, B, P-all, P-oracle, P-hand × L ∈ {4, 16, 64} × c ∈ {0, 0.5}, 8–10 histories, 3–5 replicate runs per probe ticket per snapshot | H6 test as in §12; H7 repeatability and between-history ICC | ≥ 4.5 days (that figure is for 3 histories; scales with history count); a 2-world go/no-go first |
 | 5 | Lock the protocol, including the H6/H7 controls and the history count from a power analysis, then run the sealed confirmatory study | protocol locked; sealed test completed | as Phase 2, larger |

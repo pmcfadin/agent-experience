@@ -45,6 +45,13 @@ records it. That gate is the only promotion rule for both sources (GEPA's own pa
 skipped). Dev episodes are charged as `learning`, carry `checkpoint` = the train episodes done at
 that induction, and never write to memory or learner state.
 
+Static-prompt groups (SPEC §6.2, H6). `P-all` shows every rule a learning group wrote in an earlier
+experiment's history, frozen after `static.after` train episodes, in training order and uncapped, in
+B's first-message slot; `A0` shows an empty block. Both keep the memory-group instructions (the
+`search_memory` tool when `memory_service.agent_search` is on), whose searches return nothing. They
+never train; history h reads the rules of `<static.from_experiment>/<h>`, and their episodes carry
+`checkpoint = static.after`.
+
 Every episode carries `batch_id = <experiment>/<history>` (the analysis convention, elh/analysis.py);
 the phase is recoverable from split + checkpoint.
 """
@@ -66,12 +73,15 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from elh.controller import memory_for, open_snapshot, run_id_for, run_single_episode, snapshot_memory
 from elh.learner import workflows as wf
-from elh.memory.base import NullMemory
+from elh.memory.base import MemoryItem, NullMemory, StaticMemory
+from elh.memory.hindsight import RULE_DOC_SUFFIX, render_rule_verbatim
 from elh.registry import ExperimentConfig
 from elh.runner.models import InfraError
 from elh.tasks.base import TaskInstance, get_family
 
-KNOWN_GROUPS = ("A", "B", "C", "D")
+STATIC_GROUPS = ("P-all", "A0")
+KNOWN_GROUPS = ("A", "B", "C", "D") + STATIC_GROUPS
+NON_LEARNING = ("A",) + STATIC_GROUPS   # never scheduled for train phases
 DEV_SEEDS = (3000, 4000)   # [start, end) every dev seed must fall in
 
 
@@ -106,6 +116,14 @@ class DevSpec(_Strict):
     tasks: TaskSpec
 
 
+class StaticSpec(_Strict):
+    """Where P-all's rules come from: `group`'s train episodes in `from_experiment`, history by history."""
+
+    from_experiment: str
+    group: str = "B"
+    after: int = Field(ge=1)
+
+
 PHASE_KINDS = ("train", "eval", "retention")
 
 
@@ -138,6 +156,13 @@ class Experiment(_Strict):
     groups: list[str] = Field(min_length=1, validation_alias=AliasChoices("groups", "arms"))  # "arms": legacy key
     phases: list[Phase] = Field(min_length=1)
     dev: DevSpec | None = None
+    static: StaticSpec | None = None
+
+    @model_validator(mode="after")
+    def _static(self) -> "Experiment":
+        if "P-all" in self.groups and self.static is None:
+            raise ValueError("group P-all needs a `static` section (the experiment and group its rules come from)")
+        return self
 
     @field_validator("groups")
     @classmethod
@@ -262,7 +287,7 @@ def schedule(exp: Experiment, cfg: ExperimentConfig) -> list[Step]:
     """The full ordered episode list: per history, phases in order; groups interleaved per task.
     Group D's dev episodes are not scheduled here: they run when an induction makes a candidate."""
     family = get_family(exp.family)
-    learners = [a for a in exp.groups if a != "A"]
+    learners = [a for a in exp.groups if a not in NON_LEARNING]
     steps: list[Step] = []
     for h in range(exp.histories):
         n_train = 0
@@ -307,7 +332,12 @@ def print_schedule(exp: Experiment, cfg: ExperimentConfig, steps: list[Step], ou
     for s in steps:
         cells[(s.history, s.phase, s.kind, s.group)].append(s)
     for (h, label, kind, group), ss in cells.items():
-        where = f"train episodes {ss[0].after + 1}-{ss[-1].after + 1}" if kind == "train" else f"after {ss[0].after}"
+        if kind == "train":
+            where = f"train episodes {ss[0].after + 1}-{ss[-1].after + 1}"
+        elif group in STATIC_GROUPS and exp.static:
+            where = f"static: {exp.static.from_experiment} {exp.static.group} after {exp.static.after}"
+        else:
+            where = f"after {ss[0].after}"
         out(f"h{h} {label} ({kind}, {where}) group {group}: {len(ss)} tasks")
         for s in ss:
             out(f"    {s.task.task_id}")
@@ -382,11 +412,18 @@ def run_batch(exp: Experiment, cfg: ExperimentConfig, store, make_client: Callab
                  make_reflection_client or _default_reflection_client(cfg))
     live: dict[tuple[int, str], Any] = {}        # (history, group) -> training bank
     snaps: dict[tuple[int, str, int], str] = {}  # (history, group, after) -> snapshot id
+    static: dict[tuple[int, str], StaticMemory] = {}
     results: list[dict] = []
     for n, s in enumerate(steps, 1):
         split = SPLIT_OF_KIND[s.kind]
+        checkpoint = s.after if s.kind != "train" else None
         if s.group == "A":  # never scheduled for train phases
             memory = NullMemory()
+        elif s.group in STATIC_GROUPS:
+            if (s.history, s.group) not in static:
+                static[s.history, s.group] = static_memory(store, exp, s.history, s.group)
+            memory = static[s.history, s.group]
+            checkpoint = exp.static.after if exp.static else s.after
         elif s.kind == "train":
             if (s.history, s.group) not in live:
                 live[s.history, s.group] = memory_for(cfg, s.group, s.history, "train", store=store)
@@ -402,7 +439,7 @@ def run_batch(exp: Experiment, cfg: ExperimentConfig, store, make_client: Callab
         try:
             _, result, verdict = run_single_episode(
                 cfg, store, s.task, make_client(s.task), group=s.group, split=split, history=s.history,
-                ordinal=s.ordinal, checkpoint=s.after if s.kind != "train" else None, memory=memory,
+                ordinal=s.ordinal, checkpoint=checkpoint, memory=memory,
                 sandbox_backend=sandbox_backend, batch_id=batch_id(exp, s))
             res.update(passed=verdict.passed, turns=result.turns, wall_s=result.wall_s)
             out(f"[{n}/{len(steps)}] h{s.history} {s.phase} {s.group} {s.task.task_id} "
@@ -422,6 +459,38 @@ def run_batch(exp: Experiment, cfg: ExperimentConfig, store, make_client: Callab
                 out(f"h{s.history} {s.phase} group D retention check: "
                     f"{'ROLLED BACK' if d.promote else 'held'} ({'; '.join(d.reasons)})")
     return results
+
+
+def static_rules(store, exp: Experiment, history: int) -> list[MemoryItem]:
+    """P-all's block for one history: the source group's rules from its first `after` train episodes,
+    in training order, rendered exactly as group B's verbatim rule items. Episodes that wrote no
+    rule are skipped; a missing or ambiguous source stream is an error."""
+    sp = exp.static
+    rows = store.db.execute(
+        "SELECT run_id, ordinal, episode_id, rule_json FROM episodes WHERE batch_id = ? AND test_group = ? "
+        "AND split = 'train' AND ordinal < ? ORDER BY ordinal",
+        (f"{sp.from_experiment}/{history}", sp.group, sp.after)).fetchall()
+    if len({r[0] for r in rows}) > 1:
+        raise RuntimeError(f"{sp.from_experiment}/{history} group {sp.group} spans several runs")
+    if [r[1] for r in rows] != list(range(sp.after)):
+        raise RuntimeError(f"{sp.from_experiment}/{history} group {sp.group}: need train ordinals "
+                           f"0..{sp.after - 1}, found {[r[1] for r in rows]}")
+    items = []
+    for _, ordinal, episode_id, rule_json in rows:
+        rule = (json.loads(rule_json) or {}).get("rule") if rule_json else None
+        if rule:
+            items.append(MemoryItem(f"rule-{ordinal:02d}", render_rule_verbatim(rule),
+                                    document_id=episode_id + RULE_DOC_SUFFIX))
+    return items
+
+
+def static_memory(store, exp: Experiment, history: int, group: str) -> StaticMemory:
+    """P-all: the source history's frozen rules; A0: an empty block (memory-group instructions only)."""
+    if group == "A0":
+        return StaticMemory([], "static:A0")
+    items = static_rules(store, exp, history)
+    sp = exp.static
+    return StaticMemory(items, f"static:{sp.from_experiment}/{history}/{sp.group}/e{sp.after}")
 
 
 def _default_reflection_client(cfg: ExperimentConfig) -> Callable[[], Any]:

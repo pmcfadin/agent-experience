@@ -66,8 +66,8 @@ serves all three questions.
 1. ~~Reanalyse experiment 13's traces for personality signals.~~ Done: no history-specific style,
    but memory shifted every history's working style the same way, so question 2 now asks whether
    memory changes working style ([note](docs/h7-exp13-reanalysis.md)).
-2. Run the all-rules prompt on the current bug tickets using experiment 13's memory banks (about 2 GPU
-   hours; a tie is expected with five bug types).
+2. Run the all-rules prompt on the current bug tickets using experiment 13's rules (72 episodes, about
+   3 GPU hours; a tie is expected with five bug types).
 3. Build, validate and calibrate the `house_lib` task family.
 4. Run the core `house_lib` grid with replicated histories (several GPU days).
 5. Lock the protocol and run the sealed confirmatory study.
