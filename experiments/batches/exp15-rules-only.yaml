@@ -1,0 +1,20 @@
+# H6 step 2b: is B's lead over the all-rules prompt (exp14: B 26/36, P-all 18/36) from choosing which
+# rules to show, or from the episode records B also saw? B-rules reads each exp13 history's own B snapshot
+# after 15 train episodes, but every start slot (5) and every search hit is a verbatim rule.
+# Same test tickets and memory-group instructions as exp13 B and exp14. B-rules ~ B: selection helps;
+# B-rules ~ P-all: the episode records do.
+name: exp15-rules-only
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  rules: {enabled: true, store: verbatim}
+family: cpu_mem
+histories: 3
+groups: [B-rules]
+static: {from_experiment: exp13-histories, group: B, after: 15}
+phases:
+  - eval:
+      label: after-15
+      tasks: {causes: [quadratic_membership], themes: [inventory], seeds: [2024, 2036]}

@@ -322,6 +322,11 @@ are skipped. Decision: when `agent_search` is on, both groups keep B's system pr
 instructions match B's and only the block differs. Their episodes log `ranker: static` and
 `checkpoint = static.after`.
 
+*B-rules (2026-10-30, experiment `exp15-rules-only`).* Opens the source group's own snapshot (under
+the source run's stored registration) and fills every start slot and every search hit with verbatim
+rules (`RulesOnlyMemory`), so it differs from B only in showing no episode records and from P-all
+only in selecting among the rules.
+
 ### 6.3 Model client
 
 `ModelClient.create(**request) -> Response` with two implementations: `AnthropicClient` (real API,

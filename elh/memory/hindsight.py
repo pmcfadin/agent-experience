@@ -522,6 +522,34 @@ def rule_item(ep: dict, rule: dict) -> dict:
             "strategy": RULE_STRATEGY, "document_id": ep["episode_id"] + RULE_DOC_SUFFIX}
 
 
+class RulesOnlyMemory:
+    """Group B-rules (H6): a read-only B snapshot where every start slot and every search hit is a
+    verbatim rule, so retrieval selects among rules only (no episode records)."""
+
+    verbatim_rules = True
+    readonly = True
+
+    def __init__(self, bank: "HindsightMemory"):
+        if not bank.verbatim_rules or not bank.readonly:
+            raise ValueError("B-rules needs a read-only bank with verbatim rules")
+        self.bank, self.bank_id, self.snapshot_id = bank, bank.bank_id, bank.snapshot_id
+
+    def recall(self, task: TaskInstance, k: int) -> list[MemoryItem]:
+        return self.bank.recall_rules(task.prompt, k)
+
+    def search(self, query: str, k: int) -> list[MemoryItem]:
+        return self.bank.recall_rules(query, k)
+
+    def retain(self, episode: dict) -> list[str]:
+        raise RuntimeError("group B-rules never retains")
+
+    def fingerprint(self) -> str:
+        return self.bank.fingerprint()
+
+    def wait_idle(self) -> None:
+        self.bank.wait_idle()
+
+
 def is_rule_item(it: MemoryItem) -> bool:
     return (it.document_id or "").endswith(RULE_DOC_SUFFIX)
 

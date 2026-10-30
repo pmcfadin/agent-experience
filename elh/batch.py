@@ -50,7 +50,9 @@ experiment's history, frozen after `static.after` train episodes, in training or
 B's first-message slot; `A0` shows an empty block. Both keep the memory-group instructions (the
 `search_memory` tool when `memory_service.agent_search` is on), whose searches return nothing. They
 never train; history h reads the rules of `<static.from_experiment>/<h>`, and their episodes carry
-`checkpoint = static.after`.
+`checkpoint = static.after`. `B-rules` reads the source group's own snapshot after `static.after`
+train episodes (opened under the source run's registration) with every start slot and every search
+hit a verbatim rule (`RulesOnlyMemory`): retrieval among rules only, no episode records.
 
 Every episode carries `batch_id = <experiment>/<history>` (the analysis convention, elh/analysis.py);
 the phase is recoverable from split + checkpoint.
@@ -74,12 +76,12 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 from elh.controller import memory_for, open_snapshot, run_id_for, run_single_episode, snapshot_memory
 from elh.learner import workflows as wf
 from elh.memory.base import MemoryItem, NullMemory, StaticMemory
-from elh.memory.hindsight import RULE_DOC_SUFFIX, render_rule_verbatim
+from elh.memory.hindsight import RULE_DOC_SUFFIX, RulesOnlyMemory, render_rule_verbatim
 from elh.registry import ExperimentConfig
 from elh.runner.models import InfraError
 from elh.tasks.base import TaskInstance, get_family
 
-STATIC_GROUPS = ("P-all", "A0")
+STATIC_GROUPS = ("P-all", "A0", "B-rules")   # read a frozen source (`static`); never train
 KNOWN_GROUPS = ("A", "B", "C", "D") + STATIC_GROUPS
 NON_LEARNING = ("A",) + STATIC_GROUPS   # never scheduled for train phases
 DEV_SEEDS = (3000, 4000)   # [start, end) every dev seed must fall in
@@ -160,8 +162,9 @@ class Experiment(_Strict):
 
     @model_validator(mode="after")
     def _static(self) -> "Experiment":
-        if "P-all" in self.groups and self.static is None:
-            raise ValueError("group P-all needs a `static` section (the experiment and group its rules come from)")
+        needs = [g for g in ("P-all", "B-rules") if g in self.groups]
+        if needs and self.static is None:
+            raise ValueError(f"groups {needs} need a `static` section (the experiment and group their rules come from)")
         return self
 
     @field_validator("groups")
@@ -412,7 +415,7 @@ def run_batch(exp: Experiment, cfg: ExperimentConfig, store, make_client: Callab
                  make_reflection_client or _default_reflection_client(cfg))
     live: dict[tuple[int, str], Any] = {}        # (history, group) -> training bank
     snaps: dict[tuple[int, str, int], str] = {}  # (history, group, after) -> snapshot id
-    static: dict[tuple[int, str], StaticMemory] = {}
+    static: dict[tuple[int, str], Any] = {}
     results: list[dict] = []
     for n, s in enumerate(steps, 1):
         split = SPLIT_OF_KIND[s.kind]
@@ -484,10 +487,30 @@ def static_rules(store, exp: Experiment, history: int) -> list[MemoryItem]:
     return items
 
 
-def static_memory(store, exp: Experiment, history: int, group: str) -> StaticMemory:
-    """P-all: the source history's frozen rules; A0: an empty block (memory-group instructions only)."""
+def source_snapshot(store, exp: Experiment, history: int):
+    """The source group's read-only snapshot bank for one history, opened under the source run's
+    own stored registration (snapshots are tied to the run that took them)."""
+    sp = exp.static
+    runs = {r[0] for r in store.db.execute("SELECT DISTINCT run_id FROM episodes WHERE batch_id = ?",
+                                           (f"{sp.from_experiment}/{history}",))}
+    if len(runs) != 1:
+        raise RuntimeError(f"{sp.from_experiment}/{history}: expected one source run, found {sorted(runs)}")
+    run_id = runs.pop()
+    row = store.db.execute("SELECT snapshot_id FROM memory_snapshots WHERE run_id = ? AND history = ? AND "
+                           "test_group = ? AND after_episode = ?", (run_id, history, sp.group, sp.after)).fetchone()
+    if row is None:
+        raise RuntimeError(f"no {sp.group} snapshot after {sp.after} in {sp.from_experiment}/{history}")
+    src_cfg = ExperimentConfig.model_validate_json(store.run_config_json(run_id))
+    return open_snapshot(src_cfg, store, row[0])
+
+
+def static_memory(store, exp: Experiment, history: int, group: str):
+    """P-all: the source history's frozen rules; A0: an empty block (memory-group instructions only);
+    B-rules: the source snapshot, retrieving rules only."""
     if group == "A0":
         return StaticMemory([], "static:A0")
+    if group == "B-rules":
+        return RulesOnlyMemory(source_snapshot(store, exp, history))
     items = static_rules(store, exp, history)
     sp = exp.static
     return StaticMemory(items, f"static:{sp.from_experiment}/{history}/{sp.group}/e{sp.after}")

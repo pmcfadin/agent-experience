@@ -14,7 +14,8 @@ from elh import batch
 from elh.batch import load_experiment, run_batch, schedule
 from elh.cli import main
 from elh.controller import bank_id_for, run_id_for
-from elh.memory.hindsight import HindsightMemory
+from elh.memory.base import MemoryItem
+from elh.memory.hindsight import HindsightMemory, RulesOnlyMemory
 from elh.runner.models import InfraError
 from elh.runner.prompts import system_prompt, tools
 from elh.runner.scripts import scripted_client
@@ -224,3 +225,44 @@ def test_static_groups_end_to_end(tmp_path):
         assert start["system"] == system_prompt(True) and start["tools"] == tools(True)  # memory-group instructions
         assert ("rule-02" in start["first_message"]) == (group == "P-all")
         assert ("<experience>" in start["first_message"]) == (group == "P-all")
+
+
+class _FakeBank:
+    """Stands in for a read-only HindsightMemory with verbatim rules."""
+
+    verbatim_rules, readonly, bank_id, snapshot_id = True, True, "bank", "snap"
+
+    def __init__(self):
+        self.calls = []
+
+    def recall_rules(self, query, n=None):
+        self.calls.append((query, n))
+        return [MemoryItem(f"r{i}", f"rule {i}", document_id=f"e{i}:rule") for i in range(n)]
+
+    def fingerprint(self):
+        return "fp"
+
+    def wait_idle(self):
+        pass
+
+
+def test_b_rules_needs_a_static_source_and_never_trains(tmp_path):
+    with pytest.raises(ValidationError, match="static"):
+        load_experiment(_write(tmp_path, groups=["B-rules"]))
+    exp, cfg = load_experiment(_write(tmp_path, groups=["B", "B-rules"], static={"from_experiment": "src", "after": 2}))
+    assert {s.group for s in schedule(exp, cfg) if s.kind == "train"} == {"B"}
+
+
+def test_rules_only_memory_retrieves_rules_for_every_slot_and_search():
+    bank = _FakeBank()
+    mem = RulesOnlyMemory(bank)
+    task = get_family("cpu_mem").generate("queue_pop_front", "inventory", 2000)
+    assert [it.memory_id for it in mem.recall(task, 5)] == ["r0", "r1", "r2", "r3", "r4"]
+    assert len(mem.search("why slow", 3)) == 3
+    assert bank.calls == [(task.prompt, 5), ("why slow", 3)]
+    assert mem.snapshot_id == "snap" and mem.fingerprint() == "fp"
+    with pytest.raises(RuntimeError):
+        mem.retain({})
+    bank.readonly = False
+    with pytest.raises(ValueError):
+        RulesOnlyMemory(bank)
