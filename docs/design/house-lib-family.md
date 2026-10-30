@@ -292,5 +292,13 @@ Choices made where this design left room:
   `export` once per hidden input in a subprocess (2 edge, 3 small, 2 medium), plus once with the flag off
   for each flag lesson. A blind variant must fail exactly `lesson:<id>` (necessity); a sibling's choice
   must fail exactly `lesson:<id>` (conflict).
+- **Feedback wording.** The oracle adds a plain-words `check_text` to each verdict; memory records,
+  their reranked context and the rule writer's check block use it in place of check ids. A failed
+  lesson check says what was observed to be wrong (`wrong or missing \`due_date\` values in the
+  written rows`, `audit records missing or in the wrong place relative to the store writes`,
+  `wrote rows while the module's rollout was switched off`), never the expected value, the
+  convention or the lesson id. The family is named `house_lib` without the world id, and
+  "performance ticket" is cpu_mem-only wording (cpu_mem text is byte-identical to before). Group D's
+  workflow prompts and G-opt's prompts are still cpu_mem-specific.
 - **Calibration.** `calibration.py` gives the dev-seed panel, the P-hand handbook text and the
   guessability / learnability filter. The P-hand group and the runs (GPU) are not implemented.

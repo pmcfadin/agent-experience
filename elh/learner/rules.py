@@ -13,7 +13,8 @@ reference timing or the hidden test inputs. Harness assistance, adapted from the
 
 - the CONSEQUENTIAL ACTIONS list (paper: non-read-only tool calls; here: the commands that wrote to
   the workspace, from the trace, plus the files that differ from the original workspace);
-- the judge's per-check verdict in lesson-v2 wording (`CHECK_PASSED` / `CHECK_FAILED`), the protected
+- the judge's per-check verdict in lesson-v2 wording (`check_phrase`: `CHECK_PASSED` / `CHECK_FAILED`,
+  or the family's own plain wording from the verdict's `check_text`), the protected
   files the agent changed, and its time on the large input against the budget;
 - a write-time validator (App. A.7, `reflection_diff.rule_content_gaps`): a rule missing
   decision-critical strings is bounced back with the exact gaps, at most `max_retries` times, and
@@ -38,7 +39,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from elh.judge import Verdict
-from elh.memory.hindsight import CHECK_FAILED, CHECK_PASSED, OUTCOME_WORDS
+from elh.memory.hindsight import OUTCOME_WORDS, check_phrase
 from elh.runner.agent import EpisodeResult
 from elh.runner.models import ContextLimitError, ModelClient
 from elh.runner.prompts import SYSTEM_PROMPT, TOOLS
@@ -274,8 +275,8 @@ def files_changed(before: dict[str, str], after: dict[str, str]) -> list[tuple[s
 
 def _checks_block(verdict: Verdict, result: EpisodeResult) -> str:
     lines = [CHECKS_HEADER]
-    passed = [CHECK_PASSED.get(k, k) for k, ok in verdict.checks.items() if ok]
-    failed = [CHECK_FAILED.get(k, k) for k, ok in verdict.checks.items() if not ok]
+    passed = [check_phrase(k, True, verdict.detail) for k, ok in verdict.checks.items() if ok]
+    failed = [check_phrase(k, False, verdict.detail) for k, ok in verdict.checks.items() if not ok]
     if failed:
         lines.append(f"- FAILED: {'; '.join(failed)}")
     if passed:

@@ -82,6 +82,28 @@ FIELD = {"partner_format": "due_date", "unit_convention": "amount", "region_reda
          "required_wrapper": "generated_at", "event_fields": "idem_key"}
 
 
+# What the agent and the rule writer are told about each check (the verdict's `check_text`, read by
+# elh.memory.hindsight.check_phrase). It says what was observed to be wrong, never the expected
+# value or the convention, and never the lesson id (which names the template and context).
+FEATURE_TEXT = {"label": "feature", "passed": "rows correct on hidden inputs",
+                "failed": "wrong, missing or extra rows on hidden inputs (row keys, groups or which records qualify)"}
+
+
+def lesson_text(les):
+    t = les["template"]
+    if t in FIELD:
+        f = FIELD[t]
+        return {"label": f"{f} column", "passed": f"`{f}` values correct",
+                "failed": f"wrong or missing `{f}` values in the written rows"}
+    if t == "call_order":
+        return {"label": "audit trail", "passed": "audit records in the expected place",
+                "failed": "audit records missing or in the wrong place relative to the store writes"}
+    if t == "feature_flag":
+        return {"label": "rollout gate", "passed": "wrote nothing while the module's rollout was switched off",
+                "failed": "wrote rows while the module's rollout was switched off"}
+    raise KeyError(t)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--workspace")
@@ -160,8 +182,11 @@ def main():
                 off_writes = [e for e in off["log"] if e[0] == "write" and e[1] == table]
                 lesson_ok[les["id"]] &= off["error"] is None and not off_writes
     verdict["checks"]["feature"] = feature_ok
+    verdict["check_text"] = {"feature": FEATURE_TEXT}
     for lid, ok in lesson_ok.items():
         verdict["checks"][f"lesson:{lid}"] = ok
+    for les in lessons:
+        verdict["check_text"][f"lesson:{les['id']}"] = lesson_text(les)
     verdict["passed"] = all(verdict["checks"].values())
     shutil.rmtree(tmp, ignore_errors=True)
     print(json.dumps(verdict))

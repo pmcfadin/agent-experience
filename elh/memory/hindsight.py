@@ -354,6 +354,36 @@ CHECK_PASSED = {"integrity": "left protected files unchanged", "public_tests": "
 CHECK_FAILED = {"integrity": "modified files the ticket says must not be changed",
                 "public_tests": "public tests failed", "correctness": "hidden correctness tests failed",
                 "performance": "too slow on the large input (over the time budget)"}
+# Family wording. cpu_mem's is what lesson-v1 to v3 always said and stays byte-identical; other
+# families get neutral wording. Their oracle states each family-specific check in plain words in
+# the verdict's `check_text` ({check: {"label", "passed", "failed"}}), so raw check ids such as
+# house_lib's `lesson:<id>` never reach memory or the rule writer.
+FAMILY_WORDS = {"cpu_mem": {"ticket": "performance ticket", "passed": "the fix was verified correct and fast enough."}}
+NEUTRAL_WORDS = {"ticket": "ticket", "passed": "the change passed every check."}
+
+
+def family_name(family: str) -> str:
+    """`house_lib/L16-c50-w1` -> `house_lib`: the world id stays out of what the agent reads."""
+    return family.split("/")[0]
+
+
+def family_words(family: str) -> dict[str, str]:
+    return FAMILY_WORDS.get(family_name(family), NEUTRAL_WORDS)
+
+
+def check_phrase(name: str, ok: bool, detail: dict | None, *, passed_words: dict = CHECK_PASSED,
+                 failed_words: dict = CHECK_FAILED) -> str:
+    text = ((detail or {}).get("check_text") or {}).get(name)
+    if text:
+        return text["passed" if ok else "failed"]
+    return (passed_words if ok else failed_words).get(name, name)
+
+
+def check_label(name: str, detail: dict | None) -> str:
+    text = ((detail or {}).get("check_text") or {}).get(name)
+    return text["label"] if text else name
+
+
 OUTCOME_WORDS = {"submitted": "submitted its fix", "implicit_submit": "stopped without calling submit",
                  "budget_exhausted": "ran out of its turn/token budget before submitting"}
 MAX_DIFF_LINES = 80
@@ -398,14 +428,15 @@ def render_episode(ep: dict, *, version: int = 2, include_diff: bool = True) -> 
     Version 3 (lesson-v3) uses v2's wording but leaves out the ticket title, and may drop the diff."""
     verdict = ep["verdict"]
     fail_words, pass_words = (CHECK_WORDS, CHECK_WORDS) if version == 1 else (CHECK_FAILED, CHECK_PASSED)
-    failed = [fail_words.get(k, k) for k, v in verdict["checks"].items() if not v]
-    passed = [pass_words.get(k, k) for k, v in verdict["checks"].items() if v]
-    head = "PASSED: the fix was verified correct and fast enough." if verdict["passed"] else \
-        f"FAILED: {', '.join(failed)}."
+    detail = verdict.get("detail")
+    failed = [check_phrase(k, False, detail, failed_words=fail_words) for k, v in verdict["checks"].items() if not v]
+    passed = [check_phrase(k, True, detail, passed_words=pass_words) for k, v in verdict["checks"].items() if v]
+    head = f"PASSED: {family_words(ep['family'])['passed']}" if verdict["passed"] else f"FAILED: {', '.join(failed)}."
+    family = family_name(ep["family"])
     if version >= 3:
-        lines = [f"Outcome of an attempt at a {ep['family']} ticket: {head}"]
+        lines = [f"Outcome of an attempt at a {family} ticket: {head}"]
     else:
-        lines = [f"Outcome of an attempt at a {ep['family']} ticket ({ep.get('title') or 'untitled'}): {head}"]
+        lines = [f"Outcome of an attempt at a {family} ticket ({ep.get('title') or 'untitled'}): {head}"]
     violations = verdict.get("detail", {}).get("integrity_violations") or []
     if version >= 2 and violations:
         lines.append(f"Protected files the agent changed (the ticket forbids this): {', '.join(violations)}.")
@@ -427,7 +458,7 @@ def render_episode(ep: dict, *, version: int = 2, include_diff: bool = True) -> 
 
 
 def render_context(ep: dict) -> str:
-    return (f"One coding agent's attempt at a performance ticket, with the result verified by an automated "
+    return (f"One coding agent's attempt at a {family_words(ep['family'])['ticket']}, with the result verified by an automated "
             f"judge. The ticket was:\n{ep['prompt'].strip()}")
 
 
@@ -462,13 +493,15 @@ def situation_key(rule: dict) -> str:
 
 
 def failed_checks(ep: dict) -> list[str]:
-    return [k for k, v in ep["verdict"]["checks"].items() if not v]
+    """Failed checks by label: the check id, or the family's plain label for it (`check_text`)."""
+    detail = ep["verdict"].get("detail")
+    return [check_label(k, detail) for k, v in ep["verdict"]["checks"].items() if not v]
 
 
 def render_context_v3(ep: dict) -> str:
     failed = failed_checks(ep)
     result = "PASSED" if ep["verdict"]["passed"] else f"FAILED ({', '.join(failed) or 'not verified'})"
-    ctx = f"Verified result of a coding agent's attempt at a {ep['family']} performance ticket: {result}"
+    ctx = f"Verified result of a coding agent's attempt at a {family_name(ep['family'])} {family_words(ep['family'])['ticket']}: {result}"
     rule = _rule(ep)
     return f"{ctx}. Situation: {situation_key(rule)}" if rule else ctx
 

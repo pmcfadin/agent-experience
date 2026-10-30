@@ -107,6 +107,37 @@ def test_necessity_blind_variant_fails_exactly_its_lesson(family):
     assert verdict.checks["feature"] and verdict.checks["public_tests"]
 
 
+@pytest.mark.parametrize("template", ["partner_format", "call_order", "feature_flag"])
+def test_feedback_names_what_failed_but_not_the_lesson(family, template):
+    """Memory records, their reranked context and the rule writer's check block describe a failed
+    lesson check in plain words: never the lesson id, its template, its choice or the world id."""
+    from types import SimpleNamespace
+
+    from elh.learner.rules import _checks_block
+    from elh.memory.hindsight import lesson_v3_item, render_context
+
+    les = next(les for les in family.world.lessons if les.template == template)
+    task = family.generate(les.id, "network_flows", 7)
+    variants = {v.name: v for v in family.validation_variants(task)}
+    verdict = grade(task, variants[f"blind:{template}"].workspace, lambda: LocalSandbox())
+    assert verdict.failed_checks() == [f"lesson:{les.id}"]
+    ep = {"family": task.family, "prompt": task.prompt, "verdict": verdict.to_dict(), "outcome": "submitted",
+          "turns": 5, "tool_calls": 6, "submit_summary": "done", "diff": None, "episode_id": "e1",
+          "rule": {"kind": "avoid", "when": "w", "then": "t"}}
+    item = lesson_v3_item(ep, ticket_metadata=False)
+    texts = [item["content"], item["context"], render_context(ep),
+             _checks_block(verdict, SimpleNamespace(outcome="submitted", turns=5, tool_calls=6))]
+    # call_order's choices are plain words ("after" also appears in "submitted its fix after 5 turns").
+    choice = () if template == "call_order" else (les.choice,)
+    for text in texts:
+        for leak in ("lesson:", les.id, template, family.world.id, "performance", "fast enough") + choice:
+            assert leak not in text
+    phrase = verdict.detail["check_text"][f"lesson:{les.id}"]
+    assert f"FAILED: {phrase['failed']}." in item["content"]
+    assert item["context"].startswith(f"Verified result of a coding agent's attempt at a house_lib ticket: "
+                                      f"FAILED ({phrase['label']})")
+
+
 def test_editing_acmecore_fails_integrity_and_is_not_used_by_the_oracle(family):
     task = family.generate(family.causes[0], "billing", 1)
     ws = dict(task.workspace, **family.solution_files(task))
