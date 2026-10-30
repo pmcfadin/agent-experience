@@ -53,6 +53,9 @@ never train; history h reads the rules of `<static.from_experiment>/<h>`, and th
 `checkpoint = static.after`. `B-rules` reads the source group's own snapshot after `static.after`
 train episodes (opened under the source run's registration) with every start slot and every search
 hit a verbatim rule (`RulesOnlyMemory`): retrieval among rules only, no episode records.
+`P-hand` (house_lib worlds only) shows the world's handbook, one hand-written `gold_text` per lesson
+in catalogue order, the same for every history; it needs no `static` section and its episodes carry
+the phase's own checkpoint.
 
 Every episode carries `batch_id = <experiment>/<history>` (the analysis convention, elh/analysis.py);
 the phase is recoverable from split + checkpoint.
@@ -81,7 +84,7 @@ from elh.registry import ExperimentConfig
 from elh.runner.models import InfraError
 from elh.tasks.base import TaskInstance, get_family
 
-STATIC_GROUPS = ("P-all", "A0", "B-rules")   # read a frozen source (`static`); never train
+STATIC_GROUPS = ("P-all", "A0", "B-rules", "P-hand")   # fixed memory, never train
 KNOWN_GROUPS = ("A", "B", "C", "D") + STATIC_GROUPS
 NON_LEARNING = ("A",) + STATIC_GROUPS   # never scheduled for train phases
 DEV_SEEDS = (3000, 4000)   # [start, end) every dev seed must fall in
@@ -165,6 +168,8 @@ class Experiment(_Strict):
         needs = [g for g in ("P-all", "B-rules") if g in self.groups]
         if needs and self.static is None:
             raise ValueError(f"groups {needs} need a `static` section (the experiment and group their rules come from)")
+        if "P-hand" in self.groups and not self.family.startswith("house_lib"):
+            raise ValueError(f"group P-hand needs a house_lib world (a handbook of its lessons), not {self.family}")
         return self
 
     @field_validator("groups")
@@ -337,6 +342,8 @@ def print_schedule(exp: Experiment, cfg: ExperimentConfig, steps: list[Step], ou
     for (h, label, kind, group), ss in cells.items():
         if kind == "train":
             where = f"train episodes {ss[0].after + 1}-{ss[-1].after + 1}"
+        elif group == "P-hand":
+            where = f"handbook of {exp.family}"
         elif group in STATIC_GROUPS and exp.static:
             where = f"static: {exp.static.from_experiment} {exp.static.group} after {exp.static.after}"
         else:
@@ -426,7 +433,7 @@ def run_batch(exp: Experiment, cfg: ExperimentConfig, store, make_client: Callab
             if (s.history, s.group) not in static:
                 static[s.history, s.group] = static_memory(store, exp, s.history, s.group)
             memory = static[s.history, s.group]
-            checkpoint = exp.static.after if exp.static else s.after
+            checkpoint = exp.static.after if exp.static and s.group != "P-hand" else s.after
         elif s.kind == "train":
             if (s.history, s.group) not in live:
                 live[s.history, s.group] = memory_for(cfg, s.group, s.history, "train", store=store)
@@ -504,9 +511,17 @@ def source_snapshot(store, exp: Experiment, history: int):
     return open_snapshot(src_cfg, store, row[0])
 
 
+def handbook_items(family_name: str) -> list[MemoryItem]:
+    from elh.tasks.families.house_lib.calibration import handbook_lines
+
+    return [MemoryItem(f"hand-{i:02d}", line) for i, line in enumerate(handbook_lines(get_family(family_name)), 1)]
+
+
 def static_memory(store, exp: Experiment, history: int, group: str):
     """P-all: the source history's frozen rules; A0: an empty block (memory-group instructions only);
-    B-rules: the source snapshot, retrieving rules only."""
+    B-rules: the source snapshot, retrieving rules only; P-hand: the world's handbook."""
+    if group == "P-hand":
+        return StaticMemory(handbook_items(exp.family), f"static:handbook/{exp.family}")
     if group == "A0":
         return StaticMemory([], "static:A0")
     if group == "B-rules":

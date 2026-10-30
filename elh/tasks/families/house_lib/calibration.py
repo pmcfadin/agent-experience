@@ -7,10 +7,10 @@ Two filters on dev seeds, per lesson, from the lesson checks (`lesson:<id>`) of 
 - learnability: P-hand (every lesson's `gold_text` in the first message) passes it in less than
   LEARN_MIN -> the model can't follow it even when told: drop it.
 
-What exists here: the task panel (`calibration_tasks`), the P-hand block (`handbook`) and the filter
-(`filter_lessons`). Not implemented: the P-hand group itself (a StaticMemory over `handbook`, wired
-like P-all in elh/batch.py) and the runs, which need the GPU (~1,000 episodes for the core grid's
-six worlds, design §8). A run then passes its verdicts' `checks` to `filter_lessons`.
+What exists here: the task panel (`calibration_tasks`), the handbook (`handbook_lines`; the P-hand
+group in elh/batch.py shows one item per line) and the filter (`filter_lessons`). Not implemented:
+the runs, which need the GPU (~1,000 episodes for the core grid's six worlds, design §8). A run then
+passes its verdicts' `checks` to `filter_lessons`.
 """
 
 from __future__ import annotations
@@ -24,11 +24,15 @@ LEARN_MIN = 0.60
 DEV_SEEDS = (3000, 4000)
 
 
-def handbook(family) -> str:
+def handbook_lines(family) -> list[str]:
     """P-hand / W-hand content: the gold text of every lesson in the world, in catalogue order."""
     from elh.tasks.families.house_lib.lessons import gold_text
 
-    return "\n".join(f"- {gold_text(les)}" for les in family.world.lessons)
+    return [gold_text(les) for les in family.world.lessons]
+
+
+def handbook(family) -> str:
+    return "\n".join(f"- {line}" for line in handbook_lines(family))
 
 
 def calibration_tasks(family, per_lesson: int = 4, seed: int = 0) -> list[tuple[str, str, int]]:

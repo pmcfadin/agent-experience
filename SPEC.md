@@ -327,6 +327,11 @@ the source run's stored registration) and fills every start slot and every searc
 rules (`RulesOnlyMemory`), so it differs from B only in showing no episode records and from P-all
 only in selecting among the rules.
 
+*P-hand (2026-10-30).* The world's handbook: one item per lesson, its `gold_text`, in catalogue
+order (`calibration.handbook_lines`), rendered like P-all's items (`[hand-01]`, …), the same for
+every history and including `hidden` lessons. Needs a `house_lib` world and no `static` section;
+its episodes carry the phase's own checkpoint. Instructions as for P-all and A0.
+
 ### 6.3 Model client
 
 `ModelClient.create(**request) -> Response` with two implementations: `AnthropicClient` (real API,

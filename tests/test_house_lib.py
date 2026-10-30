@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from elh.batch import load_experiment, run_batch
+from elh.batch import load_experiment, run_batch, schedule
 from elh.controller import regrade_episode, run_single_episode
 from elh.judge import grade
 from elh.registry import load_config
@@ -194,6 +194,41 @@ def test_batch_runs_a_house_lib_world(tmp_path):
     bad.write_text(yaml.safe_dump(doc))
     with pytest.raises(ValueError, match="unknown causes"):
         load_experiment(bad)
+
+
+def test_p_hand_shows_the_world_handbook_and_never_trains(tmp_path):
+    from pydantic import ValidationError
+
+    from elh.runner.prompts import system_prompt, tools
+
+    world = "house_lib/L4-c0-w2"
+    lessons = [les.id for les in build_world("L4-c0-w2").lessons]
+    doc = {"name": "hl-hand", "base_config": str(CONFIG), "family": world, "histories": 1,
+           "groups": ["P-hand", "A0", "B"], "overrides": {"memory_service.agent_search": True},
+           "phases": [{"eval": {"tasks": {"causes": lessons[:1], "themes": ["billing"], "seeds": [2000, 2001]}}}]}
+    path = tmp_path / "hl-hand.yaml"
+    path.write_text(yaml.safe_dump(dict(doc, groups=["P-hand", "A0"])))
+    exp, cfg = load_experiment(path)
+    fam = get_family(world)
+    store = Store(tmp_path / "runs")
+    results = run_batch(exp, cfg, store, lambda t: scripted_client("reference", t, fam),
+                        sandbox_backend="local", out=lambda _: None)
+    assert [r["group"] for r in results] == ["P-hand", "A0"] and all(r["passed"] for r in results)
+    hand = calibration.handbook_lines(fam)
+    rows = store.db.execute("SELECT test_group, checkpoint, trace_sha256 FROM episodes WHERE batch_id LIKE ?",
+                            (f"{exp.name}/%",)).fetchall()
+    for group, checkpoint, sha in rows:
+        start = json.loads(store.get_blob("traces", sha).decode().splitlines()[0])
+        assert checkpoint == 0 and start["system"] == system_prompt(True) and start["tools"] == tools(True)
+        assert all((line in start["first_message"]) == (group == "P-hand") for line in hand)
+        assert (f"[hand-{len(hand):02d}]" in start["first_message"]) == (group == "P-hand")
+
+    path.write_text(yaml.safe_dump(dict(doc, phases=[{"train": doc["phases"][0]["eval"]}])))
+    exp, cfg = load_experiment(path)
+    assert {s.group for s in schedule(exp, cfg) if s.kind == "train"} == {"B"}
+    path.write_text(yaml.safe_dump(dict(doc, family="cpu_mem", groups=["P-hand"])))
+    with pytest.raises(ValidationError, match="house_lib"):
+        load_experiment(path)
 
 
 def test_unknown_world_ids_are_rejected():

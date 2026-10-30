@@ -119,7 +119,7 @@ def memory_for(cfg: ExperimentConfig, group: str, history: int, split: str, *,
             learner = UtilityLearner.for_store(store, run_id_for(cfg), history, group, cfg.utility)
             mem.learner = learner.readonly_view() if split in READ_ONLY_SPLITS else learner
         return mem
-    if group in ("P-all", "A0"):
+    if group in ("P-all", "A0", "B-rules", "P-hand"):
         raise ValueError(f"group {group} is a static-prompt control; it runs from a batch (elh/batch.py static_memory)")
     raise ValueError(f"group {group} is not implemented yet")
 
