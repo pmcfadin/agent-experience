@@ -231,6 +231,15 @@ def test_p_hand_shows_the_world_handbook_and_never_trains(tmp_path):
         load_experiment(path)
 
 
+@pytest.mark.parametrize("path", sorted((Path(__file__).parent.parent / "experiments" / "batches").glob("exp17-calib-*.yaml")),
+                         ids=lambda p: p.stem)
+def test_calibration_batches_are_the_calibration_panel(path):
+    exp, _ = load_experiment(path)
+    fam = get_family(exp.family)
+    assert exp.groups == ["A", "P-hand"] and len(exp.phases) == 1
+    assert exp.phases[0].spec.tasks.triples() == calibration.calibration_tasks(fam, per_lesson=4)
+
+
 def test_unknown_world_ids_are_rejected():
     with pytest.raises(ValueError):
         get_family("house_lib/L16-w1")

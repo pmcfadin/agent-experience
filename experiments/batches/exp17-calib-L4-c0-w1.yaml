@@ -1,0 +1,37 @@
+# house_lib calibration (design §5, phase 2) for world L4-c0-w1: groups A (no hints) and P-hand
+# (the world's handbook) on the dev-seed panel `calibration.calibration_tasks(family, per_lesson=4)`,
+# 16 tasks, so 32 episodes. Feeds `calibration.filter_lessons`: a lesson A passes in more
+# than 20% of its checks is guessable; one P-hand passes in under 60% is not learnable. Memory settings
+# match the core grid's B so P-hand here is the core grid's P-hand. Generated; do not edit by hand
+# (tests/test_house_lib.py checks the items against calibration_tasks).
+name: exp17-calib-L4-c0-w1
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  rules: {enabled: true, store: verbatim}
+family: house_lib/L4-c0-w1
+histories: 1
+groups: [A, P-hand]
+phases:
+- eval:
+    label: calibration
+    tasks:
+      items:
+      - [event_fields.payments, network_flows, 3000]
+      - [event_fields.payments, telemetry, 3001]
+      - [event_fields.payments, course_registration, 3002]
+      - [event_fields.payments, logistics, 3003]
+      - [partner_format.kessa, network_flows, 3004]
+      - [partner_format.kessa, telemetry, 3005]
+      - [partner_format.kessa, course_registration, 3006]
+      - [partner_format.kessa, logistics, 3007]
+      - [partner_format.mirro, network_flows, 3008]
+      - [partner_format.mirro, telemetry, 3009]
+      - [partner_format.mirro, course_registration, 3010]
+      - [partner_format.mirro, logistics, 3011]
+      - [region_redaction.latam, network_flows, 3012]
+      - [region_redaction.latam, telemetry, 3013]
+      - [region_redaction.latam, course_registration, 3014]
+      - [region_redaction.latam, logistics, 3015]

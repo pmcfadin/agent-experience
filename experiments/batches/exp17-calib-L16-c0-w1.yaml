@@ -1,0 +1,85 @@
+# house_lib calibration (design §5, phase 2) for world L16-c0-w1: groups A (no hints) and P-hand
+# (the world's handbook) on the dev-seed panel `calibration.calibration_tasks(family, per_lesson=4)`,
+# 64 tasks, so 128 episodes. Feeds `calibration.filter_lessons`: a lesson A passes in more
+# than 20% of its checks is guessable; one P-hand passes in under 60% is not learnable. Memory settings
+# match the core grid's B so P-hand here is the core grid's P-hand. Generated; do not edit by hand
+# (tests/test_house_lib.py checks the items against calibration_tasks).
+name: exp17-calib-L16-c0-w1
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  rules: {enabled: true, store: verbatim}
+family: house_lib/L16-c0-w1
+histories: 1
+groups: [A, P-hand]
+phases:
+- eval:
+    label: calibration
+    tasks:
+      items:
+      - [call_order.orders, inventory, 3000]
+      - [call_order.orders, logistics, 3001]
+      - [call_order.orders, telemetry, 3002]
+      - [call_order.orders, network_flows, 3003]
+      - [call_order.reporting, inventory, 3004]
+      - [call_order.reporting, logistics, 3005]
+      - [call_order.reporting, telemetry, 3006]
+      - [call_order.reporting, network_flows, 3007]
+      - [event_fields.orders, inventory, 3008]
+      - [event_fields.orders, logistics, 3009]
+      - [event_fields.orders, telemetry, 3010]
+      - [event_fields.orders, network_flows, 3011]
+      - [event_fields.shipping, inventory, 3012]
+      - [event_fields.shipping, logistics, 3013]
+      - [event_fields.shipping, telemetry, 3014]
+      - [event_fields.shipping, network_flows, 3015]
+      - [feature_flag.catalog, inventory, 3016]
+      - [feature_flag.catalog, logistics, 3017]
+      - [feature_flag.catalog, telemetry, 3018]
+      - [feature_flag.catalog, network_flows, 3019]
+      - [feature_flag.ledger, inventory, 3020]
+      - [feature_flag.ledger, logistics, 3021]
+      - [feature_flag.ledger, telemetry, 3022]
+      - [feature_flag.ledger, network_flows, 3023]
+      - [partner_format.fjord, inventory, 3024]
+      - [partner_format.fjord, logistics, 3025]
+      - [partner_format.fjord, telemetry, 3026]
+      - [partner_format.fjord, network_flows, 3027]
+      - [partner_format.kessa, inventory, 3028]
+      - [partner_format.kessa, logistics, 3029]
+      - [partner_format.kessa, telemetry, 3030]
+      - [partner_format.kessa, network_flows, 3031]
+      - [partner_format.mirro, inventory, 3032]
+      - [partner_format.mirro, logistics, 3033]
+      - [partner_format.mirro, telemetry, 3034]
+      - [partner_format.mirro, network_flows, 3035]
+      - [partner_format.ystad, inventory, 3036]
+      - [partner_format.ystad, logistics, 3037]
+      - [partner_format.ystad, telemetry, 3038]
+      - [partner_format.ystad, network_flows, 3039]
+      - [region_redaction.latam, inventory, 3040]
+      - [region_redaction.latam, logistics, 3041]
+      - [region_redaction.latam, telemetry, 3042]
+      - [region_redaction.latam, network_flows, 3043]
+      - [region_redaction.uk, inventory, 3044]
+      - [region_redaction.uk, logistics, 3045]
+      - [region_redaction.uk, telemetry, 3046]
+      - [region_redaction.uk, network_flows, 3047]
+      - [region_redaction.us, inventory, 3048]
+      - [region_redaction.us, logistics, 3049]
+      - [region_redaction.us, telemetry, 3050]
+      - [region_redaction.us, network_flows, 3051]
+      - [unit_convention.catalog, inventory, 3052]
+      - [unit_convention.catalog, logistics, 3053]
+      - [unit_convention.catalog, telemetry, 3054]
+      - [unit_convention.catalog, network_flows, 3055]
+      - [unit_convention.ledger, inventory, 3056]
+      - [unit_convention.ledger, logistics, 3057]
+      - [unit_convention.ledger, telemetry, 3058]
+      - [unit_convention.ledger, network_flows, 3059]
+      - [unit_convention.payroll, inventory, 3060]
+      - [unit_convention.payroll, logistics, 3061]
+      - [unit_convention.payroll, telemetry, 3062]
+      - [unit_convention.payroll, network_flows, 3063]

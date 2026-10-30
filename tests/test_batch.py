@@ -185,6 +185,21 @@ def _static_exp(tmp_path, **kw):
                                                                    "seeds": [2000, 2002]}}}], **kw)
 
 
+def test_tasks_as_an_explicit_item_list(tmp_path):
+    items = [["queue_pop_front", "billing", 1000], ["nested_scan_join", "inventory", 1003]]
+    exp, cfg = load_experiment(_write(tmp_path, groups=["B"], phases=[{"train": {"tasks": {"items": items}}},
+                                                                      {"eval": {"tasks": {"items": items[:1]}}}]))
+    steps = schedule(exp, cfg)
+    assert sorted((s.task.cause, s.task.theme, s.task.seed) for s in steps if s.kind == "train") == \
+        sorted(map(tuple, items))
+    assert [s.phase for s in steps if s.kind == "eval"] == ["after-2"]
+    for bad in ({"items": items, "seeds": [1, 2]}, {"causes": ["queue_pop_front"]}, {"items": items + items[:1]}):
+        with pytest.raises(ValidationError):
+            load_experiment(_write(tmp_path, phases=[{"eval": {"tasks": bad}}]))
+    with pytest.raises(ValueError, match="unknown causes"):
+        load_experiment(_write(tmp_path, phases=[{"eval": {"tasks": {"items": [["nope", "billing", 1]]}}}]))
+
+
 def test_p_all_needs_a_static_source(tmp_path):
     with pytest.raises(ValidationError, match="static"):
         load_experiment(_write(tmp_path, groups=["P-all"]))

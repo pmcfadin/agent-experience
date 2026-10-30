@@ -1,0 +1,37 @@
+# house_lib calibration (design §5, phase 2) for world L4-c50-w1: groups A (no hints) and P-hand
+# (the world's handbook) on the dev-seed panel `calibration.calibration_tasks(family, per_lesson=4)`,
+# 16 tasks, so 32 episodes. Feeds `calibration.filter_lessons`: a lesson A passes in more
+# than 20% of its checks is guessable; one P-hand passes in under 60% is not learnable. Memory settings
+# match the core grid's B so P-hand here is the core grid's P-hand. Generated; do not edit by hand
+# (tests/test_house_lib.py checks the items against calibration_tasks).
+name: exp17-calib-L4-c50-w1
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  rules: {enabled: true, store: verbatim}
+family: house_lib/L4-c50-w1
+histories: 1
+groups: [A, P-hand]
+phases:
+- eval:
+    label: calibration
+    tasks:
+      items:
+      - [call_order.reporting, logistics, 3000]
+      - [call_order.reporting, network_flows, 3001]
+      - [call_order.reporting, inventory, 3002]
+      - [call_order.reporting, billing, 3003]
+      - [call_order.shipping, logistics, 3004]
+      - [call_order.shipping, network_flows, 3005]
+      - [call_order.shipping, inventory, 3006]
+      - [call_order.shipping, billing, 3007]
+      - [feature_flag.payments, logistics, 3008]
+      - [feature_flag.payments, network_flows, 3009]
+      - [feature_flag.payments, inventory, 3010]
+      - [feature_flag.payments, billing, 3011]
+      - [required_wrapper.payroll, logistics, 3012]
+      - [required_wrapper.payroll, network_flows, 3013]
+      - [required_wrapper.payroll, inventory, 3014]
+      - [required_wrapper.payroll, billing, 3015]

@@ -98,19 +98,39 @@ class _Strict(BaseModel):
 
 
 class TaskSpec(_Strict):
-    causes: list[str] = Field(min_length=1)
-    themes: list[str] = Field(min_length=1)
-    seeds: tuple[int, int]   # [start, end)
+    """Either the product causes x themes x seeds, or an explicit `items` list of [cause, theme, seed]
+    (for panels that are not a product, such as a house_lib calibration panel)."""
+
+    causes: list[str] | None = Field(None, min_length=1)
+    themes: list[str] | None = Field(None, min_length=1)
+    seeds: tuple[int, int] | None = None   # [start, end)
+    items: list[tuple[str, str, int]] | None = Field(None, min_length=1)
 
     @field_validator("seeds")
     @classmethod
-    def _range(cls, v: tuple[int, int]) -> tuple[int, int]:
-        if v[1] <= v[0]:
+    def _range(cls, v: tuple[int, int] | None) -> tuple[int, int] | None:
+        if v is not None and v[1] <= v[0]:
             raise ValueError(f"seed range {list(v)} is empty; use [start, end)")
         return v
 
+    @model_validator(mode="after")
+    def _one_form(self) -> "TaskSpec":
+        product = (self.causes, self.themes, self.seeds)
+        if self.items is None and None in product:
+            raise ValueError("tasks need causes, themes and seeds, or items")
+        if self.items is not None and any(x is not None for x in product):
+            raise ValueError("tasks take either causes/themes/seeds or items, not both")
+        if self.items is not None and len(set(self.items)) != len(self.items):
+            raise ValueError("tasks items must be distinct")
+        return self
+
+    def triples(self) -> list[tuple[str, str, int]]:
+        if self.items is not None:
+            return [tuple(it) for it in self.items]
+        return [(c, th, s) for c in self.causes for th in self.themes for s in range(*self.seeds)]
+
     def cells(self) -> set[tuple[str, str]]:
-        return {(c, t) for c in self.causes for t in self.themes}
+        return {(c, t) for c, t, _ in self.triples()}
 
 
 class PhaseSpec(_Strict):
@@ -231,7 +251,8 @@ def load_experiment(path: str | Path) -> tuple[Experiment, ExperimentConfig]:
     family = get_family(exp.family)
     specs = [ph.spec.tasks for ph in exp.phases] + ([exp.dev.tasks] if exp.dev else [])
     for t in specs:
-        unknown = [c for c in t.causes if c not in family.causes] + [x for x in t.themes if x not in family.themes]
+        trip = t.triples()
+        unknown = sorted({c for c, _, _ in trip if c not in family.causes} | {x for _, x, _ in trip if x not in family.themes})
         if unknown:
             raise ValueError(f"unknown causes/themes for family {exp.family}: {unknown}")
     labels = [label for label, _ in _labelled(exp)]
@@ -255,6 +276,8 @@ def _check_cells(exp: Experiment) -> None:
             raise ValueError("group D needs a `dev` section (the promotion gate's task panel)")
         return
     dev = exp.dev.tasks
+    if dev.seeds is None:
+        raise ValueError("the dev panel takes causes/themes/seeds, not items")
     if not (DEV_SEEDS[0] <= dev.seeds[0] and dev.seeds[1] <= DEV_SEEDS[1]):
         raise ValueError(f"dev seeds {list(dev.seeds)} must lie in [{DEV_SEEDS[0]}, {DEV_SEEDS[1]})")
     not_train = dev.cells() - cells["train"]
@@ -271,7 +294,7 @@ def _labelled(exp: Experiment) -> list[tuple[str, Phase]]:
     out, n_train, k = [], 0, 0
     for ph in exp.phases:
         t = ph.spec.tasks
-        size = len(t.causes) * len(t.themes) * (t.seeds[1] - t.seeds[0])
+        size = len(t.triples())
         k += ph.kind == "train"
         default = {"train": f"train-{k}", "eval": f"after-{n_train}", "retention": f"retention-{n_train}"}[ph.kind]
         out.append((ph.spec.label or default, ph))
@@ -281,7 +304,7 @@ def _labelled(exp: Experiment) -> list[tuple[str, Phase]]:
 
 
 def expand_tasks(family, spec: TaskSpec, *, seed: int, history: int, phase_index: int | str) -> list[TaskInstance]:
-    tasks = [family.generate(c, th, s) for c in spec.causes for th in spec.themes for s in range(*spec.seeds)]
+    tasks = [family.generate(c, th, s) for c, th, s in spec.triples()]
     random.Random(f"{seed}/h{history}/p{phase_index}").shuffle(tasks)
     return tasks
 

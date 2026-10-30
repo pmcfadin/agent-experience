@@ -301,5 +301,7 @@ Choices made where this design left room:
   "performance ticket" is cpu_mem-only wording (cpu_mem text is byte-identical to before). Group D's
   workflow prompts and G-opt's prompts are still cpu_mem-specific.
 - **Calibration.** `calibration.py` gives the dev-seed panel, the P-hand handbook text and the
-  guessability / learnability filter. The P-hand group runs from a batch (SPEC §6.2); the
-  calibration runs (GPU) have not been made.
+  guessability / learnability filter. The P-hand group runs from a batch (SPEC §6.2). The panels are
+  `experiments/batches/exp17-calib-<world>.yaml` (generated; tasks given as an explicit `items`
+  list): A and P-hand, 4 tasks per lesson, worlds L ∈ {4, 16, 64} × c ∈ {0, 0.5}, 672 tasks and 1,344
+  episodes in all. Not run yet.

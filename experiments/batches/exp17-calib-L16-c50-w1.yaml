@@ -1,0 +1,85 @@
+# house_lib calibration (design §5, phase 2) for world L16-c50-w1: groups A (no hints) and P-hand
+# (the world's handbook) on the dev-seed panel `calibration.calibration_tasks(family, per_lesson=4)`,
+# 64 tasks, so 128 episodes. Feeds `calibration.filter_lessons`: a lesson A passes in more
+# than 20% of its checks is guessable; one P-hand passes in under 60% is not learnable. Memory settings
+# match the core grid's B so P-hand here is the core grid's P-hand. Generated; do not edit by hand
+# (tests/test_house_lib.py checks the items against calibration_tasks).
+name: exp17-calib-L16-c50-w1
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  rules: {enabled: true, store: verbatim}
+family: house_lib/L16-c50-w1
+histories: 1
+groups: [A, P-hand]
+phases:
+- eval:
+    label: calibration
+    tasks:
+      items:
+      - [call_order.catalog, logistics, 3000]
+      - [call_order.catalog, billing, 3001]
+      - [call_order.catalog, inventory, 3002]
+      - [call_order.catalog, telemetry, 3003]
+      - [call_order.payments, logistics, 3004]
+      - [call_order.payments, billing, 3005]
+      - [call_order.payments, inventory, 3006]
+      - [call_order.payments, telemetry, 3007]
+      - [event_fields.catalog, logistics, 3008]
+      - [event_fields.catalog, billing, 3009]
+      - [event_fields.catalog, inventory, 3010]
+      - [event_fields.catalog, telemetry, 3011]
+      - [event_fields.orders, logistics, 3012]
+      - [event_fields.orders, billing, 3013]
+      - [event_fields.orders, inventory, 3014]
+      - [event_fields.orders, telemetry, 3015]
+      - [feature_flag.catalog, logistics, 3016]
+      - [feature_flag.catalog, billing, 3017]
+      - [feature_flag.catalog, inventory, 3018]
+      - [feature_flag.catalog, telemetry, 3019]
+      - [feature_flag.orders, logistics, 3020]
+      - [feature_flag.orders, billing, 3021]
+      - [feature_flag.orders, inventory, 3022]
+      - [feature_flag.orders, telemetry, 3023]
+      - [partner_format.corvo, logistics, 3024]
+      - [partner_format.corvo, billing, 3025]
+      - [partner_format.corvo, inventory, 3026]
+      - [partner_format.corvo, telemetry, 3027]
+      - [partner_format.mirro, logistics, 3028]
+      - [partner_format.mirro, billing, 3029]
+      - [partner_format.mirro, inventory, 3030]
+      - [partner_format.mirro, telemetry, 3031]
+      - [partner_format.sabel, logistics, 3032]
+      - [partner_format.sabel, billing, 3033]
+      - [partner_format.sabel, inventory, 3034]
+      - [partner_format.sabel, telemetry, 3035]
+      - [region_redaction.latam, logistics, 3036]
+      - [region_redaction.latam, billing, 3037]
+      - [region_redaction.latam, inventory, 3038]
+      - [region_redaction.latam, telemetry, 3039]
+      - [required_wrapper.orders, logistics, 3040]
+      - [required_wrapper.orders, billing, 3041]
+      - [required_wrapper.orders, inventory, 3042]
+      - [required_wrapper.orders, telemetry, 3043]
+      - [required_wrapper.payments, logistics, 3044]
+      - [required_wrapper.payments, billing, 3045]
+      - [required_wrapper.payments, inventory, 3046]
+      - [required_wrapper.payments, telemetry, 3047]
+      - [required_wrapper.payroll, logistics, 3048]
+      - [required_wrapper.payroll, billing, 3049]
+      - [required_wrapper.payroll, inventory, 3050]
+      - [required_wrapper.payroll, telemetry, 3051]
+      - [required_wrapper.reporting, logistics, 3052]
+      - [required_wrapper.reporting, billing, 3053]
+      - [required_wrapper.reporting, inventory, 3054]
+      - [required_wrapper.reporting, telemetry, 3055]
+      - [unit_convention.reporting, logistics, 3056]
+      - [unit_convention.reporting, billing, 3057]
+      - [unit_convention.reporting, inventory, 3058]
+      - [unit_convention.reporting, telemetry, 3059]
+      - [unit_convention.shipping, logistics, 3060]
+      - [unit_convention.shipping, billing, 3061]
+      - [unit_convention.shipping, inventory, 3062]
+      - [unit_convention.shipping, telemetry, 3063]
