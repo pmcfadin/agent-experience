@@ -17,6 +17,13 @@ def scripted_client(kind: str, task: TaskInstance, family) -> ScriptedClient:
     verify = [("bash", {"command": "python -m unittest discover -s tests -q"})]
     if kind == "noop":
         return ScriptedClient([[("submit", {"summary": "No change."})]])
+    if hasattr(family, "solution_files"):  # families that edit more than job/core.py (house_lib)
+        if kind not in ("reference", "wrong"):
+            raise KeyError(f"unknown scripted agent {kind!r}")
+        files = family.solution_files(task) if kind == "reference" else family.wrong_files(task)
+        writes = [[_write_file(path, src)] for path, src in sorted(files.items())]
+        return ScriptedClient([[("bash", {"command": "ls -R"})], *writes, verify,
+                               [("submit", {"summary": f"scripted {kind} solution"})]])
     if kind == "reference":
         core = family.solution_core(task)
     elif kind == "wrong":

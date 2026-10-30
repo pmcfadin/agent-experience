@@ -38,7 +38,9 @@ def _check(family: TaskFamily, cause: str, theme: str, seed: int,
         else:
             # Must fail for the designed reason. Untouched buggy code must be correct and fail on
             # performance alone; wrong fixes and shortcuts must at least fail correctness.
-            if v.expect_failure == "performance":
+            if v.exact:
+                ok = (not verdict.passed) and failed == [v.expect_failure]
+            elif v.expect_failure == "performance":
                 ok = (not verdict.passed) and failed == ["performance"]
             else:
                 ok = (not verdict.passed) and v.expect_failure in failed
