@@ -332,6 +332,14 @@ order (`calibration.handbook_lines`), rendered like P-all's items (`[hand-01]`, 
 every history and including `hidden` lessons. Needs a `house_lib` world and no `static` section;
 its episodes carry the phase's own checkpoint. Instructions as for P-all and A0.
 
+*P-all-ep (2026-10-30, experiment `exp16-all-rules-and-records`).* P-all's rules plus every other unit
+the source snapshot could recall (`HindsightMemory.record_units`: for B, the 34 or so experience
+facts Hindsight extracted from the 15 episode records; consolidated observations are not recalled
+and are left out). Each rule is followed by its episode's facts, in training order: B's whole
+retrievable pool with no selection (~5k tokens per exp13 history, against ~2.8k for P-all). It
+separates the two explanations exp15 left open: P-all-ep ≈ B means the records explain B's lead,
+P-all-ep ≈ P-all means selection does.
+
 ### 6.3 Model client
 
 `ModelClient.create(**request) -> Response` with two implementations: `AnthropicClient` (real API,

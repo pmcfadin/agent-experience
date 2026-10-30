@@ -227,6 +227,49 @@ def test_static_groups_end_to_end(tmp_path):
         assert ("<experience>" in start["first_message"]) == (group == "P-all")
 
 
+class _FakeSnapshot:
+    """A source snapshot whose recallable record units are given."""
+
+    def __init__(self, units):
+        self.units = units
+
+    def record_units(self):
+        return self.units
+
+
+def test_p_all_ep_block_is_each_rule_then_its_records(tmp_path, monkeypatch):
+    store = Store(tmp_path / "runs")
+    _source_rules(store, "src", 0, 3, skip=1)
+    units = [{"document_id": "ep0-2", "text": "z fact"}, {"document_id": "ep0-0", "text": "b fact"},
+             {"document_id": "ep0-1", "text": "c fact"}, {"document_id": "ep0-0", "text": "a fact"}]
+    monkeypatch.setattr(batch, "source_snapshot", lambda store, exp, h: _FakeSnapshot(units))
+    exp, cfg = load_experiment(_write(tmp_path, groups=["P-all-ep"], static={"from_experiment": "src", "after": 3}))
+    items = batch.static_memory(store, exp, 0, "P-all-ep").recall(None, 5)
+    assert [(it.memory_id, it.text.split(" THEN")[0] if it.memory_id.startswith("rule") else it.text) for it in items] == [
+        ("rule-00", "VERIFIED RULE: WHEN case 0"), ("record-00-01", "a fact"), ("record-00-02", "b fact"),
+        ("record-01-01", "c fact"), ("rule-02", "VERIFIED RULE: WHEN case 2"), ("record-02-01", "z fact")]
+    assert [it.text for it in items if it.memory_id.startswith("rule")] == \
+        [it.text for it in batch.static_rules(store, exp, 0)]  # P-all's rules, unchanged
+    units.append({"document_id": "elsewhere", "text": "stray"})
+    with pytest.raises(RuntimeError, match="unknown documents"):
+        batch.static_memory(store, exp, 0, "P-all-ep")
+    with pytest.raises(ValidationError, match="static"):
+        load_experiment(_write(tmp_path, groups=["P-all-ep"]))
+
+
+def test_record_units_are_the_recallable_non_rule_units():
+    pages = [[{"fact_type": t, "tags": tags, "text": f"{t}{i}"} for i, (t, tags) in enumerate(
+        [("experience", []), ("world", ["rule"]), ("observation", []), ("world", [])] * 30)]]
+    bank = HindsightMemory.__new__(HindsightMemory)
+    bank._call = lambda method, path, body=None: {
+        "items": pages[0][int(path.split("offset=")[1]):int(path.split("offset=")[1]) + 100]}
+    assert len(bank.list_units()) == 120
+    bank.recall_types = ["experience"]
+    assert {u["fact_type"] for u in bank.record_units()} == {"experience"} and len(bank.record_units()) == 30
+    bank.recall_types = None
+    assert len(bank.record_units()) == 90 and all("rule" not in u["tags"] for u in bank.record_units())
+
+
 class _FakeBank:
     """Stands in for a read-only HindsightMemory with verbatim rules."""
 

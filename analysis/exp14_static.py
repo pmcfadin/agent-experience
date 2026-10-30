@@ -1,4 +1,5 @@
-"""H6 step 2: static prompt (exp14 P-all, A0) and rules-only retrieval (exp15 B-rules) against
+"""H6 step 2: static prompt (exp14 P-all, A0), rules-only retrieval (exp15 B-rules) and all rules plus
+records (exp16 P-all-ep) against
 retrieved memory (exp13 B) and no memory (exp13 A).
 
 Same test tickets in every group (quadratic_membership/inventory, seeds 2024-2035), so groups are
@@ -17,10 +18,12 @@ from math import comb
 from pathlib import Path
 
 SOURCES = {"A": "exp13-histories", "B": "exp13-histories", "C": "exp13-histories",
-           "P-all": "exp14-static-prompt", "A0": "exp14-static-prompt", "B-rules": "exp15-rules-only"}
-ORDER = ["A", "A0", "B", "B-rules", "C", "P-all"]
+           "P-all": "exp14-static-prompt", "A0": "exp14-static-prompt", "B-rules": "exp15-rules-only",
+           "P-all-ep": "exp16-all-rules-and-records"}
+ORDER = ["A", "A0", "B", "B-rules", "C", "P-all", "P-all-ep"]
 PAIRS = [("P-all", "B"), ("P-all", "A0"), ("A0", "A"), ("B", "A"), ("P-all", "A"),
-         ("B-rules", "B"), ("B-rules", "P-all")]
+         ("B-rules", "B"), ("B-rules", "P-all"), ("P-all-ep", "B"), ("P-all-ep", "P-all"),
+         ("P-all-ep", "B-rules")]
 
 
 def load(db: sqlite3.Connection) -> dict[tuple[str, int, str], dict]:

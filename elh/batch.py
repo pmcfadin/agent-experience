@@ -55,7 +55,10 @@ train episodes (opened under the source run's registration) with every start slo
 hit a verbatim rule (`RulesOnlyMemory`): retrieval among rules only, no episode records.
 `P-hand` (house_lib worlds only) shows the world's handbook, one hand-written `gold_text` per lesson
 in catalogue order, the same for every history; it needs no `static` section and its episodes carry
-the phase's own checkpoint.
+the phase's own checkpoint. `P-all-ep` is P-all plus everything else the source snapshot could
+recall (`record_units`: for B, the experience facts extracted from each episode record): each
+rule followed by its episode's facts, in training order, so it holds B's whole retrievable pool
+with no selection.
 
 Every episode carries `batch_id = <experiment>/<history>` (the analysis convention, elh/analysis.py);
 the phase is recoverable from split + checkpoint.
@@ -84,7 +87,7 @@ from elh.registry import ExperimentConfig
 from elh.runner.models import InfraError
 from elh.tasks.base import TaskInstance, get_family
 
-STATIC_GROUPS = ("P-all", "A0", "B-rules", "P-hand")   # fixed memory, never train
+STATIC_GROUPS = ("P-all", "A0", "B-rules", "P-hand", "P-all-ep")   # fixed memory, never train
 KNOWN_GROUPS = ("A", "B", "C", "D") + STATIC_GROUPS
 NON_LEARNING = ("A",) + STATIC_GROUPS   # never scheduled for train phases
 DEV_SEEDS = (3000, 4000)   # [start, end) every dev seed must fall in
@@ -165,7 +168,7 @@ class Experiment(_Strict):
 
     @model_validator(mode="after")
     def _static(self) -> "Experiment":
-        needs = [g for g in ("P-all", "B-rules") if g in self.groups]
+        needs = [g for g in ("P-all", "B-rules", "P-all-ep") if g in self.groups]
         if needs and self.static is None:
             raise ValueError(f"groups {needs} need a `static` section (the experiment and group their rules come from)")
         if "P-hand" in self.groups and not self.family.startswith("house_lib"):
@@ -494,6 +497,30 @@ def static_rules(store, exp: Experiment, history: int) -> list[MemoryItem]:
     return items
 
 
+def static_rules_and_records(store, exp: Experiment, history: int) -> list[MemoryItem]:
+    """P-all-ep's block: P-all's rules, each followed by the source snapshot's record units from the
+    same episode (ordered by text, for a stable order), in training order. Every record unit must
+    come from one of the first `after` train episodes."""
+    sp = exp.static
+    rules = {it.document_id.removesuffix(RULE_DOC_SUFFIX): it for it in static_rules(store, exp, history)}
+    episodes = [r[0] for r in store.db.execute(
+        "SELECT episode_id FROM episodes WHERE batch_id = ? AND test_group = ? AND split = 'train' AND ordinal < ? "
+        "ORDER BY ordinal", (f"{sp.from_experiment}/{history}", sp.group, sp.after))]
+    records: dict[str, list[dict]] = defaultdict(list)
+    for u in source_snapshot(store, exp, history).record_units():
+        records[u.get("document_id")].append(u)
+    stray = sorted(set(records) - set(episodes), key=str)
+    if stray:
+        raise RuntimeError(f"{sp.from_experiment}/{history}: record units from unknown documents {stray}")
+    items = []
+    for ordinal, episode_id in enumerate(episodes):
+        if episode_id in rules:
+            items.append(rules[episode_id])
+        for j, u in enumerate(sorted(records[episode_id], key=lambda u: u["text"]), 1):
+            items.append(MemoryItem(f"record-{ordinal:02d}-{j:02d}", u["text"], document_id=episode_id))
+    return items
+
+
 def source_snapshot(store, exp: Experiment, history: int):
     """The source group's read-only snapshot bank for one history, opened under the source run's
     own stored registration (snapshots are tied to the run that took them)."""
@@ -526,8 +553,11 @@ def static_memory(store, exp: Experiment, history: int, group: str):
         return StaticMemory([], "static:A0")
     if group == "B-rules":
         return RulesOnlyMemory(source_snapshot(store, exp, history))
-    items = static_rules(store, exp, history)
     sp = exp.static
+    if group == "P-all-ep":
+        return StaticMemory(static_rules_and_records(store, exp, history),
+                            f"static+records:{sp.from_experiment}/{history}/{sp.group}/e{sp.after}")
+    items = static_rules(store, exp, history)
     return StaticMemory(items, f"static:{sp.from_experiment}/{history}/{sp.group}/e{sp.after}")
 
 

@@ -283,19 +283,14 @@ class HindsightMemory:
         the bank's config overrides (missions, recall settings), mental models and directives.
         Version 2 also hashes every unit's `context` (the reranker scores "{context}: {text}")."""
         v2 = self.fingerprint_version >= 2
-        units, offset = [], 0
-        while True:
-            page = self._call("GET", f"/memories/list?limit=100&offset={offset}").get("items", [])
-            for u in page:
-                row = [u.get("fact_type"), u.get("state"), sorted(u.get("tags") or []), u.get("text")]
-                if v2:
-                    row += [u.get("context") or "", u.get("metadata") or {}]
-                elif u.get("metadata"):
-                    row.append(u["metadata"])
-                units.append(row)
-            if len(page) < 100:
-                break
-            offset += 100
+        units = []
+        for u in self.list_units():
+            row = [u.get("fact_type"), u.get("state"), sorted(u.get("tags") or []), u.get("text")]
+            if v2:
+                row += [u.get("context") or "", u.get("metadata") or {}]
+            elif u.get("metadata"):
+                row.append(u["metadata"])
+            units.append(row)
         docs = self._call("GET", "/stats").get("total_documents")
         content: dict = {"documents": docs, "units": sorted(units, key=json.dumps)}
         overrides = self._call("GET", "/config").get("overrides") or {}
@@ -313,6 +308,22 @@ class HindsightMemory:
             content["fingerprint_version"] = 2
         blob = json.dumps(content, sort_keys=True)
         return hashlib.sha256(blob.encode()).hexdigest()
+
+    def list_units(self) -> list[dict]:
+        """Every memory unit the bank holds, as Hindsight lists them."""
+        units, offset = [], 0
+        while True:
+            page = self._call("GET", f"/memories/list?limit=100&offset={offset}").get("items", [])
+            units += page
+            if len(page) < 100:
+                return units
+            offset += 100
+
+    def record_units(self) -> list[dict]:
+        """The units the ticket and search queries can return besides verbatim rules: every unit of
+        `recall_types` (all types when None) that is not tagged as a rule."""
+        return [u for u in self.list_units() if RULE_TAG not in (u.get("tags") or [])
+                and (self.recall_types is None or u.get("fact_type") in self.recall_types)]
 
     def export_snapshot(self) -> bytes:
         """The bank as a transfer archive (data and bank config; no audit or LLM history)."""

@@ -1,0 +1,21 @@
+# H6 step 2c: exp15 could not tell whether B beats the all-rules prompt (B 26/36, P-all 18/36,
+# B-rules 21/36) because of the episode records B shows or because it selects. P-all-ep shows every
+# rule plus every experience fact B could recall (each rule followed by its episode's facts, training
+# order, ~5k tokens) from each exp13 history's B snapshot after 15 train episodes: B's whole pool,
+# no selection. Same test tickets and memory-group instructions as exp13 B and exp14.
+# P-all-ep ~ B: content (the records) explains B's lead; P-all-ep ~ P-all: selection does.
+name: exp16-all-rules-and-records
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  rules: {enabled: true, store: verbatim}
+family: cpu_mem
+histories: 3
+groups: [P-all-ep]
+static: {from_experiment: exp13-histories, group: B, after: 15}
+phases:
+  - eval:
+      label: after-15
+      tasks: {causes: [quadratic_membership], themes: [inventory], seeds: [2024, 2036]}
