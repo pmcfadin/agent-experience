@@ -1,6 +1,7 @@
 # Design: `house_lib` task family (memory vs static prompt)
 
-Status: draft for review, 2026-10-27. Nothing here is implemented.
+Status: draft for review, 2026-10-27. Generator, oracle and validation implemented 2026-10-30
+(§10); calibration not run.
 
 ## 1. Why a new family
 
@@ -258,3 +259,38 @@ no-go before running the full grid.
    context size and `memory_token_budget`; B stays capped, and P-all deliberately is not.
 5. ~~**Library realism.**~~ Decided 2026-10-28: as proposed. Generated `acmecore` will be small (~1–2k lines). Bigger makes lookup costlier
    (helps the memory case, raises cost); proposed: start small, and add size as a later parameter.
+
+## 10. Implementation (2026-10-30)
+
+Code: `elh/tasks/families/house_lib/` (generator, `acmecore` builder, oracle, calibration entry point);
+tests: `tests/test_house_lib.py`. A family object is one world: `get_family("house_lib/L16-c50-w7")`
+(`house_lib` alone is `L16-c50-w1`); its causes are the world's lesson ids. `validate-family
+house_lib/<world>` runs §5 checks 1–6.
+
+Choices made where this design left room:
+
+- **Templates.** 7 of 10: `partner_format`, `unit_convention`, `region_redaction`, `required_wrapper`,
+  `event_fields`, `call_order`, `feature_flag`. Not yet: `counterfactual_default`, `sentinel_return`,
+  `retry_policy` (they need paging, cache misses or fault injection in the feature contract). Contexts:
+  16 partners, 8 regions, 8 modules, so 64 lessons in all, exactly the largest `L`.
+- **The feature.** Every ticket asks for `export(records)` in `service/<module>/<partner>_<items>_export.py`,
+  writing one row per qualifying record (region, minimum amount) with `acmecore.store.write`.
+  Lesson-neutral columns are the record's key and group; each required lesson adds a column
+  (`due_date`, `amount`, `contact`, `generated_at`, `idem_key`) or a behaviour (audit order, flag gate).
+  The ticket names the columns and the context, never the convention.
+- **Module-wide lessons.** `call_order` and `feature_flag` have no column, so they apply to every task
+  in their module and are always required there. The generator prefers modules without them when the
+  primary lesson does not fix the module; a task can therefore need more than 3 lessons.
+- **Conflicts.** `round(c·L/2)` pairs of same-template lessons get two different choices; all other
+  lessons of a template share one template-wide choice. At c = 0 no two rules of a template disagree.
+- **Visibility.** `source`: an undocumented lookup table in the `acmecore` module that implements the
+  API (`formats.PARTNER_STYLES`, `audit.MODULE_AUDIT`, …). `doc`: the gold text in the topic file
+  under `acmecore/docs/`. `hidden`: nowhere; only in worlds with a `-h` suffix (thirds), as decided.
+- **Library size.** About 330 lines plus docs, below the 1–2k first proposed; size stays a later
+  parameter.
+- **Oracle.** Copies the workspace, replaces `acmecore/` with its own copy, freezes the clock, and runs
+  `export` once per hidden input in a subprocess (2 edge, 3 small, 2 medium), plus once with the flag off
+  for each flag lesson. A blind variant must fail exactly `lesson:<id>` (necessity); a sibling's choice
+  must fail exactly `lesson:<id>` (conflict).
+- **Calibration.** `calibration.py` gives the dev-seed panel, the P-hand handbook text and the
+  guessability / learnability filter. The P-hand group and the runs (GPU) are not implemented.

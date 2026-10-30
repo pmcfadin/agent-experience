@@ -53,6 +53,8 @@ class ValidationVariant:
     expect_passed: bool
     # Check that must fail when expect_passed is False ("performance" means it must be the only one).
     expect_failure: str | None = None
+    # True: expect_failure must be the only failing check (house_lib necessity and conflict checks).
+    exact: bool = False
 
 
 class TaskFamily(Protocol):
@@ -70,4 +72,8 @@ def get_family(name: str) -> TaskFamily:
         from elh.tasks.families.cpu_mem import CpuMemFamily
 
         return CpuMemFamily()
+    if name == "house_lib" or name.startswith("house_lib/"):
+        from elh.tasks.families.house_lib import DEFAULT_WORLD, HouseLibFamily
+
+        return HouseLibFamily(name.partition("/")[2] or DEFAULT_WORLD)
     raise KeyError(f"unknown task family: {name}")
