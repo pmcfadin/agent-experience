@@ -1,4 +1,4 @@
-# H6 step 2: all-rules prompt against retrieved memory (exp14)
+# H6 step 2: all-rules prompt against retrieved memory (exp14, exp15)
 
 Date: 2026-10-29. Experiment: [`exp14-static-prompt`](../experiments/batches/exp14-static-prompt.yaml).
 Script: [`analysis/exp14_static.py`](../analysis/exp14_static.py) (stdlib only). Plan: `SPEC.md` §13, step 2.
@@ -46,6 +46,21 @@ slots fill all 5 places, searches return only rules), from the same exp13 snapsh
 expected; if B-rules ≈ P-all, the gain is the episode records, and `house_lib` needs a P-all
 variant that includes them.
 
+## Follow-up: rules-only retrieval (exp15, 2026-10-30)
+
+B-rules used each history's own B snapshot, with every start slot and search hit a rule (no episode
+records): [`exp15-rules-only`](../experiments/batches/exp15-rules-only.yaml), 36 episodes, no infra
+errors. It passed 21 of 36 (10, 10, 1 per history), between P-all (18) and B (26), and neither
+difference is significant: 2 tickets only B-rules passed against 7 only B passed (p = 0.18), and 6
+against 3 against P-all (p = 0.51).
+
+So of B's 8-ticket lead over the all-rules prompt, about 5 tickets go with the episode records and
+about 3 with selecting among rules, and this design cannot separate either from noise. Three
+histories and 12 tickets are too few. The question moves to `house_lib`, where the grid has more
+tickets and histories and where selection should matter more (many lessons, some conflicting); its
+P-all group needs a variant that also carries episode records (P-all+ep) so that content and
+selection are tested separately.
+
 ## Generated output
 
 ### Pass counts per history (of 12)
@@ -55,6 +70,7 @@ variant that includes them.
 | A | 2/12 | 3/12 | 1/12 | 6/36 | 34.2 | 168 | 33.3 |
 | A0 | 4/12 | 2/12 | 2/12 | 8/36 | 35.1 | 148 | 36.2 |
 | B | 11/12 | 12/12 | 3/12 | 26/36 | 28.8 | 99 | 28.3 |
+| B-rules | 10/12 | 10/12 | 1/12 | 21/36 | 28.7 | 88 | 28.6 |
 | C | 11/12 | 10/12 | 2/12 | 23/36 | 27.8 | 97 | 28.7 |
 | P-all | 9/12 | 9/12 | 0/12 | 18/36 | 27.7 | 89 | 27.2 |
 
@@ -67,3 +83,5 @@ variant that includes them.
 | A0 vs A | 36 | 6 | 4 | 0.754 |
 | B vs A | 36 | 21 | 1 | 0.000 |
 | P-all vs A | 36 | 14 | 2 | 0.004 |
+| B-rules vs B | 36 | 2 | 7 | 0.180 |
+| B-rules vs P-all | 36 | 6 | 3 | 0.508 |

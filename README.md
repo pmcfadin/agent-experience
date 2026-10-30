@@ -68,7 +68,8 @@ serves all three questions.
    memory changes working style ([note](docs/h7-exp13-reanalysis.md)).
 2. ~~Run the all-rules prompt on the current bug tickets.~~ Done: memory passed 26 of 36 against 18
    of 36 for all of its rules in the prompt, against an expected tie. Memory also showed past
-   episodes, so that gap is not yet proof that retrieval beats a prompt
+   episodes. Retrieving rules only passed 21 of 36, in between and not clearly different from
+   either, so whether the gain is retrieval or the past episodes moves to the larger study
    ([note](docs/h6-exp14-static-prompt.md)).
 3. Build, validate and calibrate the `house_lib` task family.
 4. Run the core `house_lib` grid with replicated histories (several GPU days).
