@@ -240,6 +240,17 @@ def test_calibration_batches_are_the_calibration_panel(path):
     assert exp.phases[0].spec.tasks.triples() == calibration.calibration_tasks(fam, per_lesson=4)
 
 
+def test_handbook_in_ticket_variant_changes_only_the_ticket(family):
+    plain, t = get_family("house_lib/L4-c0-w1"), get_family("house_lib/L4-c0-w1+t")
+    for cause in plain.causes:
+        a, b = plain.generate(cause, "telemetry", 3005), t.generate(cause, "telemetry", 3005)
+        assert a.oracle.files == b.oracle.files and a.signature == b.signature and a.protected == b.protected
+        assert {k for k in a.workspace if a.workspace[k] != b.workspace.get(k)} == {"TICKET.md"}
+        assert a.prompt != b.prompt and all(line in b.prompt for line in calibration.handbook_lines(plain))
+    with pytest.raises(ValueError, match="variant"):
+        get_family("house_lib/L4-c0-w1+x")
+
+
 def test_unknown_world_ids_are_rejected():
     with pytest.raises(ValueError):
         get_family("house_lib/L16-w1")

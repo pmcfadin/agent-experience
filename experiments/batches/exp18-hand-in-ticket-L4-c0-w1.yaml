@@ -1,0 +1,37 @@
+# Framing probe after exp17-calib-L4-c0-w1, where P-hand (handbook in the first-message experience
+# slot) passed 3 of 21 lesson checks: the agent copied raw values and ignored the handbook. Here the
+# same 16 tasks (`+t`: same world, workspace and oracle) carry the handbook inside the ticket under
+# "House conventions for this codebase", for group A (no memory slot). Same overrides as exp17.
+# Near 60%+: the experience slot or its framing is the problem (it also carries B's rules); near
+# exp17's P-hand: the agent does not apply stated conventions, and the ticket needs a stronger cue.
+name: exp18-hand-in-ticket-L4-c0-w1
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  rules: {enabled: true, store: verbatim}
+family: house_lib/L4-c0-w1+t
+histories: 1
+groups: [A]
+phases:
+- eval:
+    label: calibration
+    tasks:
+      items:
+      - [event_fields.payments, network_flows, 3000]
+      - [event_fields.payments, telemetry, 3001]
+      - [event_fields.payments, course_registration, 3002]
+      - [event_fields.payments, logistics, 3003]
+      - [partner_format.kessa, network_flows, 3004]
+      - [partner_format.kessa, telemetry, 3005]
+      - [partner_format.kessa, course_registration, 3006]
+      - [partner_format.kessa, logistics, 3007]
+      - [partner_format.mirro, network_flows, 3008]
+      - [partner_format.mirro, telemetry, 3009]
+      - [partner_format.mirro, course_registration, 3010]
+      - [partner_format.mirro, logistics, 3011]
+      - [region_redaction.latam, network_flows, 3012]
+      - [region_redaction.latam, telemetry, 3013]
+      - [region_redaction.latam, course_registration, 3014]
+      - [region_redaction.latam, logistics, 3015]

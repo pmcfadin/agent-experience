@@ -220,7 +220,13 @@ class HouseLibFamily:
     themes = list(THEMES)
 
     def __init__(self, world_id: str = DEFAULT_WORLD):
-        self.world: World = build_world(world_id)
+        # `<world>+t`: the same world and tasks, with the handbook in every ticket (a learnability
+        # probe: the lessons stated in the ticket itself, for a stateless agent).
+        base, plus, variant = world_id.partition("+")
+        if plus and variant != "t":
+            raise ValueError(f"house_lib variant {variant!r} unknown; only `+t` (handbook in the ticket)")
+        self.ticket_handbook = bool(plus)
+        self.world: World = build_world(base)
         self.name = f"{NAME}/{world_id}"
         self.causes = [les.id for les in self.world.lessons]
         self._library = self._build_library()
@@ -279,7 +285,8 @@ class HouseLibFamily:
         primary = self.world.lesson(cause)
         F = THEMES[theme]
         task_id = f"{self.name}/{cause}/{theme}/{seed}"
-        rng = random.Random(_derive_seed("house_lib", task_id))
+        draw_id = f"{NAME}/{self.world.id}/{cause}/{theme}/{seed}"  # variants draw the same task
+        rng = random.Random(_derive_seed("house_lib", draw_id))
         ctx, lessons = self._select(primary, rng)
         items_human = F["items"].replace("_", " ")
         table = f'{ctx["partner"]}_{F["items"]}'
@@ -293,8 +300,14 @@ class HouseLibFamily:
                     if les.tpl.field]
         opener = rng.choice(OPENERS).format(n=rng.randint(1000, 9999), **spec)
         prompt = Template(TICKET).substitute(spec, opener=opener, columns="\n".join(columns))
+        if self.ticket_handbook:
+            from elh.tasks.families.house_lib.calibration import handbook
 
-        sample = gen_records(random.Random(_derive_seed("sample", task_id)), SIZES["sample"], F,
+            head, sep, tail = prompt.partition("\nRequirements:\n")
+            prompt = (head + "\nHouse conventions for this codebase (apply the ones that concern this export):\n"
+                      + handbook(self) + "\n" + sep + tail)
+
+        sample = gen_records(random.Random(_derive_seed("sample", draw_id)), SIZES["sample"], F,
                              spec["region"], spec["min_cents"])
         expected = [{F["key"]: r[F["key"]], F["group"]: r[F["group"]]} for r in sample
                     if r["region"] == spec["region"] and r["amount_cents"] >= spec["min_cents"]]
@@ -316,7 +329,7 @@ class HouseLibFamily:
         protected = tuple(sorted(p for p in workspace if p.startswith(("acmecore/", "examples/")))) \
             + ("tests/test_public.py",)
 
-        params = dict(ORACLE_PARAMS, hidden_seed=_derive_seed("oracle", task_id), spec=spec,
+        params = dict(ORACLE_PARAMS, hidden_seed=_derive_seed("oracle", draw_id), spec=spec,
                       sizes=SIZES, lessons=[les.to_dict() for les in lessons])
         oracle_files = {f"acmecore/{p.removeprefix('acmecore/')}": src for p, src in self._library.items()}
         oracle_files.update({
