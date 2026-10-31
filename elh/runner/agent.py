@@ -65,7 +65,8 @@ def format_exec(res: ExecResult, timeout_s: float, limit: int) -> str:
 
 def run_episode(task: TaskInstance, sandbox: Sandbox, client: ModelClient, budgets: Budgets,
                 max_tokens: int, memory_block: str = "", search: SearchFn | None = None,
-                search_k: int = 5) -> EpisodeResult:
+                search_k: int = 5, experience_header: str = "hedged",
+                experience_position: str = "before_ticket") -> EpisodeResult:
     """Run one episode in an already-started sandbox. The caller owns sandbox lifecycle.
 
     `search` turns on the optional `search_memory` tool (paper 2607.22157's agent-driven read
@@ -75,7 +76,8 @@ def run_episode(task: TaskInstance, sandbox: Sandbox, client: ModelClient, budge
     t0 = time.perf_counter()
     on = search is not None
     system, tools = system_prompt(on), tool_list(on)
-    first = first_user_message(task, sandbox.workdir, memory_block, memory_check=on)
+    first = first_user_message(task, sandbox.workdir, memory_block, memory_check=on,
+                               header=experience_header, position=experience_position)
     messages: list[dict] = [{"role": "user", "content": first}]
     result = EpisodeResult(outcome="budget_exhausted", messages=messages)
     identity: dict | None = None

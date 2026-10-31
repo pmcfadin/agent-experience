@@ -1,0 +1,35 @@
+# Presentation probe after exp17 (P-hand in the experience slot: 3/21 lesson checks) and exp18 (the
+# same handbook inside the ticket, group A: 13/16 tasks). P-hand on the same 16 L4-c0 tasks, with
+# the block (original hedged header) moved to right after the ticket. One factor changed from exp17's P-hand.
+name: exp19b-hand-after-L4-c0-w1
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  rules: {enabled: true, store: verbatim}
+  memory_service.experience_position: after_ticket
+family: house_lib/L4-c0-w1
+histories: 1
+groups: [P-hand]
+phases:
+- eval:
+    label: calibration
+    tasks:
+      items:
+      - [event_fields.payments, network_flows, 3000]
+      - [event_fields.payments, telemetry, 3001]
+      - [event_fields.payments, course_registration, 3002]
+      - [event_fields.payments, logistics, 3003]
+      - [partner_format.kessa, network_flows, 3004]
+      - [partner_format.kessa, telemetry, 3005]
+      - [partner_format.kessa, course_registration, 3006]
+      - [partner_format.kessa, logistics, 3007]
+      - [partner_format.mirro, network_flows, 3008]
+      - [partner_format.mirro, telemetry, 3009]
+      - [partner_format.mirro, course_registration, 3010]
+      - [partner_format.mirro, logistics, 3011]
+      - [region_redaction.latam, network_flows, 3012]
+      - [region_redaction.latam, telemetry, 3013]
+      - [region_redaction.latam, course_registration, 3014]
+      - [region_redaction.latam, logistics, 3015]

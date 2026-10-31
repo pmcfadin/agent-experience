@@ -99,15 +99,25 @@ def tools(search_memory: bool = False) -> list[dict]:
     return TOOLS + [SEARCH_MEMORY_TOOL] if search_memory else TOOLS
 
 
+EXPERIENCE_HEADERS = {
+    "hedged": "Notes retrieved from your previous work on other tickets. They may or may not apply here.",
+    "plain": "Notes retrieved from your previous work in this codebase.",
+}
+
+
 def first_user_message(task: TaskInstance, workdir: str, memory_block: str = "",
-                       memory_check: bool = False) -> str:
+                       memory_check: bool = False, *, header: str = "hedged",
+                       position: str = "before_ticket") -> str:
     parts = []
-    if memory_block:
-        parts.append(
-            "<experience>\nNotes retrieved from your previous work on other tickets. They may or may "
-            "not apply here.\n\n" + memory_block.strip() + "\n</experience>"
-        )
+    block = (f"<experience>\n{EXPERIENCE_HEADERS[header]}\n\n" + memory_block.strip() + "\n</experience>"
+             if memory_block else "")
+    if block and position == "before_ticket":
+        parts.append(block)
     parts.append(f"Workspace: {workdir}\n\n<ticket>\n{task.prompt.strip()}\n</ticket>")
+    if block and position == "after_ticket":
+        parts.append(block)
+    elif position not in ("before_ticket", "after_ticket"):
+        raise ValueError(f"unknown experience position {position!r}")
     if memory_check:
         parts.append(MEMORY_CHECK_REMINDER)
     return "\n\n".join(parts)

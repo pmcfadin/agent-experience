@@ -310,7 +310,9 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
         if group == "D":
             block = wf.experience_block(proc_lib, block)
         result = run_episode(task, sbx, client, cfg.budgets, cfg.model.max_tokens_per_turn,
-                             memory_block=block, search=search, search_k=memory_k)
+                             memory_block=block, search=search, search_k=memory_k,
+                             **({"experience_header": ms.experience_header,
+                                 "experience_position": ms.experience_position} if ms is not None else {}))
         final_ws = sbx.snapshot_workspace()
         usage = sbx.resource_usage()
         backend, image = sbx.backend, sbx.image

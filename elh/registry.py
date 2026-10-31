@@ -196,6 +196,12 @@ class MemoryServiceConfig(_Strict):
     retain_extraction_mode: str | None = None
     # Learning on the Job's read path: the agent may call search_memory(query) during the episode.
     agent_search: bool = False
+    # How the memory block is presented (elh/runner/prompts.py first_user_message). "hedged": the
+    # original header ("... They may or may not apply here."); "plain": no hedge. Position: before the
+    # ticket (original) or right after it. Added after house_lib's first calibration (exp17), where a
+    # handbook in the slot was ignored but the same text inside the ticket was followed (exp18).
+    experience_header: Literal["hedged", "plain"] = "hedged"
+    experience_position: Literal["before_ticket", "after_ticket"] = "before_ticket"
 
     def hindsight_options(self) -> dict:
         """HindsightMemory constructor kwargs for this registration."""
@@ -297,7 +303,8 @@ _LATE_FIELDS = {
     "memory_service": {"include_diff": True, "ticket_metadata": True, "recall_max_tokens": 2048,
                        "recall_types": None, "lesson_query": None, "lesson_k": 2, "lesson_types": None,
                        "retain_mission": None, "observations_mission": None, "retain_extraction_mode": None,
-                       "agent_search": False},
+                       "agent_search": False, "experience_header": "hedged",
+                       "experience_position": "before_ticket"},
     "rules": {"store": "extract", "recall_k": 2},
 }
 

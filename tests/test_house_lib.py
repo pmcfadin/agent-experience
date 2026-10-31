@@ -257,3 +257,20 @@ def test_unknown_world_ids_are_rejected():
     assert get_family("house_lib").name == "house_lib/L16-c50-w1"
     assert json.loads(get_family("house_lib/L4-c0-w2").generate(
         build_world("L4-c0-w2").lessons[0].id, "billing", 1).oracle.files["params.json"])["spec"]["table"]
+
+
+def test_experience_block_header_and_position(family):
+    from elh.runner.prompts import EXPERIENCE_HEADERS, first_user_message
+
+    task = family.generate(family.causes[0], "billing", 1)
+    default = first_user_message(task, "/ws", "[x]\nnote", memory_check=True)
+    assert default == first_user_message(task, "/ws", "[x]\nnote", memory_check=True,
+                                         header="hedged", position="before_ticket")
+    assert default.index("<experience>") < default.index("<ticket>") and EXPERIENCE_HEADERS["hedged"] in default
+    plain = first_user_message(task, "/ws", "[x]\nnote", header="plain")
+    assert EXPERIENCE_HEADERS["plain"] in plain and "may or may not" not in plain
+    after = first_user_message(task, "/ws", "[x]\nnote", memory_check=True, position="after_ticket")
+    assert after.index("</ticket>") < after.index("<experience>") < after.index("<memory_check>")
+    assert first_user_message(task, "/ws", "", position="after_ticket") == first_user_message(task, "/ws", "")
+    with pytest.raises(ValueError, match="position"):
+        first_user_message(task, "/ws", "[x]", position="sideways")
