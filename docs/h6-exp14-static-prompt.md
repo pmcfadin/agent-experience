@@ -1,4 +1,4 @@
-# H6 step 2: all-rules prompt against retrieved memory (exp14, exp15)
+# H6 step 2: all-rules prompt against retrieved memory (exp14, exp15, exp16)
 
 Date: 2026-10-29. Experiment: [`exp14-static-prompt`](../experiments/batches/exp14-static-prompt.yaml).
 Script: [`analysis/exp14_static.py`](../analysis/exp14_static.py) (stdlib only). Plan: `SPEC.md` §13, step 2.
@@ -61,6 +61,34 @@ tickets and histories and where selection should matter more (many lessons, some
 P-all group needs a variant that also carries episode records (P-all+ep) so that content and
 selection are tested separately.
 
+## Follow-up: all rules plus all records, no selection (exp16, 2026-10-31)
+
+P-all-ep showed each history's whole retrievable B pool in the prompt: the 15 rules, each followed by
+the experience facts Hindsight had extracted from that episode's record (49 items, ~5k tokens), with
+no selection: [`exp16-all-rules-and-records`](../experiments/batches/exp16-all-rules-and-records.yaml),
+36 episodes, no infra errors. It passed **26 of 36 (12, 10, 4 per history), the same as B**: 5
+tickets only P-all-ep passed and 5 only B passed (p = 1.0). Against the rules-only prompt P-all it
+gained 10 tickets and lost 2 (p = 0.039).
+
+| Group | h0 | h1 | h2 | Total | Failed `performance` | Failed `integrity` |
+|---|---|---|---|---|---|---|
+| P-all (rules only) | 9 | 9 | 0 | 18/36 | 15 | 7 |
+| B-rules (rules, selected) | 10 | 10 | 1 | 21/36 | 11 | 4 |
+| P-all-ep (rules + records) | 12 | 10 | 4 | 26/36 | 9 | 3 |
+| B (rules + records, selected) | 11 | 12 | 3 | 26/36 | 9 | 2 |
+
+**On `cpu_mem`, B's lead over the all-rules prompt comes from what it holds, not from choosing what to
+show.** Adding the episode records to the prompt closed the whole gap; selecting among rules alone
+closed about 3 of 8 tickets, not significantly. Here a static prompt carrying the same content
+matches retrieved memory, which is what H6's null predicted for 5 causes. P-all-ep was also the
+fastest group (mean 74 s, 27.3 turns).
+
+Caveats as before: run on a different day from exp13 (same pinned model, build and settings), three
+histories, 12 tickets. The content in P-all-ep was written by memory (B's training run), so this
+says the *static form* of a memory's content can match the memory, not that a prompt written without
+experience can. Whether selection starts to matter when there are many lessons, some contradicting,
+is the `house_lib` question; its core grid should include P-all-ep next to P-all.
+
 ## Generated output
 
 ### Pass counts per history (of 12)
@@ -73,6 +101,7 @@ selection are tested separately.
 | B-rules | 10/12 | 10/12 | 1/12 | 21/36 | 28.7 | 88 | 28.6 |
 | C | 11/12 | 10/12 | 2/12 | 23/36 | 27.8 | 97 | 28.7 |
 | P-all | 9/12 | 9/12 | 0/12 | 18/36 | 27.7 | 89 | 27.2 |
+| P-all-ep | 12/12 | 10/12 | 4/12 | 26/36 | 27.3 | 74 | 26.5 |
 
 ### Paired comparisons (same history, same ticket)
 
@@ -85,3 +114,6 @@ selection are tested separately.
 | P-all vs A | 36 | 14 | 2 | 0.004 |
 | B-rules vs B | 36 | 2 | 7 | 0.180 |
 | B-rules vs P-all | 36 | 6 | 3 | 0.508 |
+| P-all-ep vs B | 36 | 5 | 5 | 1.000 |
+| P-all-ep vs P-all | 36 | 10 | 2 | 0.039 |
+| P-all-ep vs B-rules | 36 | 8 | 3 | 0.227 |
