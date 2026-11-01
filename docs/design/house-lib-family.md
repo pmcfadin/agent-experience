@@ -320,3 +320,23 @@ Choices made where this design left room:
 - **Calibration L4-c0 (exp20, 2026-11-01).** 32 episodes, no infra errors. A passed 0 of 16 tasks
   and 0 of 21 lesson checks; P-hand passed 16 of 16 tasks and 21 of 21 lesson checks. All 4 lessons
   are kept (not guessable, learnable when stated). `uv run python analysis/exp17_calibration.py`.
+- **Calibration L16-c0 (exp20, 2026-11-01).** 128 episodes, no infra errors. A passed 0 of 64 tasks
+  and 0 of 120 lesson checks (the feature itself 61 of 64). P-hand passed 38 of 64 tasks (a task
+  carries one to three lessons) and 91 of 120 lesson checks. 14 of 16 lessons are kept. Dropped as not
+  learnable: `feature_flag.ledger` (P-hand 1 of 12; `feature_flag.catalog`, the same rule for another
+  module, 6 of 9) and `partner_format.fjord` (2 of 6; the other three partners with the same choice
+  64-83%). In the failures the handbook line is present in the block; the agent writes the rows
+  ungated, or the raw `due` value. The module-wide `feature_flag` template is the weakest
+  (7 of 21 lesson checks with the handbook).
+- **Calibration L16-c50 (exp20, 2026-11-01).** 128 episodes, no infra errors. A passed 7 of 64 tasks;
+  P-hand 39 of 64. Only 7 of 16 lessons are kept, and the causes are mostly the generator's:
+  - `unit_convention` with choice `cents` is guessable (A 9 of 10 checks): `units.convert(c, "cents")`
+    is the identity, so writing `amount_cents` as given applies the convention by accident.
+  - `event_fields` with `group+key` (P-hand 4 of 11) and some `call_order` misses: the gold text
+    names "the row's key column" and "group column", but the ticket lists the two columns without
+    saying which is which; agents passed them swapped or combined. With choice `key` alone (L16-c0)
+    the guess was easy (10 of 10).
+  - Several lessons fall at 58% (7 of 12) against the 60% learnability bar; with 5-12 observations
+    per lesson the filter is noisy near the bar.
+  - Real misses: `partner_format.corvo` (2 of 7; its conflict sibling `sabel` 7 of 10) and
+    `feature_flag` (14 of 24) with the handbook line present.
