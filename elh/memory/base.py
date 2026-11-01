@@ -65,5 +65,20 @@ class StaticMemory:
         return None
 
 
+class OracleMemory(StaticMemory):
+    """P-oracle (house_lib, design §6): a pool of rules, each tagged with the lessons of the training
+    task that wrote it; `recall` shows, in pool order, only the rules whose lessons overlap the
+    task's own (`signature["lessons"]`): retrieval with the answer key. `fingerprint` is the whole
+    pool, so it is the same for every task."""
+
+    def __init__(self, items: list[MemoryItem], lessons: dict[str, frozenset[str]], snapshot_id: str):
+        super().__init__(items, snapshot_id)
+        self.lessons = lessons  # memory_id -> lessons of the training task that wrote the rule
+
+    def recall(self, task: TaskInstance, k: int) -> list[MemoryItem]:
+        want = set(task.signature["lessons"])
+        return [it for it in self.items if self.lessons[it.memory_id] & want]
+
+
 def render_memory_block(items: list[MemoryItem]) -> str:
     return "\n\n".join(f"[{it.memory_id}]\n{it.text.strip()}" for it in items)

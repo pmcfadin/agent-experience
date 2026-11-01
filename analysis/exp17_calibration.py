@@ -6,12 +6,16 @@ Also per group: whole-task pass rate, the feature check, and lesson-check pass r
 a world where the model cannot do the feature at all shows up before the per-lesson filter is read.
 Run from the repository root:
 
-    uv run python analysis/exp17_calibration.py [--runs-dir runs] [WORLD ...]
+    uv run python analysis/exp17_calibration.py [--runs-dir runs] [--write] [WORLD ...]
+
+`--write` stores each world's filter verdict (exp21 only) in `experiments/calibration/<world>.json`,
+which the core grid's panels and scores read (`house_lib.grid.kept_lessons`).
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sqlite3
 import statistics
@@ -19,7 +23,8 @@ from collections import defaultdict
 from pathlib import Path
 
 from elh.tasks.base import get_family
-from elh.tasks.families.house_lib.calibration import filter_lessons
+from elh.tasks.families.house_lib.calibration import calibration_tasks, filter_lessons
+from elh.tasks.families.house_lib.grid import CALIBRATION_DIR
 
 WORLDS = ["L4-c0-w1", "L4-c50-w1", "L16-c0-w1", "L16-c50-w1", "L64-c0-w1", "L64-c50-w1"]
 
@@ -48,7 +53,7 @@ def load(db: sqlite3.Connection, world: str) -> list[dict]:
     return out
 
 
-def report(world: str, eps: list[dict]) -> None:
+def report(world: str, eps: list[dict], write: bool = False) -> None:
     fam = get_family(f"house_lib/{world}")
     template = {les.id: les.template for les in fam.world.lessons}
     print(f"## {world}: {len(eps)} episodes\n")
@@ -84,18 +89,28 @@ def report(world: str, eps: list[dict]) -> None:
     for r in rows:
         print(f"| {r.lesson} | {fmt(r.a_rate, r.a_n)} | {fmt(r.hand_rate, r.hand_n)} | {'yes' if r.keep else 'no'} | {r.reason} |")
     print(f"\nKept {sum(r.keep for r in rows)} of {len(rows)} lessons.\n")
+    if write:
+        main = [e for e in eps if e["group"] in ("A", "P-hand")]
+        if len(main) != 2 * len(calibration_tasks(fam, per_lesson=8)):
+            raise SystemExit(f"{world}: exp21 is incomplete ({len(main)} episodes); not writing a verdict")
+        out = CALIBRATION_DIR / f"{world}.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps({"world": world, "batch": f"exp21-calib-{world}/0", "episodes": len(main),
+                                   "lessons": [dataclasses.asdict(r) for r in rows]}, indent=1) + "\n")
+        print(f"wrote {out}\n")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs-dir", default="runs")
+    ap.add_argument("--write", action="store_true", help="store each world's verdict for the core grid")
     ap.add_argument("worlds", nargs="*", default=WORLDS)
     args = ap.parse_args()
     db = sqlite3.connect(Path(args.runs_dir) / "elh.sqlite3")
     for w in args.worlds:
         eps = load(db, w)
         if eps:
-            report(w, eps)
+            report(w, eps, write=args.write)
 
 
 if __name__ == "__main__":

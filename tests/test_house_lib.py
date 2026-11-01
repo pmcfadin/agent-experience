@@ -285,3 +285,48 @@ def test_experience_block_header_and_position(family):
     assert first_user_message(task, "/ws", "", position="after_ticket") == first_user_message(task, "/ws", "")
     with pytest.raises(ValueError, match="position"):
         first_user_message(task, "/ws", "[x]", position="sideways")
+
+
+def test_grid_panels_and_scores_over_kept_lessons(tmp_path):
+    from elh.tasks.families.house_lib import grid
+
+    fam = get_family("house_lib/L16-c0-w1")
+    kept = [c for c in fam.causes if c not in ("feature_flag.ledger", "partner_format.fjord")]
+    train, evals = grid.grid_tasks(fam, kept)
+    assert Counter(c for c, _, _ in train) == {c: 2 for c in fam.causes} and len(train) == 32
+    assert len(evals) == grid.EVAL_TASKS and {c for c, _, _ in evals} == set(kept)
+    assert max(Counter(c for c, _, _ in evals).values()) - min(Counter(c for c, _, _ in evals).values()) <= 1
+    assert all(s < grid.EVAL_SEED for *_, s in train) and all(s >= grid.EVAL_SEED for *_, s in evals)
+    assert grid.grid_tasks(fam, kept) == (train, evals)
+    checks = {"integrity": True, "public_tests": True, "feature": True,
+              "lesson:feature_flag.ledger": False, "lesson:unit_convention.ledger": True}
+    assert grid.scored_pass(checks, kept) and "lesson:feature_flag.ledger" not in grid.scored_checks(checks, kept)
+    assert not grid.scored_pass(dict(checks, feature=False), kept)
+    assert not grid.scored_pass(dict(checks, **{"lesson:unit_convention.ledger": False}), kept)
+    with pytest.raises(ValueError):
+        grid.grid_tasks(fam, ["no.such"])
+    path = tmp_path / "w.json"
+    path.write_text(json.dumps({"world": "L16-c0-w1", "lessons": [{"lesson": c, "keep": c in kept} for c in fam.causes]}))
+    assert grid.kept_lessons("L16-c0-w1", path) == kept
+    with pytest.raises(ValueError):
+        grid.kept_lessons("L4-c0-w1", path)
+    learn, static = grid.batch_docs(fam, kept)
+    for doc in (learn, static):
+        doc["base_config"] = str(Path(__file__).parent.parent / doc["base_config"])
+        (tmp_path / f"{doc['name']}.yaml").write_text(yaml.safe_dump(doc))
+        exp, cfg = load_experiment(tmp_path / f"{doc['name']}.yaml")
+        steps = schedule(exp, cfg)
+        assert sorted((s.task.cause, s.task.theme, s.task.seed) for s in steps if s.kind == "eval" and s.history == 0
+                      and s.group == exp.groups[0]) == sorted(evals)
+    assert static["static"] == {"from_experiment": learn["name"], "group": "B", "after": 32}
+
+
+@pytest.mark.parametrize("path", sorted((Path(__file__).parent.parent / "experiments" / "batches").glob("exp2[23]-grid-*.yaml")),
+                         ids=lambda p: p.stem)
+def test_grid_batches_match_the_generator(path):
+    from elh.tasks.families.house_lib import grid
+
+    doc = yaml.safe_load(path.read_text())
+    world = doc["family"].split("/")[1]
+    learn, static = grid.batch_docs(get_family(doc["family"]), grid.kept_lessons(world))
+    assert doc == (learn if doc["name"].startswith("exp22-") else static)

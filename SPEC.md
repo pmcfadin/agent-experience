@@ -340,6 +340,11 @@ retrievable pool with no selection (~5k tokens per exp13 history, against ~2.8k 
 separates the two explanations exp15 left open: P-all-ep ≈ B means the records explain B's lead,
 P-all-ep ≈ P-all means selection does.
 
+*P-oracle (2026-11-01, `house_lib` only; `docs/design/house-lib-core-grid.md`).* P-all's rules,
+filtered per task with the answer key: a task sees, in training order, only the rules written on
+training tasks that share one of its lessons (`signature.lessons`, regenerated from the episode
+row). The upper bound on what rule selection could do; B − P-oracle is the cost of B's retrieval.
+
 ### 6.3 Model client
 
 `ModelClient.create(**request) -> Response` with two implementations: `AnthropicClient` (real API,

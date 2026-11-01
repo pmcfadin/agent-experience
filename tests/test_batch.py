@@ -272,6 +272,30 @@ def test_p_all_ep_block_is_each_rule_then_its_records(tmp_path, monkeypatch):
         load_experiment(_write(tmp_path, groups=["P-all-ep"]))
 
 
+def test_p_oracle_shows_only_rules_from_tasks_sharing_a_lesson(tmp_path):
+    world = "house_lib/L4-c0-w1"
+    fam = get_family(world)
+    train = [(fam.causes[i % len(fam.causes)], "billing", 1000 + i) for i in range(4)]
+    store = Store(tmp_path / "runs")
+    _source_rules(store, "src", 0, 4, skip=3)
+    for i, (cause, theme, seed) in enumerate(train):
+        store.db.execute("UPDATE episodes SET family = ?, cause = ?, theme = ?, seed = ? WHERE episode_id = ?",
+                         (world, cause, theme, seed, f"ep0-{i}"))
+    store.db.commit()
+    probe = fam.generate(fam.causes[0], "inventory", 2000)
+    exp, cfg = load_experiment(_write(tmp_path, family=world, groups=["P-oracle"],
+                                      static={"from_experiment": "src", "after": 4},
+                                      phases=[{"eval": {"tasks": {"items": [[probe.cause, "inventory", 2000]]}}}]))
+    mem = batch.static_memory(store, exp, 0, "P-oracle")
+    lessons = [set(fam.generate(*t).signature["lessons"]) for t in train]
+    want = [f"rule-{i:02d}" for i in range(3) if lessons[i] & set(probe.signature["lessons"])]
+    assert 0 < len(want) < 3 and [it.memory_id for it in mem.recall(probe, 5)] == want
+    assert [it.memory_id for it in mem.items] == ["rule-00", "rule-01", "rule-02"]  # P-all's pool
+    assert mem.fingerprint() == batch.static_memory(store, exp, 0, "P-all").fingerprint()
+    with pytest.raises(ValidationError, match="house_lib"):
+        load_experiment(_write(tmp_path, groups=["P-oracle"], static={"from_experiment": "src", "after": 4}))
+
+
 def test_record_units_are_the_recallable_non_rule_units():
     pages = [[{"fact_type": t, "tags": tags, "text": f"{t}{i}"} for i, (t, tags) in enumerate(
         [("experience", []), ("world", ["rule"]), ("observation", []), ("world", [])] * 30)]]

@@ -58,7 +58,9 @@ in catalogue order, the same for every history; it needs no `static` section and
 the phase's own checkpoint. `P-all-ep` is P-all plus everything else the source snapshot could
 recall (`record_units`: for B, the experience facts extracted from each episode record): each
 rule followed by its episode's facts, in training order, so it holds B's whole retrievable pool
-with no selection.
+with no selection. `P-oracle` (house_lib only) is P-all's pool with the answer key's selection: a
+task is shown only the rules written on training tasks that share one of its lessons
+(`signature.lessons`), in training order.
 
 Every episode carries `batch_id = <experiment>/<history>` (the analysis convention, elh/analysis.py);
 the phase is recoverable from split + checkpoint.
@@ -81,13 +83,13 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from elh.controller import memory_for, open_snapshot, run_id_for, run_single_episode, snapshot_memory
 from elh.learner import workflows as wf
-from elh.memory.base import MemoryItem, NullMemory, StaticMemory
+from elh.memory.base import MemoryItem, NullMemory, OracleMemory, StaticMemory
 from elh.memory.hindsight import RULE_DOC_SUFFIX, RulesOnlyMemory, render_rule_verbatim
 from elh.registry import ExperimentConfig
 from elh.runner.models import InfraError
 from elh.tasks.base import TaskInstance, get_family
 
-STATIC_GROUPS = ("P-all", "A0", "B-rules", "P-hand", "P-all-ep")   # fixed memory, never train
+STATIC_GROUPS = ("P-all", "A0", "B-rules", "P-hand", "P-all-ep", "P-oracle")   # fixed memory, never train
 KNOWN_GROUPS = ("A", "B", "C", "D") + STATIC_GROUPS
 NON_LEARNING = ("A",) + STATIC_GROUPS   # never scheduled for train phases
 DEV_SEEDS = (3000, 4000)   # [start, end) every dev seed must fall in
@@ -188,11 +190,13 @@ class Experiment(_Strict):
 
     @model_validator(mode="after")
     def _static(self) -> "Experiment":
-        needs = [g for g in ("P-all", "B-rules", "P-all-ep") if g in self.groups]
+        needs = [g for g in ("P-all", "B-rules", "P-all-ep", "P-oracle") if g in self.groups]
         if needs and self.static is None:
             raise ValueError(f"groups {needs} need a `static` section (the experiment and group their rules come from)")
         if "P-hand" in self.groups and not self.family.startswith("house_lib"):
             raise ValueError(f"group P-hand needs a house_lib world (a handbook of its lessons), not {self.family}")
+        if "P-oracle" in self.groups and not self.family.startswith("house_lib"):
+            raise ValueError(f"group P-oracle needs a house_lib world (tasks that list their lessons), not {self.family}")
         return self
 
     @field_validator("groups")
@@ -544,6 +548,22 @@ def static_rules_and_records(store, exp: Experiment, history: int) -> list[Memor
     return items
 
 
+def oracle_rules(store, exp: Experiment, history: int) -> OracleMemory:
+    """P-oracle's pool for one history: P-all's rules, each tagged with the lessons of the training
+    task that wrote it (regenerated from the episode row); each task is shown only the rules whose
+    lessons overlap its own."""
+    sp = exp.static
+    rows = {r[0]: r[1:] for r in store.db.execute(
+        "SELECT episode_id, family, cause, theme, seed FROM episodes WHERE batch_id = ? AND test_group = ? "
+        "AND split = 'train' AND ordinal < ?", (f"{sp.from_experiment}/{history}", sp.group, sp.after))}
+    items = static_rules(store, exp, history)
+    lessons = {}
+    for it in items:
+        family, cause, theme, seed = rows[it.document_id.removesuffix(RULE_DOC_SUFFIX)]
+        lessons[it.memory_id] = frozenset(get_family(family).generate(cause, theme, seed).signature["lessons"])
+    return OracleMemory(items, lessons, f"static:oracle:{sp.from_experiment}/{history}/{sp.group}/e{sp.after}")
+
+
 def source_snapshot(store, exp: Experiment, history: int):
     """The source group's read-only snapshot bank for one history, opened under the source run's
     own stored registration (snapshots are tied to the run that took them)."""
@@ -569,7 +589,8 @@ def handbook_items(family_name: str) -> list[MemoryItem]:
 
 def static_memory(store, exp: Experiment, history: int, group: str):
     """P-all: the source history's frozen rules; A0: an empty block (memory-group instructions only);
-    B-rules: the source snapshot, retrieving rules only; P-hand: the world's handbook."""
+    B-rules: the source snapshot, retrieving rules only; P-hand: the world's handbook; P-oracle: P-all's
+    rules from training tasks that share a lesson with the task."""
     if group == "P-hand":
         return StaticMemory(handbook_items(exp.family), f"static:handbook/{exp.family}")
     if group == "A0":
@@ -577,6 +598,8 @@ def static_memory(store, exp: Experiment, history: int, group: str):
     if group == "B-rules":
         return RulesOnlyMemory(source_snapshot(store, exp, history))
     sp = exp.static
+    if group == "P-oracle":
+        return oracle_rules(store, exp, history)
     if group == "P-all-ep":
         return StaticMemory(static_rules_and_records(store, exp, history),
                             f"static+records:{sp.from_experiment}/{history}/{sp.group}/e{sp.after}")
