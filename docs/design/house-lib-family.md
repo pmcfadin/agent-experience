@@ -317,3 +317,6 @@ Choices made where this design left room:
   argument is ("`key` is the row's key column value"); in exp18-19 two of three misses passed other
   values. This changes the library docs and task hashes, so exp20 tasks are not byte-identical to
   exp17-19's.
+- **Calibration L4-c0 (exp20, 2026-11-01).** 32 episodes, no infra errors. A passed 0 of 16 tasks
+  and 0 of 21 lesson checks; P-hand passed 16 of 16 tasks and 21 of 21 lesson checks. All 4 lessons
+  are kept (not guessable, learnable when stated). `uv run python analysis/exp17_calibration.py`.
