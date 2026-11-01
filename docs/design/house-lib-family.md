@@ -304,4 +304,16 @@ Choices made where this design left room:
   guessability / learnability filter. The P-hand group runs from a batch (SPEC §6.2). The panels are
   `experiments/batches/exp17-calib-<world>.yaml` (generated; tasks given as an explicit `items`
   list): A and P-hand, 4 tasks per lesson, worlds L ∈ {4, 16, 64} × c ∈ {0, 0.5}, 672 tasks and 1,344
-  episodes in all. Not run yet.
+  episodes in all.
+- **Memory placement (Decision, 2026-11-01).** On L4-c0 (exp17) the handbook in the first message's
+  experience slot, before the ticket, was ignored: P-hand passed 1 of 16 tasks, A 0 of 16. The same 16
+  tasks with the handbook inside the ticket (exp18, group A) passed 13; P-hand with the hedge removed
+  from the slot's header (exp19a) passed 3; P-hand with the block moved right after the ticket,
+  header unchanged (exp19b), passed 13 (12 vs 0 against exp17's P-hand, p = 0.0005; 2 vs 2 against
+  exp18). So in `house_lib` every memory group shows its block after the ticket
+  (`memory_service.experience_position: after_ticket`), hedged header kept; cpu_mem keeps its recorded
+  placement. Calibration restarts as `exp20-calib-<world>` (the unrun exp17 panels were removed).
+- **`event_fields` wording (Decision, 2026-11-01).** The gold text now says what each `ids.idem`
+  argument is ("`key` is the row's key column value"); in exp18-19 two of three misses passed other
+  values. This changes the library docs and task hashes, so exp20 tasks are not byte-identical to
+  exp17-19's.

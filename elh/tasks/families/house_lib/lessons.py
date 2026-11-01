@@ -88,8 +88,12 @@ def gold_text(lesson: Lesson) -> str:
     if t == "required_wrapper":
         return f"Timestamps written by the `{x}` module come from `clock.{c}()`."
     if t == "event_fields":
-        return (f"Rows written by the `{x}` module carry `idem_key = ids.idem({', '.join(IDEM_PARTS[c])})`, "
-                f"parts in that order (`module` is the module name).")
+        part = {"key": "the row's key column value", "group": "the row's group column value",
+                "module": f'the module name ("{x}")', "due": "the record's `due` date as given"}
+        parts = IDEM_PARTS[c]
+        return (f"Rows written by the `{x}` module carry `idem_key = ids.idem({', '.join(parts)})`, where "
+                + "; ".join(f"`{q}` is {part[q]}" for q in parts)
+                + (" (separate arguments, in that order)." if len(parts) > 1 else "."))
     if t == "call_order":
         return f"In the `{x}` module, `audit.record(table, key)` is called immediately {c} each `store.write`."
     if t == "feature_flag":

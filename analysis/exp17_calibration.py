@@ -1,6 +1,6 @@
 """house_lib calibration (design §5, phase 2): per-lesson guessability (A) and learnability (P-hand)
-from the exp17-calib-<world> batches, through `calibration.filter_lessons`; probes on the same tasks
-(exp18: handbook in the ticket) are shown alongside but do not enter the filter.
+from the exp20-calib-<world> batches, through `calibration.filter_lessons`; earlier runs on the same
+tasks (exp17-19, L4-c0 only) are shown alongside but do not enter the filter.
 
 Also per group: whole-task pass rate, the feature check, and lesson-check pass rates by template, so
 a world where the model cannot do the feature at all shows up before the per-lesson filter is read.
@@ -24,21 +24,25 @@ from elh.tasks.families.house_lib.calibration import filter_lessons
 WORLDS = ["L4-c0-w1", "L4-c50-w1", "L16-c0-w1", "L16-c50-w1", "L64-c0-w1", "L64-c50-w1"]
 
 
-# Probes on the same tasks: exp18, group A on the `+t` variant (handbook in the ticket); exp19a/b,
-# P-hand with the unhedged header / with the block after the ticket.
-PROBES = {"exp18-hand-in-ticket": "A+t-hand", "exp19a-hand-plain": "P-hand plain",
-          "exp19b-hand-after": "P-hand after"}
-GROUPS = ["A", "P-hand", "P-hand plain", "P-hand after", "A+t-hand"]
+# The calibration proper is exp20 (memory block after the ticket, clearer `event_fields` wording).
+# Earlier runs on the same L4-c0 tasks are shown as labelled comparisons and never enter the filter:
+# exp17 (block before the ticket), exp18 (handbook inside the ticket, group A), exp19a (unhedged
+# header), exp19b (block after the ticket, old wording).
+BATCHES = [("exp20-calib", {"A": "A", "P-hand": "P-hand"}),
+           ("exp17-calib", {"A": "A (exp17)", "P-hand": "P-hand before (exp17)"}),
+           ("exp19a-hand-plain", {"P-hand": "P-hand plain (exp19a)"}),
+           ("exp19b-hand-after", {"P-hand": "P-hand after (exp19b)"}),
+           ("exp18-hand-in-ticket", {"A": "A+t-hand (exp18)"})]
+GROUPS = [label for _, labels in BATCHES for label in labels.values()]
 
 
 def load(db: sqlite3.Connection, world: str) -> list[dict]:
-    batches = [(f"exp17-calib-{world}/0", None)] + [(f"{b}-{world}/0", label) for b, label in PROBES.items()]
     out = []
-    for batch_id, label in batches:
+    for prefix, labels in BATCHES:
         rows = db.execute("SELECT test_group, cause, passed, verdict_json, turns, wall_s, outcome FROM episodes "
-                          "WHERE batch_id = ? ORDER BY started_at", (batch_id,)).fetchall()
-        out += [{"group": label or g, "cause": c, "passed": bool(p), "checks": json.loads(v)["checks"], "turns": t,
-                 "wall_s": w, "outcome": o} for g, c, p, v, t, w, o in rows]
+                          "WHERE batch_id = ? ORDER BY started_at", (f"{prefix}-{world}/0",)).fetchall()
+        out += [{"group": labels[g], "cause": c, "passed": bool(p), "checks": json.loads(v)["checks"], "turns": t,
+                 "wall_s": w, "outcome": o} for g, c, p, v, t, w, o in rows if g in labels]
     return out
 
 

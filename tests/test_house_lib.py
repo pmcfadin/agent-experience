@@ -231,7 +231,7 @@ def test_p_hand_shows_the_world_handbook_and_never_trains(tmp_path):
         load_experiment(path)
 
 
-@pytest.mark.parametrize("path", sorted((Path(__file__).parent.parent / "experiments" / "batches").glob("exp17-calib-*.yaml")),
+@pytest.mark.parametrize("path", sorted((Path(__file__).parent.parent / "experiments" / "batches").glob("exp*-calib-*.yaml")),
                          ids=lambda p: p.stem)
 def test_calibration_batches_are_the_calibration_panel(path):
     exp, _ = load_experiment(path)
