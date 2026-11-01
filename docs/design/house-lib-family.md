@@ -340,3 +340,11 @@ Choices made where this design left room:
     per lesson the filter is noisy near the bar.
   - Real misses: `partner_format.corvo` (2 of 7; its conflict sibling `sabel` 7 of 10) and
     `feature_flag` (14 of 24) with the handbook line present.
+- **Generator fixes and recalibration (Decision, 2026-11-01).** From the L16-c50 findings: tickets
+  label the two lesson-neutral columns ("the row's key column", "the row's group column"), which
+  reveals no convention; the `call_order` gold text says what `key` is; `unit_convention` no longer
+  draws `cents`. Lesson ids are unchanged, choices of `unit_convention` (and draws after it) may
+  change, so exp20's tasks no longer regenerate from current code (their generator is commit
+  47d01a0). Calibration is redone as `exp21-calib-<world>` with 8 tasks per lesson instead of 4
+  (owner's choice, to make the 60% learnability bar less noisy), same thresholds:
+  L4 ×2 and L16 ×2 first (640 episodes), then L64 ×2 (2,048).

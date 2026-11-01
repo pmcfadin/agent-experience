@@ -43,7 +43,9 @@ class Template:
 TEMPLATES = {t.name: t for t in [
     Template("partner_format", "partner", "due_date", ("dmy_dot", "ymd_slash", "epoch_ms", "mdy_dash", "yyyymmdd"),
              "partner_styles", "partners.md"),
-    Template("unit_convention", "module", "amount", ("cents", "decimal_str", "milli", "cents_str"),
+    # No `cents`: units.convert(c, "cents") is the identity, so writing `amount_cents` as given would
+    # apply it by accident (calibration L16-c50, design §10).
+    Template("unit_convention", "module", "amount", ("decimal_str", "milli", "cents_str"),
              "module_units", "money.md"),
     Template("region_redaction", "region", "contact", ("mask", "digest", "domain"), "region_contact", "privacy.md"),
     Template("required_wrapper", "module", "generated_at", ("batch_time", "cutoff", "settled_at"),
@@ -95,7 +97,8 @@ def gold_text(lesson: Lesson) -> str:
                 + "; ".join(f"`{q}` is {part[q]}" for q in parts)
                 + (" (separate arguments, in that order)." if len(parts) > 1 else "."))
     if t == "call_order":
-        return f"In the `{x}` module, `audit.record(table, key)` is called immediately {c} each `store.write`."
+        return (f"In the `{x}` module, `audit.record(table, key)` is called immediately {c} each `store.write`, "
+                "where `key` is the row's key column value.")
     if t == "feature_flag":
         return f"New code paths in the `{x}` module are gated with `flags.on(\"{c}\", \"{x}\")` and write nothing when it is off."
     raise KeyError(t)

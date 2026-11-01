@@ -16,7 +16,7 @@ from elh.sandbox.local import LocalSandbox
 from elh.store import Store
 from elh.tasks.base import get_family
 from elh.tasks.families.house_lib import calibration
-from elh.tasks.families.house_lib.lessons import MODULE_WIDE, build_world, gold_text
+from elh.tasks.families.house_lib.lessons import MODULE_WIDE, TEMPLATES, build_world, gold_text
 from elh.validation import validate_family
 
 CONFIG = Path(__file__).parent.parent / "experiments" / "phase0-local.yaml"
@@ -237,7 +237,18 @@ def test_calibration_batches_are_the_calibration_panel(path):
     exp, _ = load_experiment(path)
     fam = get_family(exp.family)
     assert exp.groups == ["A", "P-hand"] and len(exp.phases) == 1
-    assert exp.phases[0].spec.tasks.triples() == calibration.calibration_tasks(fam, per_lesson=4)
+    per_lesson = 8 if path.stem.startswith("exp21-") else 4  # exp21 doubled the panel (design §10)
+    assert exp.phases[0].spec.tasks.triples() == calibration.calibration_tasks(fam, per_lesson=per_lesson)
+
+
+def test_ticket_names_key_and_group_columns_and_no_identity_unit():
+    fam = get_family("house_lib/L16-c50-w1")
+    for les in fam.world.lessons:
+        task = fam.generate(les.id, "logistics", 3000)
+        spec = fam.spec(task)
+        assert f"`{spec['key']}`: the record's {spec['key']} (the row's key column)" in task.prompt
+        assert f"`{spec['group']}`: the record's {spec['group']} (the row's group column)" in task.prompt
+    assert "cents" not in TEMPLATES["unit_convention"].choices
 
 
 def test_handbook_in_ticket_variant_changes_only_the_ticket(family):

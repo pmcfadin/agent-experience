@@ -1,5 +1,5 @@
 """house_lib calibration (design §5, phase 2): per-lesson guessability (A) and learnability (P-hand)
-from the exp20-calib-<world> batches, through `calibration.filter_lessons`; earlier runs on the same
+from the exp21-calib-<world> batches, through `calibration.filter_lessons`; earlier runs on the same
 tasks (exp17-19, L4-c0 only) are shown alongside but do not enter the filter.
 
 Also per group: whole-task pass rate, the feature check, and lesson-check pass rates by template, so
@@ -24,11 +24,13 @@ from elh.tasks.families.house_lib.calibration import filter_lessons
 WORLDS = ["L4-c0-w1", "L4-c50-w1", "L16-c0-w1", "L16-c50-w1", "L64-c0-w1", "L64-c50-w1"]
 
 
-# The calibration proper is exp20 (memory block after the ticket, clearer `event_fields` wording).
-# Earlier runs on the same L4-c0 tasks are shown as labelled comparisons and never enter the filter:
+# The calibration proper is exp21 (exp20's settings; tickets name the key and group columns, no
+# `cents` unit choice, 8 tasks per lesson). exp20 and the earlier L4-c0 runs are shown as labelled
+# comparisons and never enter the filter (their tasks differ from exp21's):
 # exp17 (block before the ticket), exp18 (handbook inside the ticket, group A), exp19a (unhedged
 # header), exp19b (block after the ticket, old wording).
-BATCHES = [("exp20-calib", {"A": "A", "P-hand": "P-hand"}),
+BATCHES = [("exp21-calib", {"A": "A", "P-hand": "P-hand"}),
+           ("exp20-calib", {"A": "A (exp20)", "P-hand": "P-hand (exp20)"}),
            ("exp17-calib", {"A": "A (exp17)", "P-hand": "P-hand before (exp17)"}),
            ("exp19a-hand-plain", {"P-hand": "P-hand plain (exp19a)"}),
            ("exp19b-hand-after", {"P-hand": "P-hand after (exp19b)"}),

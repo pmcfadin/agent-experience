@@ -295,7 +295,8 @@ class HouseLibFamily:
                 "module": ctx["module"], "partner": ctx["partner"], "Partner": ctx["partner"].capitalize(),
                 "region": ctx["region"], "REGION": ctx["region"].upper(), "min_cents": rng.choice(MIN_CENTS),
                 "table": table, "feature_path": rel, "feature_mod": rel[:-3].replace("/", ".")}
-        columns = [f"- `{F['key']}`: the record's {F['key']}", f"- `{F['group']}`: the record's {F['group']}"]
+        columns = [f"- `{F['key']}`: the record's {F['key']} (the row's key column)",
+                   f"- `{F['group']}`: the record's {F['group']} (the row's group column)"]
         columns += [f"- {COLUMN_TEXT[les.tpl.field]}" for les in sorted(lessons, key=lambda x: x.template)
                     if les.tpl.field]
         opener = rng.choice(OPENERS).format(n=rng.randint(1000, 9999), **spec)

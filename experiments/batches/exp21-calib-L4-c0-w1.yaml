@@ -1,0 +1,55 @@
+# house_lib calibration (design §5, phase 2) for world L4-c0-w1: groups A (no hints) and P-hand
+# (the world's handbook) on the dev-seed panel `calibration.calibration_tasks(family, per_lesson=8)`,
+# 32 tasks, so 64 episodes. Feeds `calibration.filter_lessons`: a lesson A passes in more
+# than 20% of its checks is guessable; one P-hand passes in under 60% is not learnable. Memory settings
+# match the core grid's B: the memory block goes right after the ticket (design §10, 2026-11-01).
+# Replaces exp20 (2026-11-01): tickets now name the key and group columns, `cents` is no longer a
+# unit_convention choice, and 8 tasks per lesson instead of 4. Generated; tests/test_house_lib.py checks the items.
+name: exp21-calib-L4-c0-w1
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  memory_service.experience_position: after_ticket
+  rules: {enabled: true, store: verbatim}
+family: house_lib/L4-c0-w1
+histories: 1
+groups: [A, P-hand]
+phases:
+- eval:
+    label: calibration
+    tasks:
+      items:
+      - [event_fields.payments, network_flows, 3000]
+      - [event_fields.payments, telemetry, 3001]
+      - [event_fields.payments, course_registration, 3002]
+      - [event_fields.payments, logistics, 3003]
+      - [event_fields.payments, billing, 3004]
+      - [event_fields.payments, inventory, 3005]
+      - [event_fields.payments, network_flows, 3006]
+      - [event_fields.payments, telemetry, 3007]
+      - [partner_format.kessa, network_flows, 3008]
+      - [partner_format.kessa, telemetry, 3009]
+      - [partner_format.kessa, course_registration, 3010]
+      - [partner_format.kessa, logistics, 3011]
+      - [partner_format.kessa, billing, 3012]
+      - [partner_format.kessa, inventory, 3013]
+      - [partner_format.kessa, network_flows, 3014]
+      - [partner_format.kessa, telemetry, 3015]
+      - [partner_format.mirro, network_flows, 3016]
+      - [partner_format.mirro, telemetry, 3017]
+      - [partner_format.mirro, course_registration, 3018]
+      - [partner_format.mirro, logistics, 3019]
+      - [partner_format.mirro, billing, 3020]
+      - [partner_format.mirro, inventory, 3021]
+      - [partner_format.mirro, network_flows, 3022]
+      - [partner_format.mirro, telemetry, 3023]
+      - [region_redaction.latam, network_flows, 3024]
+      - [region_redaction.latam, telemetry, 3025]
+      - [region_redaction.latam, course_registration, 3026]
+      - [region_redaction.latam, logistics, 3027]
+      - [region_redaction.latam, billing, 3028]
+      - [region_redaction.latam, inventory, 3029]
+      - [region_redaction.latam, network_flows, 3030]
+      - [region_redaction.latam, telemetry, 3031]

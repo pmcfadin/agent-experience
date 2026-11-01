@@ -1,0 +1,55 @@
+# house_lib calibration (design §5, phase 2) for world L4-c50-w1: groups A (no hints) and P-hand
+# (the world's handbook) on the dev-seed panel `calibration.calibration_tasks(family, per_lesson=8)`,
+# 32 tasks, so 64 episodes. Feeds `calibration.filter_lessons`: a lesson A passes in more
+# than 20% of its checks is guessable; one P-hand passes in under 60% is not learnable. Memory settings
+# match the core grid's B: the memory block goes right after the ticket (design §10, 2026-11-01).
+# Replaces exp20 (2026-11-01): tickets now name the key and group columns, `cents` is no longer a
+# unit_convention choice, and 8 tasks per lesson instead of 4. Generated; tests/test_house_lib.py checks the items.
+name: exp21-calib-L4-c50-w1
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  memory_service.experience_position: after_ticket
+  rules: {enabled: true, store: verbatim}
+family: house_lib/L4-c50-w1
+histories: 1
+groups: [A, P-hand]
+phases:
+- eval:
+    label: calibration
+    tasks:
+      items:
+      - [call_order.reporting, logistics, 3000]
+      - [call_order.reporting, network_flows, 3001]
+      - [call_order.reporting, inventory, 3002]
+      - [call_order.reporting, billing, 3003]
+      - [call_order.reporting, telemetry, 3004]
+      - [call_order.reporting, course_registration, 3005]
+      - [call_order.reporting, logistics, 3006]
+      - [call_order.reporting, network_flows, 3007]
+      - [call_order.shipping, logistics, 3008]
+      - [call_order.shipping, network_flows, 3009]
+      - [call_order.shipping, inventory, 3010]
+      - [call_order.shipping, billing, 3011]
+      - [call_order.shipping, telemetry, 3012]
+      - [call_order.shipping, course_registration, 3013]
+      - [call_order.shipping, logistics, 3014]
+      - [call_order.shipping, network_flows, 3015]
+      - [feature_flag.payments, logistics, 3016]
+      - [feature_flag.payments, network_flows, 3017]
+      - [feature_flag.payments, inventory, 3018]
+      - [feature_flag.payments, billing, 3019]
+      - [feature_flag.payments, telemetry, 3020]
+      - [feature_flag.payments, course_registration, 3021]
+      - [feature_flag.payments, logistics, 3022]
+      - [feature_flag.payments, network_flows, 3023]
+      - [required_wrapper.payroll, logistics, 3024]
+      - [required_wrapper.payroll, network_flows, 3025]
+      - [required_wrapper.payroll, inventory, 3026]
+      - [required_wrapper.payroll, billing, 3027]
+      - [required_wrapper.payroll, telemetry, 3028]
+      - [required_wrapper.payroll, course_registration, 3029]
+      - [required_wrapper.payroll, logistics, 3030]
+      - [required_wrapper.payroll, network_flows, 3031]

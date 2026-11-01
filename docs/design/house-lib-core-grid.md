@@ -57,8 +57,8 @@ episodes also retain and consolidate memory; not yet measured on house_lib, assu
 | Stage | Content | Episodes | GPU time |
 |---|---|---|---|
 | 4.0 Prerequisites | P-oracle group; dropped-lesson handling; train/eval panel generator; B smoke run (≈ 10 train + 4 eval on L16-c50) | ≈ 14 | ≈ 20 min |
-| 4.1 Go / no-go | L16-c0 and L16-c50 (both calibrated), 3 histories, all six groups | 192 train + 864 eval = 1,056 | ≈ 15 h |
-| 4.2 Calibrate the rest | L4-c50, L64-c0, L64-c50 (A and P-hand, 4 tasks per lesson) | ≈ 1,050 | ≈ 12 h |
+| 4.1 Go / no-go | L16-c0 and L16-c50 (after their exp21 recalibration), 3 histories, all six groups | 192 train + 864 eval = 1,056 | ≈ 15 h |
+| 4.2 Calibrate | exp21, 8 tasks per lesson: L4 ×2 and L16 ×2 (before 4.1), then L64 ×2 (before 4.3) | 640 + 2,048 | ≈ 7.5 h + ≈ 24 h |
 | 4.3 Full grid | 6 worlds; 4.1's histories reused if nothing changed | see below | see below |
 
 Full grid per history: 336 train + 576 eval (B, P-all, P-all-ep, P-oracle × 6 worlds × 24).
