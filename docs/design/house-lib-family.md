@@ -348,3 +348,8 @@ Choices made where this design left room:
   47d01a0). Calibration is redone as `exp21-calib-<world>` with 8 tasks per lesson instead of 4
   (owner's choice, to make the 60% learnability bar less noisy), same thresholds:
   L4 ×2 and L16 ×2 first (640 episodes), then L64 ×2 (2,048).
+- **Calibration exp21, L4 worlds (2026-11-01).** No infra errors. L4-c0: A 0 of 32 tasks and 0 of
+  47 lesson checks; P-hand 28 of 32 and 43 of 47; all 4 lessons kept (`event_fields` with the
+  labelled columns 12 of 12). L4-c50: A 0 of 32 and 0 of 32; P-hand 27 of 32 and 27 of 32; 3 of 4 kept.
+  Its conflict pair (`call_order` before in `reporting`, after in `shipping`) was followed 7 of 8 and
+  8 of 8; dropped: `feature_flag.payments` (4 of 8), the module-wide flag template again.
