@@ -1,0 +1,46 @@
+{
+ "world": "L4-c50-w1",
+ "batches": [
+  "exp21-calib-L4-c50-w1/0 (A)",
+  "exp24-learn-L4-c50-w1/0 (P-task)"
+ ],
+ "episodes": 64,
+ "lessons": [
+  {
+   "lesson": "call_order.reporting",
+   "a_n": 8,
+   "a_rate": 0.0,
+   "hand_n": 8,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "call_order.shipping",
+   "a_n": 8,
+   "a_rate": 0.0,
+   "hand_n": 8,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "feature_flag.payments",
+   "a_n": 8,
+   "a_rate": 0.0,
+   "hand_n": 8,
+   "hand_rate": 0.25,
+   "keep": false,
+   "reason": "not learnable: P-task passes 25% < 60%"
+  },
+  {
+   "lesson": "required_wrapper.payroll",
+   "a_n": 8,
+   "a_rate": 0.0,
+   "hand_n": 8,
+   "hand_rate": 0.75,
+   "keep": true,
+   "reason": "kept"
+  }
+ ]
+}

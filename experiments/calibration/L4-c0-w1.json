@@ -1,0 +1,46 @@
+{
+ "world": "L4-c0-w1",
+ "batches": [
+  "exp21-calib-L4-c0-w1/0 (A)",
+  "exp24-learn-L4-c0-w1/0 (P-task)"
+ ],
+ "episodes": 64,
+ "lessons": [
+  {
+   "lesson": "event_fields.payments",
+   "a_n": 12,
+   "a_rate": 0.0,
+   "hand_n": 12,
+   "hand_rate": 0.9166666666666666,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.kessa",
+   "a_n": 10,
+   "a_rate": 0.0,
+   "hand_n": 10,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.mirro",
+   "a_n": 12,
+   "a_rate": 0.0,
+   "hand_n": 12,
+   "hand_rate": 0.8333333333333334,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "region_redaction.latam",
+   "a_n": 13,
+   "a_rate": 0.0,
+   "hand_n": 13,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  }
+ ]
+}
