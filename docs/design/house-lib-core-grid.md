@@ -66,7 +66,9 @@ scoring and the panel and batch generator (`elh/tasks/families/house_lib/grid.py
 tested; each world's verdict is written by `analysis/exp17_calibration.py --write` to
 `experiments/calibration/<world>.json`, from which `grid.batch_docs` makes `exp22-grid-<world>` (A, B,
 P-hand; B trains) and `exp23-grid-static-<world>` (P-all, P-all-ep, P-oracle from exp22's B). Left: the
-B smoke run (`exp25-smoke-L16-c50-w1`; the go / no-go analysis is `analysis/exp22_grid.py`).
+B smoke runs (exp25-27, house-lib-family.md §10: they led to `rules.context` and
+`rules.feedback_where`, now in `grid.OVERRIDES`). Stage 4.1 started 2026-11-02 with both L16 worlds keeping
+16 of 16 lessons (exp24); the go / no-go analysis is `analysis/exp22_grid.py`.
 
 Full grid per history: 336 train + 576 eval (B, P-all, P-all-ep, P-oracle × 6 worlds × 24).
 A and P-hand do not depend on the history, so they run as 3 replicates (864 episodes in all) rather

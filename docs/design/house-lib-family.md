@@ -384,3 +384,10 @@ Choices made where this design left room:
   never its content; the validator requires those paths in the rule. The stored verdict and every
   static group are unchanged. The analogue is a reviewer saying "wrong audit order, see the audit
   docs". A stated deviation; the core grid uses it. Rechecked with `exp27-smoke-where-L16-c50-w1`.
+- **Learnability with P-task (exp24, 2026-11-02).** 320 episodes, no infra errors; verdicts in
+  `experiments/calibration/<world>.json` (A from exp21). Kept: L4-c0 4 of 4, L4-c50 3 of 4
+  (`feature_flag.payments`: P-task 25% of 8, dropped), L16-c0 16 of 16, L16-c50 16 of 16. A followed
+  a lesson in one check of 512 at L16 (`required_wrapper.reporting`, 1 of 11). The handbook-length
+  effect, exp21 P-hand vs P-task on L16-c0: the five lessons that missed the bar with the whole
+  handbook all clear it with only the ticket's lines (`feature_flag.ledger` 0 of 25 → 72%;
+  `partner_format` 46–61% → 82–100%). `feature_flag` stays the weakest template (72–96%).
