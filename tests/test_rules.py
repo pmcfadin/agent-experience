@@ -281,3 +281,33 @@ def test_context_rules_keep_the_tickets_module_partner_and_region():
     assert "not this ticket's names" not in out.prompt and "Do not save ticket-specific facts" not in out.prompt
     assert client.requests[0]["tools"][-1]["description"] == CONTEXT_TOOL_DESCRIPTION
     assert task.cause not in out.prompt  # the lesson id never reaches the writer
+
+
+def test_feedback_where_names_the_convention_file_only_for_failed_checks():
+    """`rules.feedback_where` (house_lib): a failed lesson check's learning feedback names the file
+    that defines its convention, never the convention; the stored verdict is unchanged; the rule must
+    carry the path."""
+    from elh.controller import feedback_where
+    task = get_family("house_lib/L16-c50-w1").generate("call_order.payments", "course_registration", 1901)
+    text = {k: {"label": k, "passed": "ok", "failed": "wrong"} for k in
+            ("lesson:call_order.payments", "lesson:region_redaction.latam", "lesson:partner_format.sabel")}
+    verdict = Verdict(False, {"integrity": True, "feature": True, "lesson:call_order.payments": False,
+                              "lesson:region_redaction.latam": True, "lesson:partner_format.sabel": False},
+                      {"check_text": text})
+    seen = feedback_where(task, verdict)
+    assert seen.detail["check_text"]["lesson:call_order.payments"]["failed"] == \
+        "wrong (this convention is defined in `acmecore/docs/audit.md`)"
+    assert seen.detail["check_text"]["lesson:region_redaction.latam"]["failed"] == "wrong"  # passed: no pointer
+    assert verdict.detail["check_text"]["lesson:call_order.payments"]["failed"] == "wrong"
+    client = Recording([
+        _create("AVOID: x", f"WHEN a payments export for sabel latam do NOT write rows {AVOID_TAIL}"),
+        _create("AVOID: x", f"WHEN a payments export for sabel latam fails do NOT write rows before reading "
+                            f"acmecore/docs/audit.md and acmecore/docs/partners.md {AVOID_TAIL}"),
+    ])
+    out = write_rule(client, task, EpisodeResult("submitted"), seen, task.workspace,
+                     RulesConfig(enabled=True, context=True, feedback_where=True))
+    assert out.required == ["payments", "latam", "sabel", "acmecore/docs/audit.md", "acmecore/docs/partners.md"]
+    assert len(client.requests) == 2 and out.gaps == []
+    assert "this convention is defined in `acmecore/docs/audit.md`" in out.prompt
+    with pytest.raises(ValueError, match="cannot place"):
+        feedback_where(get_family("cpu_mem").generate("queue_pop_front", "billing", 1), verdict)

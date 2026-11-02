@@ -369,12 +369,13 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
     entries.append(compute_entry(cfg, usage.cpu_s, category="tool_compute" if charge_as == "inference" else charge_as))
 
     if split not in READ_ONLY_SPLITS and result.outcome != "refused":
-        record = episode_record(episode_id, task, result, verdict, final_ws)
+        learn_verdict = feedback_where(task, verdict) if cfg.rules is not None and cfg.rules.feedback_where else verdict
+        record = episode_record(episode_id, task, result, learn_verdict, final_ws)
         if cfg.rules is not None and cfg.rules.enabled and not isinstance(memory, NullMemory):
             # Learning on the Job: the agent reflects on its verified episode and writes one rule,
             # retained first in the record (rules.store "extract") or as its own verbatim item
             # ("verbatim", see HindsightMemory.retain); its calls are learning overhead.
-            rr = write_rule(client, task, result, verdict, final_ws, cfg.rules)
+            rr = write_rule(client, task, result, learn_verdict, final_ws, cfg.rules)
             entries += [e for c in rr.calls for e in usage_entries(cfg, cfg.model.id, c["usage"], category="learning")]
             store.db.execute("UPDATE episodes SET rule_json = ? WHERE episode_id = ?",
                              (json.dumps(rr.to_dict(), sort_keys=True, default=str), episode_id))
@@ -444,6 +445,24 @@ def budget_cost_usd(cfg: ExperimentConfig) -> float:
     """Cost of an episode that spends its whole token budget, at the agent model's pinned input
     price: the denominator of group C's normalised cost (r = 1 - cost/budget on a pass)."""
     return cfg.budgets.max_total_tokens * cfg.price(cfg.model.id).input / 1e6
+
+
+WHERE_SUFFIX = " (this convention is defined in `{path}`)"
+
+
+def feedback_where(task: TaskInstance, verdict: Verdict) -> Verdict:
+    """The verdict as the learning feedback sees it under `rules.feedback_where`: each failed check
+    the family can place says which workspace file defines its convention."""
+    family = get_family(task.family)
+    if not hasattr(family, "convention_where"):
+        raise ValueError(f"rules.feedback_where: family {task.family} cannot place its conventions")
+    where = family.convention_where(task)
+    text = {k: dict(v) for k, v in ((verdict.detail or {}).get("check_text") or {}).items()}
+    for name, path in where.items():
+        if name in text and not verdict.checks.get(name, True):
+            text[name]["failed"] += WHERE_SUFFIX.format(path=path)
+    return Verdict(verdict.passed, verdict.checks, {**(verdict.detail or {}), "check_text": text},
+                   verdict.oracle_wall_s, verdict.error)
 
 
 def episode_record(episode_id: str, task: TaskInstance, result: EpisodeResult, verdict: Verdict,

@@ -276,6 +276,23 @@ class HouseLibFamily:
     def spec(self, task: TaskInstance) -> dict:
         return json.loads(task.oracle.files["params.json"])["spec"]
 
+    # The acmecore file that holds each source table (library.py's `${table}` placeholders).
+    SOURCE_FILES = {"module_audit": "audit.py", "module_clocks": "clock.py", "module_flags": "flags.py",
+                    "partner_styles": "formats.py", "module_idem_parts": "ids.py", "region_contact": "pii.py",
+                    "module_units": "units.py"}
+
+    def convention_where(self, task: TaskInstance) -> dict[str, str]:
+        """Check name -> the workspace file that defines the lesson's convention (`doc`: its topic doc,
+        `source`: the acmecore module with its lookup table; `hidden`: none). Only the learning
+        feedback uses it (`rules.feedback_where`); never the convention itself."""
+        out = {}
+        for lid, les in self.required(task).items():
+            if les.visibility == "doc":
+                out[f"lesson:{lid}"] = f"acmecore/docs/{les.tpl.topic}"
+            elif les.visibility == "source":
+                out[f"lesson:{lid}"] = f"acmecore/{self.SOURCE_FILES[les.tpl.table]}"
+        return out
+
     def required(self, task: TaskInstance) -> dict[str, Lesson]:
         return {lid: self.world.lesson(lid) for lid in task.signature["lessons"]}
 

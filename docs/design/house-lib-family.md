@@ -375,3 +375,12 @@ Choices made where this design left room:
   requires the ticket's context names verbatim (App. A.7's mechanism). Still experience grade: no
   expected value, lesson id or gold text. A stated deviation from the paper; the core grid uses it
   (`grid.OVERRIDES`). Rechecked with `exp26-smoke-ctx-L16-c50-w1` (same tickets) before 4.1.
+- **Context smoke run and convention pointers (exp26, Decision, 2026-11-02).** With `rules.context`
+  every rule named the module, partner and region and the failed part of the output, but 0 of 14 still
+  passed and no episode in exp25 or exp26 opened `acmecore/docs/` (20 of 28 read library code), so a
+  failure gave memory nothing to act on. Owner's decision: `rules.feedback_where` adds, to each failed
+  lesson check's learning feedback (rule writer and memory record only), the file that defines the
+  convention (`family.convention_where`: the topic doc, or the acmecore module with the lookup table),
+  never its content; the validator requires those paths in the rule. The stored verdict and every
+  static group are unchanged. The analogue is a reviewer saying "wrong audit order, see the audit
+  docs". A stated deviation; the core grid uses it. Rechecked with `exp27-smoke-where-L16-c50-w1`.

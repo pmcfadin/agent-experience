@@ -344,6 +344,21 @@ def context_strings(task: TaskInstance) -> list[str]:
     return [v for v in ctx.values() if isinstance(v, str) and v and v.lower() in prompt]
 
 
+_WHERE = re.compile(r"this convention is defined in `([^`]+)`")
+
+
+def where_strings(verdict: Verdict) -> list[str]:
+    """`RulesConfig.feedback_where`: the files the failed checks' feedback names (controller
+    `feedback_where`), which the rule must carry verbatim."""
+    text = (verdict.detail or {}).get("check_text") or {}
+    out = []
+    for name, ok in verdict.checks.items():
+        for path in _WHERE.findall((text.get(name) or {}).get("failed", "") if not ok else ""):
+            if path not in out:
+                out.append(path)
+    return out
+
+
 def required_strings(verdict: Verdict) -> list[str]:
     """What a rule must carry verbatim (App. A.7's `rule_required_strings`). The paper draws them
     from the gold-vs-executed action diff: wrong argument values, EXTRA consequential actions (the
@@ -486,7 +501,7 @@ def write_rule(client: ModelClient, task: TaskInstance, result: EpisodeResult, v
     tools = list(start.get("tools") or TOOLS) + [create_tool]
 
     required = required_strings(verdict)
-    context = context_strings(task) if cfg.context else []
+    context = (context_strings(task) if cfg.context else []) + (where_strings(verdict) if cfg.feedback_where else [])
     required += [c for c in context if c not in required]
     reflection = reflection_message(task, result, verdict, final_ws, context=cfg.context)
     out = RuleResult(rule=None, required=required, prompt=reflection)

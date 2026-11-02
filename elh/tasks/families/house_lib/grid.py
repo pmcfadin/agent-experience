@@ -65,7 +65,8 @@ def scored_pass(checks: dict[str, bool], kept: list[str]) -> bool:
 # The trial (4.1) and full grid (4.3) settings: exp21's memory settings, the house_lib placement.
 OVERRIDES = {"memory_service.record_format": "lesson-v3", "memory_service.recall_types": ["experience"],
              "memory_service.agent_search": True, "memory_service.experience_position": "after_ticket",
-             "rules": {"enabled": True, "store": "verbatim", "context": True}}
+             "rules": {"enabled": True, "store": "verbatim", "context": True,
+                       "feedback_where": True}}
 HISTORIES = 3
 
 

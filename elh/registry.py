@@ -98,6 +98,10 @@ class RulesConfig(_Strict):
     # (signature["context"]: module, partner, region) verbatim instead of generalizing it away
     # (elh/learner/rules.py CONTEXT_*; a stated deviation from the paper's wording).
     context: bool = False
+    # house_lib: a failed lesson check's feedback to the rule writer and the memory record adds the
+    # file that defines the convention (`family.convention_where`; never its content). The verdict
+    # stored with the episode is unchanged.
+    feedback_where: bool = False
 
     def hindsight_options(self) -> dict:
         """HindsightMemory kwargs for the rule store (none for the default, so banks reproduce)."""
@@ -309,7 +313,7 @@ _LATE_FIELDS = {
                        "retain_mission": None, "observations_mission": None, "retain_extraction_mode": None,
                        "agent_search": False, "experience_header": "hedged",
                        "experience_position": "before_ticket"},
-    "rules": {"store": "extract", "recall_k": 2, "context": False},
+    "rules": {"store": "extract", "recall_k": 2, "context": False, "feedback_where": False},
 }
 
 
