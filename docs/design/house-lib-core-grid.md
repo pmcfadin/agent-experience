@@ -58,7 +58,7 @@ episodes also retain and consolidate memory; not yet measured on house_lib, assu
 |---|---|---|---|
 | 4.0 Prerequisites | P-oracle group; dropped-lesson handling; train/eval panel generator; B smoke run (≈ 10 train + 4 eval on L16-c50) | ≈ 14 | ≈ 20 min |
 | 4.1 Go / no-go | L16-c0 and L16-c50 (after their exp21 recalibration), 3 histories, all six groups | 192 train + 864 eval = 1,056 | ≈ 15 h |
-| 4.2 Calibrate | exp21, 8 tasks per lesson: L4 ×2 and L16 ×2 (before 4.1), then L64 ×2 (before 4.3) | 640 + 2,048 | ≈ 7.5 h + ≈ 24 h |
+| 4.2 Calibrate | exp21 (A, P-hand) and exp24 (P-task, the learnability control), 8 tasks per lesson: L4 ×2 and L16 ×2 (before 4.1), then L64 ×2 (before 4.3) | 960 + 3,072 | ≈ 12 h + ≈ 36 h |
 | 4.3 Full grid | 6 worlds; 4.1's histories reused if nothing changed | see below | see below |
 
 Stage 4.0 status (2026-11-01): P-oracle (`OracleMemory`, `elh/batch.py oracle_rules`), kept-lesson
@@ -66,7 +66,7 @@ scoring and the panel and batch generator (`elh/tasks/families/house_lib/grid.py
 tested; each world's verdict is written by `analysis/exp17_calibration.py --write` to
 `experiments/calibration/<world>.json`, from which `grid.batch_docs` makes `exp22-grid-<world>` (A, B,
 P-hand; B trains) and `exp23-grid-static-<world>` (P-all, P-all-ep, P-oracle from exp22's B). Left: the
-B smoke run (the go / no-go analysis is `analysis/exp22_grid.py`).
+B smoke run (`exp25-smoke-L16-c50-w1`; the go / no-go analysis is `analysis/exp22_grid.py`).
 
 Full grid per history: 336 train + 576 eval (B, P-all, P-all-ep, P-oracle × 6 worlds × 24).
 A and P-hand do not depend on the history, so they run as 3 replicates (864 episodes in all) rather

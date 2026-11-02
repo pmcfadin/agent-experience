@@ -353,3 +353,13 @@ Choices made where this design left room:
   labelled columns 12 of 12). L4-c50: A 0 of 32 and 0 of 32; P-hand 27 of 32 and 27 of 32; 3 of 4 kept.
   Its conflict pair (`call_order` before in `reporting`, after in `shipping`) was followed 7 of 8 and
   8 of 8; dropped: `feature_flag.payments` (4 of 8), the module-wide flag template again.
+- **Calibration exp21, L16-c0 (2026-11-02), and the learnability control (Decision).** No infra
+  errors; A 0 of 128 tasks and 0 of 244 lesson checks. With the whole handbook (P-hand) only 11 of 16
+  lessons clear the 60% bar, and the four `partner_format` lessons (all `epoch_ms`) pass 46-61%
+  against 70-92% for the same template in L4; all 27 misses leave the date unformatted. So
+  P-hand's learnability mixes in the handbook's length, the effect H6 expects static prompts to
+  suffer from, and filtering on it would drop the lessons where memory could gain. Owner's decision:
+  learnability is measured with **P-task**, the handbook lines of the ticket's own lessons only
+  (`exp24-learn-<world>`, exp21's panel; A is reused from exp21). P-hand stays in the core grid as the
+  best whole-world static prompt, and exp21 P-hand vs exp24 P-task measures the handbook's length
+  directly. The L4 verdicts written earlier from P-hand were removed; all are rewritten from P-task.

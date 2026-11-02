@@ -55,7 +55,9 @@ train episodes (opened under the source run's registration) with every start slo
 hit a verbatim rule (`RulesOnlyMemory`): retrieval among rules only, no episode records.
 `P-hand` (house_lib worlds only) shows the world's handbook, one hand-written `gold_text` per lesson
 in catalogue order, the same for every history; it needs no `static` section and its episodes carry
-the phase's own checkpoint. `P-all-ep` is P-all plus everything else the source snapshot could
+the phase's own checkpoint. `P-task` is P-hand cut to the task's own lessons (`signature.lessons`):
+the calibration's learnability control (can the model follow the lesson when told, apart from the
+handbook's length). `P-all-ep` is P-all plus everything else the source snapshot could
 recall (`record_units`: for B, the experience facts extracted from each episode record): each
 rule followed by its episode's facts, in training order, so it holds B's whole retrievable pool
 with no selection. `P-oracle` (house_lib only) is P-all's pool with the answer key's selection: a
@@ -89,7 +91,7 @@ from elh.registry import ExperimentConfig
 from elh.runner.models import InfraError
 from elh.tasks.base import TaskInstance, get_family
 
-STATIC_GROUPS = ("P-all", "A0", "B-rules", "P-hand", "P-all-ep", "P-oracle")   # fixed memory, never train
+STATIC_GROUPS = ("P-all", "A0", "B-rules", "P-hand", "P-all-ep", "P-oracle", "P-task")   # fixed memory, never train
 KNOWN_GROUPS = ("A", "B", "C", "D") + STATIC_GROUPS
 NON_LEARNING = ("A",) + STATIC_GROUPS   # never scheduled for train phases
 DEV_SEEDS = (3000, 4000)   # [start, end) every dev seed must fall in
@@ -193,8 +195,9 @@ class Experiment(_Strict):
         needs = [g for g in ("P-all", "B-rules", "P-all-ep", "P-oracle") if g in self.groups]
         if needs and self.static is None:
             raise ValueError(f"groups {needs} need a `static` section (the experiment and group their rules come from)")
-        if "P-hand" in self.groups and not self.family.startswith("house_lib"):
-            raise ValueError(f"group P-hand needs a house_lib world (a handbook of its lessons), not {self.family}")
+        for g in ("P-hand", "P-task"):
+            if g in self.groups and not self.family.startswith("house_lib"):
+                raise ValueError(f"group {g} needs a house_lib world (a handbook of its lessons), not {self.family}")
         if "P-oracle" in self.groups and not self.family.startswith("house_lib"):
             raise ValueError(f"group P-oracle needs a house_lib world (tasks that list their lessons), not {self.family}")
         return self
@@ -463,7 +466,7 @@ def run_batch(exp: Experiment, cfg: ExperimentConfig, store, make_client: Callab
             if (s.history, s.group) not in static:
                 static[s.history, s.group] = static_memory(store, exp, s.history, s.group)
             memory = static[s.history, s.group]
-            checkpoint = exp.static.after if exp.static and s.group != "P-hand" else s.after
+            checkpoint = exp.static.after if exp.static and s.group not in ("P-hand", "P-task") else s.after
         elif s.kind == "train":
             if (s.history, s.group) not in live:
                 live[s.history, s.group] = memory_for(cfg, s.group, s.history, "train", store=store)
@@ -590,9 +593,15 @@ def handbook_items(family_name: str) -> list[MemoryItem]:
 def static_memory(store, exp: Experiment, history: int, group: str):
     """P-all: the source history's frozen rules; A0: an empty block (memory-group instructions only);
     B-rules: the source snapshot, retrieving rules only; P-hand: the world's handbook; P-oracle: P-all's
-    rules from training tasks that share a lesson with the task."""
+    rules from training tasks that share a lesson with the task; P-task: the handbook lines of the
+    task's own lessons."""
     if group == "P-hand":
         return StaticMemory(handbook_items(exp.family), f"static:handbook/{exp.family}")
+    if group == "P-task":
+        world = get_family(exp.family).world
+        items = handbook_items(exp.family)
+        return OracleMemory(items, {it.memory_id: frozenset([les.id]) for it, les in zip(items, world.lessons)},
+                            f"static:handbook-task/{exp.family}")
     if group == "A0":
         return StaticMemory([], "static:A0")
     if group == "B-rules":

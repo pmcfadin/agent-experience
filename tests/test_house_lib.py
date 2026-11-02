@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from elh import batch
 from elh.batch import load_experiment, run_batch, schedule
 from elh.controller import regrade_episode, run_single_episode
 from elh.judge import grade
@@ -171,10 +172,27 @@ def test_calibration_panel_and_filters(family):
     eps = ([{"group": "A", "checks": {"lesson:x": True}}] * 3 + [{"group": "A", "checks": {"lesson:x": False}}] * 7
            + [{"group": "P-hand", "checks": {"lesson:x": True, "lesson:y": False}}] * 2
            + [{"group": "A", "checks": {"lesson:y": False}}])
-    res = {r.lesson: r for r in calibration.filter_lessons(eps, ["x", "y", "z"])}
+    res = {r.lesson: r for r in calibration.filter_lessons(eps, ["x", "y", "z"], told="P-hand")}
     assert not res["x"].keep and "guessable" in res["x"].reason          # A passes 30%
     assert not res["y"].keep and "not learnable" in res["y"].reason      # P-hand passes 0%
     assert res["z"].keep and "undecided" in res["z"].reason
+
+
+def test_p_task_shows_only_the_tasks_own_handbook_lines(tmp_path):
+    world = "house_lib/L16-c0-w1"
+    fam = get_family(world)
+    path = tmp_path / "hl-task.yaml"
+    path.write_text(yaml.safe_dump({"name": "hl-task", "base_config": str(CONFIG), "family": world, "groups": ["P-task"],
+                                    "phases": [{"eval": {"tasks": {"items": [[fam.causes[0], "billing", 3000]]}}}]}))
+    exp, cfg = load_experiment(path)
+    mem = batch.static_memory(Store(tmp_path / "runs"), exp, 0, "P-task")
+    gold = dict(zip([les.id for les in fam.world.lessons], calibration.handbook_lines(fam)))
+    for les in fam.causes:
+        task = fam.generate(les, "billing", 3000)
+        assert [it.text for it in mem.recall(task, 5)] == [gold[x] for x in fam.causes if x in task.signature["lessons"]]
+    path.write_text(path.read_text().replace(world, "cpu_mem").replace(fam.causes[0], "queue_pop_front"))
+    with pytest.raises(Exception, match="house_lib"):
+        load_experiment(path)
 
 
 def test_batch_runs_a_house_lib_world(tmp_path):
@@ -237,6 +255,10 @@ def test_calibration_batches_are_the_calibration_panel(path):
     exp, _ = load_experiment(path)
     fam = get_family(exp.family)
     assert exp.groups == ["A", "P-hand"] and len(exp.phases) == 1
+    learn = path.parent / path.name.replace("exp21-calib-", "exp24-learn-")
+    if path.stem.startswith("exp21-"):  # its learnability control runs the same panel
+        ctl, _ = load_experiment(learn)
+        assert ctl.groups == ["P-task"] and ctl.phases[0].spec.tasks.triples() == exp.phases[0].spec.tasks.triples()
     per_lesson = 8 if path.stem.startswith("exp21-") else 4  # exp21 doubled the panel (design §10)
     assert exp.phases[0].spec.tasks.triples() == calibration.calibration_tasks(fam, per_lesson=per_lesson)
 

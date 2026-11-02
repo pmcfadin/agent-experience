@@ -4,8 +4,10 @@ Two filters on dev seeds, per lesson, from the lesson checks (`lesson:<id>`) of 
 
 - guessability: group A (no hints) passes the lesson's check in more than GUESS_MAX of episodes
   -> the lesson is guessable: drop or redraw it;
-- learnability: P-hand (every lesson's `gold_text` in the first message) passes it in less than
-  LEARN_MIN -> the model can't follow it even when told: drop it.
+- learnability: P-task (the gold text of the task's own lessons in the first message) passes it in
+  less than LEARN_MIN -> the model can't follow it even when told: drop it. Until 2026-11-02 this
+  was P-hand (the whole handbook), which mixed in the handbook's length: in L16-c0 the same
+  `partner_format` lessons passed 57-70% of checks there against 70-92% in L4 (design §10).
 
 What exists here: the task panel (`calibration_tasks`), the handbook (`handbook_lines`; the P-hand
 group in elh/batch.py shows one item per line) and the filter (`filter_lessons`). Not implemented:
@@ -62,8 +64,9 @@ class LessonCalibration:
     reason: str
 
 
-def filter_lessons(episodes: list[dict], lessons: list[str]) -> list[LessonCalibration]:
-    """`episodes`: one dict per graded episode, {"group": "A" | "P-hand", "checks": verdict.checks}.
+def filter_lessons(episodes: list[dict], lessons: list[str], told: str = "P-task") -> list[LessonCalibration]:
+    """`episodes`: one dict per graded episode, {"group": "A" | told, "checks": verdict.checks};
+    `told` is the learnability group.
     A lesson with no observations in a group is kept undecided (reason says so)."""
     seen: dict[tuple[str, str], list[bool]] = defaultdict(list)
     for ep in episodes:
@@ -72,13 +75,13 @@ def filter_lessons(episodes: list[dict], lessons: list[str]) -> list[LessonCalib
                 seen[ep["group"], name.removeprefix("lesson:")].append(bool(ok))
     out = []
     for lid in lessons:
-        a, h = seen.get(("A", lid), []), seen.get(("P-hand", lid), [])
+        a, h = seen.get(("A", lid), []), seen.get((told, lid), [])
         a_rate = sum(a) / len(a) if a else None
         h_rate = sum(h) / len(h) if h else None
         if a_rate is not None and a_rate > GUESS_MAX:
             keep, reason = False, f"guessable: A passes {a_rate:.0%} > {GUESS_MAX:.0%}"
         elif h_rate is not None and h_rate < LEARN_MIN:
-            keep, reason = False, f"not learnable: P-hand passes {h_rate:.0%} < {LEARN_MIN:.0%}"
+            keep, reason = False, f"not learnable: {told} passes {h_rate:.0%} < {LEARN_MIN:.0%}"
         elif a_rate is None or h_rate is None:
             keep, reason = True, "undecided: missing observations"
         else:
