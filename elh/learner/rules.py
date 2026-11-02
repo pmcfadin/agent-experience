@@ -25,6 +25,9 @@ customer-service wording swapped for ours. Left out on purpose: optional further
 one rule per episode), memory feedback ratings (group C territory) and twin-situation branch rules
 (they need a store that honours "Supersedes").
 
+With `RulesConfig.context` (house_lib) the wording keeps the ticket's module, partner and region
+names and the validator requires them (`CONTEXT_*`, `context_strings`; a stated deviation).
+
 Every model call's usage is returned so the controller can charge it to the ledger as `learning`.
 """
 
@@ -158,6 +161,32 @@ the ground-truth outcome."
 {_WHEN_BULLET}
 - You do NOT know what the correct answer was: do not invent one, and do not guess.
 {_QUERY_BULLET}"""
+
+# Context wording (`RulesConfig.context`, house_lib; a stated deviation from the paper). There a
+# lesson is a convention of one context -- the ticket's module, partner or region -- so the paper's
+# "generalizable pattern, not this ticket's names" strips the part a later ticket needs. These
+# variants keep the context names verbatim and ask where the convention lives; everything else
+# (experience grade, no invented answers) is unchanged. The validator also requires the context names.
+_CONTEXT_DETAILS = ("file names, the library modules, functions or docs involved and every decision-critical "
+                    "detail verbatim; the context the convention belongs to (this ticket's module, partner and "
+                    "region) named verbatim; only ticket numbers and this ticket's record field names as "
+                    "placeholders like <record id field>")
+_CONTEXT_BULLET = ("- Conventions here differ by module, partner and region: name the ones this ticket involved "
+                   "verbatim, say which part of the output the judge checked (the column, the audit trail or "
+                   "the rollout gate) and where in the codebase or its docs that convention is defined -- or, if "
+                   "you never looked it up, which library module or docs a future agent should read first.")
+CONTEXT_TOOL_DESCRIPTION = MEMORY_CREATE_TOOL["description"].replace(
+    "not one-off facts like ticket numbers or this ticket's record field names.",
+    "not one-off facts like ticket numbers or this ticket's record field names. Do name the module, "
+    "partner or region the lesson applies to: conventions here differ between them.")
+_CONTEXT_QUERY_BULLET = ("- query: the question a future agent would ask mid-task when it meets this situation "
+                         "(the observable problem and the module, partner or region it involves; no ticket numbers).")
+CONTEXT_SAVE = {name: text.replace(_DETAILS, _CONTEXT_DETAILS).replace(_QUERY_BULLET, _CONTEXT_BULLET + "\n" + _CONTEXT_QUERY_BULLET)
+                for name, text in (("success_grounded", SAVE_SUCCESS_GROUNDED), ("success", SAVE_SUCCESS),
+                                   ("fail", SAVE_FAIL))}
+CONTEXT_LAST_RULE = ("- Do not save ticket numbers or this ticket's record field names; write them as "
+                     "placeholders like <record id field>. Do keep the module, partner and region names.")
+_PAPER_LAST_RULE = REFLECTION_TEMPLATE[REFLECTION_TEMPLATE.index("- Do not save ticket-specific facts"):]
 
 # App. A.7. The paper's source is "the CORRECT solution / ACTION DIFF"; ours is the judge's verdict
 # and the agent's own changes.
@@ -307,6 +336,14 @@ def _consequential_block(result: EpisodeResult, changed: list[tuple[str, str]]) 
     return "\n" + "\n".join(lines) + "\n"
 
 
+def context_strings(task: TaskInstance) -> list[str]:
+    """`RulesConfig.context`: the ticket's context names (house_lib `signature["context"]`) that the
+    ticket text shows, which the rule must carry verbatim."""
+    ctx = (task.signature or {}).get("context") or {}
+    prompt = task.prompt.lower()
+    return [v for v in ctx.values() if isinstance(v, str) and v and v.lower() in prompt]
+
+
 def required_strings(verdict: Verdict) -> list[str]:
     """What a rule must carry verbatim (App. A.7's `rule_required_strings`). The paper draws them
     from the gold-vs-executed action diff: wrong argument values, EXTRA consequential actions (the
@@ -349,14 +386,17 @@ def parse_rule(kind: str, title: str, content: str, query: str) -> Rule | None:
 # --- reflection -----------------------------------------------------------------------------------
 
 def reflection_message(task: TaskInstance, result: EpisodeResult, verdict: Verdict,
-                       final_ws: dict[str, str]) -> str:
+                       final_ws: dict[str, str], context: bool = False) -> str:
     changed = files_changed(task.workspace, final_ws)
     consequential = _consequential_block(result, changed)
     if verdict.passed:
-        save = SAVE_SUCCESS_GROUNDED if consequential_actions(result) else SAVE_SUCCESS
+        save = "success_grounded" if consequential_actions(result) else "success"
     else:
-        save = SAVE_FAIL
-    return REFLECTION_TEMPLATE.format(
+        save = "fail"
+    save = CONTEXT_SAVE[save] if context else {"success_grounded": SAVE_SUCCESS_GROUNDED,
+                                               "success": SAVE_SUCCESS, "fail": SAVE_FAIL}[save]
+    template = REFLECTION_TEMPLATE.replace(_PAPER_LAST_RULE, CONTEXT_LAST_RULE) if context else REFLECTION_TEMPLATE
+    return template.format(
         verdict=VERDICT_LINE.format(achieved="WAS" if verdict.passed else "was NOT"),
         checks_block=_checks_block(verdict, result),
         consequential_block=consequential,
@@ -411,7 +451,7 @@ def _with_temperature(client: ModelClient, temperature: float | None) -> ModelCl
     return c
 
 
-def _check(kind: str, inp: dict, required: list[str]) -> tuple[Rule | None, str | None, list[str]]:
+def _check(kind: str, inp: dict, required: list[str], clause: str | None = None) -> tuple[Rule | None, str | None, list[str]]:
     """(rule, rejection, gaps) for one memory_create call."""
     vals = {f: inp.get(f) if isinstance(inp.get(f), str) else "" for f in ("title", "content", "query")}
     missing = [f for f, v in vals.items() if not v.strip()]
@@ -425,7 +465,7 @@ def _check(kind: str, inp: dict, required: list[str]) -> tuple[Rule | None, str 
         return None, REJECT_FORM.format(form=FORM[kind]), []
     gaps = rule_content_gaps(f"{vals['title']} {vals['content']}", required)
     if gaps:
-        return rule, REJECT_GAPS.format(label=PREFIX[kind].rstrip(":"), clause="THEN" if kind == "verified" else "do NOT",
+        return rule, REJECT_GAPS.format(label=PREFIX[kind].rstrip(":"), clause=clause or ("THEN" if kind == "verified" else "do NOT"),
                                         missing="; ".join(f"'{g}'" for g in gaps)), gaps
     return rule, None, []
 
@@ -442,10 +482,13 @@ def write_rule(client: ModelClient, task: TaskInstance, result: EpisodeResult, v
     kind = "verified" if verdict.passed else "avoid"
     start = result.trace[0] if result.trace and result.trace[0].get("event") == "episode_start" else {}
     system = start.get("system", SYSTEM_PROMPT)
-    tools = list(start.get("tools") or TOOLS) + [MEMORY_CREATE_TOOL]
+    create_tool = {**MEMORY_CREATE_TOOL, "description": CONTEXT_TOOL_DESCRIPTION} if cfg.context else MEMORY_CREATE_TOOL
+    tools = list(start.get("tools") or TOOLS) + [create_tool]
 
     required = required_strings(verdict)
-    reflection = reflection_message(task, result, verdict, final_ws)
+    context = context_strings(task) if cfg.context else []
+    required += [c for c in context if c not in required]
+    reflection = reflection_message(task, result, verdict, final_ws, context=cfg.context)
     out = RuleResult(rule=None, required=required, prompt=reflection)
     llm = _with_temperature(client, cfg.temperature)
     messages = _seed_history(result.messages, reflection) if result.messages else \
@@ -488,7 +531,8 @@ def write_rule(client: ModelClient, task: TaskInstance, result: EpisodeResult, v
             messages.append({"role": "user", "content": results + [{"type": "text", "text": rejection}]}
                             if results else rejection)
         else:
-            rule, rejection, gaps = _check(kind, creates[0].get("input") or {}, required)
+            rule, rejection, gaps = _check(kind, creates[0].get("input") or {}, required,
+                                           "WHEN or " + ("THEN" if kind == "verified" else "do NOT") if context else None)
             if rule is not None:
                 last_rule, last_gaps = rule, gaps
             if rejection is None:

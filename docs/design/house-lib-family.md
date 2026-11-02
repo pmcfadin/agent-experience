@@ -363,3 +363,15 @@ Choices made where this design left room:
   (`exp24-learn-<world>`, exp21's panel; A is reused from exp21). P-hand stays in the core grid as the
   best whole-world static prompt, and exp21 P-hand vs exp24 P-task measures the handbook's length
   directly. The L4 verdicts written earlier from P-hand were removed; all are rewritten from P-task.
+- **B smoke run and context rules (exp25, Decision, 2026-11-02).** Group B on L16-c50, 10 train + 4
+  eval (seeds 1900+, 2950+), the core grid's settings: no infra errors, every train episode retained
+  and wrote a verbatim rule, recall showed 5 items after the ticket, the snapshot was taken; 0 of 14
+  passed. The rules were generic ("do NOT assume the implementation is correct based on limited manual
+  testing"): the feedback names only the failed column, and the paper's rule wording ("the
+  generalizable pattern, not this ticket's names"; placeholders for ticket identifiers) strips the
+  module, partner and region that a house_lib convention belongs to. Owner's decision: for house_lib,
+  `rules.context` (elh/learner/rules.py `CONTEXT_*`) keeps those names, asks which part of the output
+  was checked and where the convention is defined (or which library docs to read), and the validator
+  requires the ticket's context names verbatim (App. A.7's mechanism). Still experience grade: no
+  expected value, lesson id or gold text. A stated deviation from the paper; the core grid uses it
+  (`grid.OVERRIDES`). Rechecked with `exp26-smoke-ctx-L16-c50-w1` (same tickets) before 4.1.

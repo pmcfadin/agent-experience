@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from elh.judge import Verdict, grade
-from elh.learner.rules import (MEMORY_CREATE_TOOL, SAVE_FAIL, SAVE_SUCCESS, SAVE_SUCCESS_GROUNDED, Rule,
+from elh.learner.rules import (CONTEXT_TOOL_DESCRIPTION, MEMORY_CREATE_TOOL, SAVE_FAIL, SAVE_SUCCESS, SAVE_SUCCESS_GROUNDED, Rule,
                                RulesConfig, _seed_history, consequential_actions, is_state_changing, parse_rule,
                                reflection_message, rule_content_gaps, write_rule)
 from elh.memory.hindsight import CHECK_FAILED, CHECK_PASSED
@@ -254,3 +254,30 @@ def test_consequential_actions_mark_failures():
     r.trace = [{"event": "tool_exec", "turn": 0, "command": "rm nothing", "exit_code": 1},
                {"event": "tool_exec", "turn": 1, "command": "cat x", "exit_code": 0}]
     assert consequential_actions(r) == ["turn 1: rm nothing [exit 1]"]
+
+
+def test_context_rules_keep_the_tickets_module_partner_and_region():
+    """`RulesConfig.context` (house_lib): the wording keeps the context names, the validator requires
+    them, and the paper's wording is untouched without it."""
+    task = get_family("house_lib/L16-c50-w1").generate("call_order.payments", "course_registration", 1901)
+    verdict = Verdict(False, {"integrity": True, "public_tests": True, "feature": True,
+                              "lesson:call_order.payments": False},
+                      {"check_text": {"lesson:call_order.payments": {
+                          "label": "audit trail", "passed": "audit records in the expected place",
+                          "failed": "audit records missing or in the wrong place relative to the store writes"}}})
+    result = EpisodeResult("submitted")
+    plain = write_rule(Recording([_create("AVOID: x", f"WHEN export do NOT write rows {AVOID_TAIL}")]),
+                       task, result, verdict, task.workspace, RulesConfig(enabled=True))
+    assert plain.required == [] and plain.rule is not None and "Do keep the module" not in plain.prompt
+    client = Recording([
+        _create("AVOID: x", f"WHEN export do NOT write rows {AVOID_TAIL}"),
+        _create("AVOID: audit order", f"WHEN a payments export for partner sabel with latam records fails the audit "
+                                      f"trail check do NOT write rows before reading acmecore/docs {AVOID_TAIL}"),
+    ])
+    out = write_rule(client, task, result, verdict, task.workspace, RulesConfig(enabled=True, context=True))
+    assert out.required == ["payments", "latam", "sabel"] and out.gaps == [] and len(client.requests) == 2
+    assert "in the WHEN or do NOT clause" in out.rejections[0] and "'payments'; 'latam'; 'sabel'" in out.rejections[0]
+    assert "Do keep the module, partner and region names." in out.prompt
+    assert "not this ticket's names" not in out.prompt and "Do not save ticket-specific facts" not in out.prompt
+    assert client.requests[0]["tools"][-1]["description"] == CONTEXT_TOOL_DESCRIPTION
+    assert task.cause not in out.prompt  # the lesson id never reaches the writer

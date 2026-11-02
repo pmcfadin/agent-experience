@@ -94,6 +94,10 @@ class RulesConfig(_Strict):
     # `recall_k` slots of the shown memory for rules (the paper stores and returns rules verbatim).
     store: Literal["extract", "verbatim"] = "extract"
     recall_k: int = Field(2, ge=0)
+    # house_lib: lessons are per-context conventions, so the rule must name the ticket's context
+    # (signature["context"]: module, partner, region) verbatim instead of generalizing it away
+    # (elh/learner/rules.py CONTEXT_*; a stated deviation from the paper's wording).
+    context: bool = False
 
     def hindsight_options(self) -> dict:
         """HindsightMemory kwargs for the rule store (none for the default, so banks reproduce)."""
@@ -305,7 +309,7 @@ _LATE_FIELDS = {
                        "retain_mission": None, "observations_mission": None, "retain_extraction_mode": None,
                        "agent_search": False, "experience_header": "hedged",
                        "experience_position": "before_ticket"},
-    "rules": {"store": "extract", "recall_k": 2},
+    "rules": {"store": "extract", "recall_k": 2, "context": False},
 }
 
 

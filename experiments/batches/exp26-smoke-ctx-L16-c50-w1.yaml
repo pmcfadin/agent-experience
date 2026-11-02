@@ -1,0 +1,37 @@
+# exp25-smoke-L16-c50-w1 again with context rules (`rules.context`: the rule writer keeps the ticket's
+# module, partner and region names and says where the convention is defined; exp25's rules were
+# generic). Same 10 train and 4 eval tickets, so the two smoke runs compare ticket by ticket; never
+# reported.
+name: exp26-smoke-ctx-L16-c50-w1
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  memory_service.experience_position: after_ticket
+  rules: {enabled: true, store: verbatim, context: true}
+family: house_lib/L16-c50-w1
+histories: 1
+groups: [B]
+phases:
+- train:
+    tasks:
+      items:
+      - [call_order.catalog, billing, 1900]
+      - [call_order.payments, course_registration, 1901]
+      - [event_fields.catalog, inventory, 1902]
+      - [event_fields.orders, logistics, 1903]
+      - [feature_flag.catalog, network_flows, 1904]
+      - [feature_flag.orders, telemetry, 1905]
+      - [partner_format.corvo, billing, 1906]
+      - [partner_format.mirro, course_registration, 1907]
+      - [partner_format.sabel, inventory, 1908]
+      - [region_redaction.latam, logistics, 1909]
+- eval:
+    label: after-10
+    tasks:
+      items:
+      - [call_order.catalog, logistics, 2950]
+      - [call_order.payments, network_flows, 2951]
+      - [event_fields.catalog, telemetry, 2952]
+      - [event_fields.orders, billing, 2953]
