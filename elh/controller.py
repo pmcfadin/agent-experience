@@ -119,7 +119,7 @@ def memory_for(cfg: ExperimentConfig, group: str, history: int, split: str, *,
             learner = UtilityLearner.for_store(store, run_id_for(cfg), history, group, cfg.utility)
             mem.learner = learner.readonly_view() if split in READ_ONLY_SPLITS else learner
         return mem
-    if group in ("P-all", "A0", "B-rules", "P-hand", "P-all-ep", "P-oracle", "P-task"):
+    if group in ("P-all", "A0", "B-rules", "B-replay", "P-hand", "P-all-ep", "P-oracle", "P-task"):
         raise ValueError(f"group {group} is a static-prompt control; it runs from a batch (elh/batch.py static_memory)")
     raise ValueError(f"group {group} is not implemented yet")
 
@@ -225,7 +225,7 @@ def _pinned_library(store: Store, row) -> tuple[int | None, wf.WorkflowLibrary]:
 def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, client: ModelClient, *,
                        group: str = "A", split: str = "dev", history: int = 0, ordinal: int = 0,
                        checkpoint: int | None = None, memory: Memory | None = None,
-                       sandbox_backend: str | None = None, memory_k: int = 5,
+                       sandbox_backend: str | None = None, memory_k: int | None = None,
                        batch_id: str | None = None, charge_as: str = "inference",
                        procedures: tuple[int | None, wf.WorkflowLibrary] | None = None,
                        ) -> tuple[str, EpisodeResult, Verdict]:
@@ -235,6 +235,7 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
     run for group D's promotion gate or GEPA). `procedures` = (revision, library) shows an explicit
     group-D library (a candidate under validation; dev split only). Otherwise group D shows the library
     promoted now (train, dev) or the one its snapshot pinned (checkpoint, sealed, retention)."""
+    memory_k = cfg.memory_service.k if memory_k is None else memory_k
     run_id = run_id_for(cfg)
     if charge_as not in ("inference", "learning"):
         raise ValueError(f"charge_as must be 'inference' or 'learning', not {charge_as!r}")

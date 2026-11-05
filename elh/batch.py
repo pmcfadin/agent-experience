@@ -53,6 +53,9 @@ never train; history h reads the rules of `<static.from_experiment>/<h>`, and th
 `checkpoint = static.after`. `B-rules` reads the source group's own snapshot after `static.after`
 train episodes (opened under the source run's registration) with every start slot and every search
 hit a verbatim rule (`RulesOnlyMemory`): retrieval among rules only, no episode records.
+`B-replay` reads the same snapshot and retrieves as B does, but with this experiment's
+`rules.recall_k`, `memory_service.k` and `recall_max_tokens`: B's trained bank under other recall
+settings, without retraining (house_lib core grid tuning).
 `P-hand` (house_lib worlds only) shows the world's handbook, one hand-written `gold_text` per lesson
 in catalogue order, the same for every history; it needs no `static` section and its episodes carry
 the phase's own checkpoint. `P-task` is P-hand cut to the task's own lessons (`signature.lessons`):
@@ -91,7 +94,7 @@ from elh.registry import ExperimentConfig
 from elh.runner.models import InfraError
 from elh.tasks.base import TaskInstance, get_family
 
-STATIC_GROUPS = ("P-all", "A0", "B-rules", "P-hand", "P-all-ep", "P-oracle", "P-task")   # fixed memory, never train
+STATIC_GROUPS = ("P-all", "A0", "B-rules", "B-replay", "P-hand", "P-all-ep", "P-oracle", "P-task")   # fixed memory, never train
 KNOWN_GROUPS = ("A", "B", "C", "D") + STATIC_GROUPS
 NON_LEARNING = ("A",) + STATIC_GROUPS   # never scheduled for train phases
 DEV_SEEDS = (3000, 4000)   # [start, end) every dev seed must fall in
@@ -192,7 +195,7 @@ class Experiment(_Strict):
 
     @model_validator(mode="after")
     def _static(self) -> "Experiment":
-        needs = [g for g in ("P-all", "B-rules", "P-all-ep", "P-oracle") if g in self.groups]
+        needs = [g for g in ("P-all", "B-rules", "B-replay", "P-all-ep", "P-oracle") if g in self.groups]
         if needs and self.static is None:
             raise ValueError(f"groups {needs} need a `static` section (the experiment and group their rules come from)")
         for g in ("P-hand", "P-task"):
@@ -464,7 +467,7 @@ def run_batch(exp: Experiment, cfg: ExperimentConfig, store, make_client: Callab
             memory = NullMemory()
         elif s.group in STATIC_GROUPS:
             if (s.history, s.group) not in static:
-                static[s.history, s.group] = static_memory(store, exp, s.history, s.group)
+                static[s.history, s.group] = static_memory(store, exp, s.history, s.group, cfg)
             memory = static[s.history, s.group]
             checkpoint = exp.static.after if exp.static and s.group not in ("P-hand", "P-task") else s.after
         elif s.kind == "train":
@@ -590,11 +593,13 @@ def handbook_items(family_name: str) -> list[MemoryItem]:
     return [MemoryItem(f"hand-{i:02d}", line) for i, line in enumerate(handbook_lines(get_family(family_name)), 1)]
 
 
-def static_memory(store, exp: Experiment, history: int, group: str):
+def static_memory(store, exp: Experiment, history: int, group: str, cfg: ExperimentConfig | None = None):
     """P-all: the source history's frozen rules; A0: an empty block (memory-group instructions only);
     B-rules: the source snapshot, retrieving rules only; P-hand: the world's handbook; P-oracle: P-all's
     rules from training tasks that share a lesson with the task; P-task: the handbook lines of the
-    task's own lessons."""
+    task's own lessons; B-replay: the source snapshot read-only, retrieving as B does but with this
+    experiment's `rules.recall_k` (and `memory_service.k`, applied per episode) -- B's bank under
+    other recall settings, without retraining."""
     if group == "P-hand":
         return StaticMemory(handbook_items(exp.family), f"static:handbook/{exp.family}")
     if group == "P-task":
@@ -606,6 +611,15 @@ def static_memory(store, exp: Experiment, history: int, group: str):
         return StaticMemory([], "static:A0")
     if group == "B-rules":
         return RulesOnlyMemory(source_snapshot(store, exp, history))
+    if group == "B-replay":
+        if cfg is None or cfg.rules is None:
+            raise ValueError("B-replay needs this experiment's rules settings")
+        bank = source_snapshot(store, exp, history)
+        if not bank.verbatim_rules:
+            raise ValueError("B-replay needs a source bank with verbatim rules")
+        bank.rule_k = cfg.rules.recall_k
+        bank.recall_max_tokens = cfg.memory_service.recall_max_tokens
+        return bank
     sp = exp.static
     if group == "P-oracle":
         return oracle_rules(store, exp, history)

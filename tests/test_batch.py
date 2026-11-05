@@ -348,3 +348,24 @@ def test_rules_only_memory_retrieves_rules_for_every_slot_and_search():
     bank.readonly = False
     with pytest.raises(ValueError):
         RulesOnlyMemory(bank)
+
+
+def test_b_replay_reads_the_source_snapshot_with_this_experiments_recall_settings(tmp_path, monkeypatch):
+    """B-replay: B's trained bank, read-only, under this experiment's rules.recall_k, k and recall budget."""
+    import elh.batch as batch
+    with pytest.raises(ValidationError, match="static"):
+        load_experiment(_write(tmp_path, groups=["B-replay"]))
+    path = _write(tmp_path, groups=["B-replay"], static={"from_experiment": "src", "after": 2},
+                  overrides={"rules": {"enabled": True, "store": "verbatim", "recall_k": 6},
+                             "memory_service.k": 9, "memory_service.recall_max_tokens": 4096})
+    exp, cfg = load_experiment(path)
+    assert cfg.memory_service.k == 9 and not [s for s in schedule(exp, cfg) if s.kind == "train"]
+    bank = _FakeBank()
+    bank.verbatim_rules, bank.rule_k, bank.recall_max_tokens = True, 2, 2048
+    monkeypatch.setattr(batch, "source_snapshot", lambda store, exp, history: bank)
+    mem = batch.static_memory(None, exp, 0, "B-replay", cfg)
+    assert mem is bank and (bank.rule_k, bank.recall_max_tokens) == (6, 4096)
+    with pytest.raises(ValueError):
+        batch.static_memory(None, exp, 0, "B-replay")
+    # memory_service.k is hash-neutral at its default
+    assert load_experiment(_write(tmp_path, groups=["A"]))[1].memory_service.k == 5

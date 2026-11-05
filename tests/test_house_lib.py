@@ -352,3 +352,14 @@ def test_grid_batches_match_the_generator(path):
     world = doc["family"].split("/")[1]
     learn, static = grid.batch_docs(get_family(doc["family"]), grid.kept_lessons(world))
     assert doc == (learn if doc["name"].startswith("exp22-") else static)
+
+
+@pytest.mark.parametrize("path", sorted((Path(__file__).parent.parent / "experiments" / "batches").glob("exp28-tune-*.yaml")),
+                         ids=lambda p: p.stem)
+def test_tune_batches_match_the_generator(path):
+    from elh.tasks.families.house_lib import grid
+
+    doc = yaml.safe_load(path.read_text())
+    world = doc["family"].split("/")[1]
+    assert doc in grid.tune_docs(get_family(doc["family"]), grid.kept_lessons(world))
+    assert all(seed >= grid.TUNE_SEED for _, _, seed in doc["phases"][0]["eval"]["tasks"]["items"])

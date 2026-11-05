@@ -210,6 +210,8 @@ class MemoryServiceConfig(_Strict):
     # handbook in the slot was ignored but the same text inside the ticket was followed (exp18).
     experience_header: Literal["hedged", "plain"] = "hedged"
     experience_position: Literal["before_ticket", "after_ticket"] = "before_ticket"
+    # Items shown per ticket and returned per search_memory call (rules.recall_k of them rules).
+    k: int = Field(5, ge=1)
 
     def hindsight_options(self) -> dict:
         """HindsightMemory constructor kwargs for this registration."""
@@ -312,7 +314,7 @@ _LATE_FIELDS = {
                        "recall_types": None, "lesson_query": None, "lesson_k": 2, "lesson_types": None,
                        "retain_mission": None, "observations_mission": None, "retain_extraction_mode": None,
                        "agent_search": False, "experience_header": "hedged",
-                       "experience_position": "before_ticket"},
+                       "experience_position": "before_ticket", "k": 5},
     "rules": {"store": "extract", "recall_k": 2, "context": False, "feedback_where": False},
 }
 

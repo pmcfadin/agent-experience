@@ -85,3 +85,36 @@ def batch_docs(family, kept: list[str], histories: int = HISTORIES) -> tuple[dic
     static = {"name": f"exp23-grid-static-{world}", **common, "groups": ["P-all", "P-all-ep", "P-oracle"],
               "static": {"from_experiment": learn["name"], "group": "B", "after": len(train)}, "phases": [ev]}
     return learn, static
+
+
+# Recall tuning before the full grid (core-grid §8): B's 4.1 banks replayed (`B-replay`) on tuning
+# tickets (seeds 3000+, never in a reported panel) under (memory_service.k, rules.recall_k, recall budget).
+TUNE_SEED, TUNE_TASKS = 3000, 12
+TUNE_SETTINGS = ((5, 2, 2048), (8, 6, 4096), (14, 12, 8192))
+
+
+def tune_tasks(family, kept: list[str]) -> list[tuple[str, str, int]]:
+    rng = random.Random(f"house_lib/tune/{family.name}")
+    themes, order = list(family.themes), [k for k in family.causes if k in kept]
+    rng.shuffle(themes)
+    rng.shuffle(order)
+    return [(order[i % len(order)], themes[i % len(themes)], TUNE_SEED + i) for i in range(TUNE_TASKS)]
+
+
+def tune_docs(family, kept: list[str], histories: int = HISTORIES) -> list[dict]:
+    world, items = family.world.id, [list(t) for t in tune_tasks(family, kept)]
+    after = TRAIN_PER_LESSON * len(family.causes)
+    out = []
+    for k, rule_k, budget in TUNE_SETTINGS:
+        rules = {**OVERRIDES["rules"], "recall_k": rule_k}
+        out.append({"name": f"exp28-tune-k{k}r{rule_k}-{world}", "base_config": "experiments/phase0-local.yaml",
+                    "overrides": {**OVERRIDES, "rules": rules, "memory_service.k": k,
+                                  "memory_service.recall_max_tokens": budget},
+                    "family": f"house_lib/{world}", "histories": histories, "groups": ["B-replay"],
+                    "static": {"from_experiment": f"exp22-grid-{world}", "group": "B", "after": after},
+                    "phases": [{"eval": {"label": f"after-{after}", "tasks": {"items": items}}}]})
+    out.append({"name": f"exp28-tune-pall-{world}", "base_config": "experiments/phase0-local.yaml",
+                "overrides": OVERRIDES, "family": f"house_lib/{world}", "histories": histories, "groups": ["P-all"],
+                "static": {"from_experiment": f"exp22-grid-{world}", "group": "B", "after": after},
+                "phases": [{"eval": {"label": f"after-{after}", "tasks": {"items": items}}}]})
+    return out
