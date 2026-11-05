@@ -101,3 +101,22 @@ No-go means fixing the pipeline, not changing the hypothesis.
 2. ~~Dropped lessons~~: decided 2026-11-01, kept in the world and left out of scores (§3).
 3. ~~P-oracle in 4.1~~: decided 2026-11-01, yes (144 of 4.1's 864 eval episodes, ≈ 2 h).
 4. ~~Histories in 4.1~~: decided 2026-11-01, 3.
+
+## 8. Stage 4.1 results (2026-11-03; analysis/exp22_grid.py, runs/logs/exp22-analysis.md)
+
+1,056 episodes, 0 infra errors. **Go** on all three criteria: infra 0%; B above A (L16-c0 lesson
+checks 47/135 vs 0/135, L16-c50 39/141 vs 1/141, McNemar p < 0.001); largest block ≈ 13k tokens
+(P-all-ep, L16-c50), well under the 65,536-token context. Lesson checks (task pass):
+
+| World | A | B | P-all | P-all-ep | P-oracle | P-hand |
+|---|---|---|---|---|---|---|
+| L16-c0 | 0/135 (0/72) | 47/135 (11/72) | 95/135 (42/72) | 98/135 (39/72) | 87/135 (38/72) | 97/135 (38/72) |
+| L16-c50 | 1/141 (1/72) | 39/141 (14/72) | 58/141 (23/72) | 61/141 (23/72) | 64/141 (27/72) | 109/141 (45/72) |
+
+- At L = 16 B loses to the same content shown whole (B vs P-all lesson checks p < 0.001 at c = 0,
+  p = 0.011 at c = 0.5); the gap narrows with conflicts (48 vs 19 checks), the predicted direction
+  but not a reversal. P-all-ep ≈ P-all (records add nothing). P-hand stays far ahead at c = 0.5.
+- Retrieval is B's bottleneck: B shows 5 items, 2 of them rules, out of 32; only 23/72 (c0) and
+  26/72 (c50) eval tickets were shown a rule from a training ticket with their primary lesson.
+- `event_fields` at c = 0.5: 0/12 for every memory-derived group (B's rules never captured the key
+  recipe), 12/12 with the handbook. `feature_flag`: the handbook is weakest (3/24, 7/27).
