@@ -369,3 +369,37 @@ def test_b_replay_reads_the_source_snapshot_with_this_experiments_recall_setting
         batch.static_memory(None, exp, 0, "B-replay")
     # memory_service.k is hash-neutral at its default
     assert load_experiment(_write(tmp_path, groups=["A"]))[1].memory_service.k == 5
+
+
+def test_history_start_runs_the_later_histories_exactly_as_one_batch_would(tmp_path):
+    phases = [{"train": {"tasks": {"causes": ["queue_pop_front"], "themes": ["billing", "logistics"], "seeds": [1000, 1004]}}},
+              {"eval": {"tasks": {"causes": ["queue_pop_front"], "themes": ["inventory"], "seeds": [2000, 2004]}}}]
+    whole, cfg = load_experiment(_write(tmp_path, histories=3, groups=["A", "B"], phases=phases))
+    tail, tail_cfg = load_experiment(_write(tmp_path, histories=2, history_start=1, groups=["A", "B"], phases=phases))
+    head, head_cfg = load_experiment(_write(tmp_path, histories=1, groups=["A", "B"], phases=phases))
+
+    def key(exp, c):
+        return [(s.history, s.phase, s.kind, s.group, s.task.task_id, s.after, s.ordinal) for s in schedule(exp, c)]
+
+    assert {s.history for s in schedule(tail, tail_cfg)} == {1, 2}
+    assert key(head, head_cfg) + key(tail, tail_cfg) == key(whole, cfg)  # same tasks, orders and checkpoints
+    with pytest.raises(ValidationError):
+        load_experiment(_write(tmp_path, history_start=-1))
+
+
+def test_measure_blocks_sizes_static_groups_without_an_episode(tmp_path, monkeypatch):
+    store = Store(tmp_path / "runs")
+    _source_rules(store, "src", 0, 3)
+    units = [{"document_id": f"ep0-{i}", "text": "a recorded fact " * 40} for i in range(3)]
+    monkeypatch.setattr(batch, "source_snapshot", lambda store, exp, h: _FakeSnapshot(units))
+    path = _write(tmp_path, groups=["P-all", "P-all-ep"], static={"from_experiment": "src", "after": 3},
+                  overrides={"memory_service.agent_search": True},
+                  phases=[{"eval": {"tasks": {"causes": ["queue_pop_front"], "themes": ["inventory"], "seeds": [2000, 2002]}}}])
+    exp, cfg = load_experiment(path)
+    p_all, p_all_ep = batch.measure_blocks(store, exp, cfg, 0)
+    assert (p_all["group"], p_all["items"], p_all_ep["items"]) == ("P-all", 3, 6)
+    assert 0 < p_all["block_tokens"] < p_all_ep["block_tokens"] and p_all["prompt_tokens"] > p_all["block_tokens"]
+    assert p_all["fits"] and p_all["context_tokens"] == 65536
+    assert not batch.measure_blocks(store, exp, cfg, 0, reserve=65536)[0]["fits"]
+    assert store.db.execute("SELECT COUNT(*) FROM episodes WHERE batch_id LIKE ?", (f"{exp.name}/%",)).fetchone()[0] == 0
+    assert main(["measure-block", str(path), "--runs-dir", str(tmp_path / "runs")]) == 0

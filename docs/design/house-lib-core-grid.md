@@ -59,7 +59,7 @@ episodes also retain and consolidate memory; not yet measured on house_lib, assu
 | 4.0 Prerequisites | P-oracle group; dropped-lesson handling; train/eval panel generator; B smoke run (≈ 10 train + 4 eval on L16-c50) | ≈ 14 | ≈ 20 min |
 | 4.1 Go / no-go | L16-c0 and L16-c50 (after their exp21 recalibration), 3 histories, all six groups | 192 train + 864 eval = 1,056 | ≈ 15 h |
 | 4.2 Calibrate | exp21 (A, P-hand) and exp24 (P-task, the learnability control), 8 tasks per lesson: L4 ×2 and L16 ×2 (before 4.1), then L64 ×2 (before 4.3) | 960 + 3,072 | ≈ 12 h + ≈ 36 h |
-| 4.3 Full grid | 6 worlds; B's histories rerun with k14r12 (§9, §10); A and P-hand reused at L16 | see below | see below |
+| 4.3 Full grid | 6 worlds; B's histories rerun with k14r12 (§9, §10); A and P-hand reused at L16 | 3,312 (§5 below, §10) | ≈ 2.3 days |
 
 Stage 4.0 status (2026-11-01): P-oracle (`OracleMemory`, `elh/batch.py oracle_rules`), kept-lesson
 scoring and the panel and batch generator (`elh/tasks/families/house_lib/grid.py`) are built and
@@ -72,12 +72,17 @@ B smoke runs (exp25-27, house-lib-family.md §10: they led to `rules.context` an
 
 Full grid per history: 336 train + 576 eval (B, P-all, P-all-ep, P-oracle × 6 worlds × 24).
 A and P-hand do not depend on the history, so they run as 3 replicates (864 episodes in all) rather
-than once per history.
+than once per history. Exact counts for the batches of §10 (3 histories, 24 evaluation tickets):
 
-| Histories | Episodes | GPU time |
-|---|---|---|
-| 3 | 3,600 | ≈ 2.5 days |
-| 8 | 8,160 | ≈ 5.5 days |
+| World | Learn (A, B, P-hand) | Static (P-all, P-all-ep, P-oracle) | Total |
+|---|---|---|---|
+| L4 (each of 2) | 24 train + 216 eval = 240 | 216 | 456 |
+| L16 (each of 2) | 96 train + 72 eval (B only; 4.1's A and P-hand reused) = 168 | 216 | 384 |
+| L64 (each of 2) | 384 train + 216 eval = 600 | 216 | 816 |
+| All six | | | **3,312** (3,600 without the L16 reuse) |
+
+GPU time ≈ 2.3 days (the former ≈ 2.5 days scaled by 3,312 / 3,600). Counts for another history count
+come from `grid.grid43_docs(..., histories)`.
 
 The history count for the confirmatory study (SPEC §14 item 8) is set by the power analysis in
 §10, with variances from 4.3.
@@ -188,6 +193,42 @@ and history variances; cap 10 histories, and if more are needed, add eval ticket
 than histories. New worlds use seed 2 (w2), generated, validated and calibrated while 4.3 is
 analysed.
 
-Engineering for 4.3: batch generator with the L64 gate first (`grid.batch_docs` with
-`recall=GRID_RECALL`, reuse of 4.1's A and P-hand); analysis combining 4.1's A and P-hand with 4.3's
-groups (extends `analysis/exp22_grid.py`).
+### 4.3 batches (generated 2026-11-07; `grid.grid43_docs`, `grid.write_43`)
+
+`uv run python -m elh.tasks.families.house_lib.grid` writes the batch files of every world that has a
+calibration verdict and names the worlds that do not (L64 until `exp17_calibration.py --write` has
+run; a test fails if a calibrated world lacks its files). Learn batches `exp29-*` (B, with A and
+P-hand except at L16, recall `GRID_RECALL`); static batches `exp30-*` (P-all, P-all-ep, P-oracle from
+the `exp29` batch's B after the whole training panel). Same panels and seeds as 4.1.
+
+| World | Batches, in run order | Episodes |
+|---|---|---|
+| L4-c0, L4-c50 | `exp29-grid-<w>`, `exp30-grid-static-<w>` | 240 + 216 each |
+| L16-c0, L16-c50 | `exp29-grid-<w>` (B only), `exp30-grid-static-<w>` | 168 + 216 each |
+| L64-c0, L64-c50 | `exp29-gate-<w>`, `exp30-gate-static-<w>`, `exp29-grid-<w>`, `exp30-grid-static-<w>` | 200 + 72 + 400 + 144 each |
+
+Total 3,312 episodes (counts and the L16 saving in §5).
+
+**L64 gate procedure.** A batch refuses to start if its run already has episodes (no resume), and a
+bank belongs to one batch's run, so history 0 cannot be trained once and then extended by a later
+batch. Instead the L64 grid is split by history, with a new `history_start` field (a batch runs
+histories `[history_start, history_start + histories)`, with the seeds, shuffles and checkpoints of
+one batch of all three; tested). Nothing run in the gate is repeated:
+
+1. Run `exp29-gate-L64-c50-w1` (history 0: B trains 128 tickets, then A, B and P-hand evaluate 24
+   tickets). c50 is the sealed study's primary world and has the most to remember; the c0 gate is the
+   same batch for the other world and follows it. The bank is snapshotted when training ends, before
+   the first evaluation episode.
+2. As soon as the first evaluation episode appears (≈ 128 × 90 s ≈ 3.2 h in), run
+   `uv run elh measure-block experiments/batches/exp30-gate-static-L64-c50-w1.yaml`. It builds P-all,
+   P-all-ep and P-oracle from that bank with no episode and prints their blocks and whole first
+   message (system prompt, tools, ticket) in tokens (4 characters each, as in `analysis/exp22_grid.py`)
+   against the pinned 65,536 with `--reserve` (default 16,384) kept for the episode; it exits non-zero
+   if P-all-ep does not fit. It reads the main `runs/` through `--runs-dir`.
+3. If it fits, let the gate finish, run `exp30-gate-static-L64-c50-w1`, then the same two for c0 and
+   `exp29-grid-<w>`, `exp30-grid-static-<w>` (histories 1 and 2). If it does not, interrupt the batch
+   (the evaluation episodes are not needed; everything reruns under a new registration) and open
+   the Forgejo issue for a larger context (item 2).
+
+Engineering for 4.3: analysis combining 4.1's A and P-hand (L16, `exp22-grid-*`) with 4.3's groups
+(extends `analysis/exp22_grid.py`); it must pool a world's gate and grid batches by history.

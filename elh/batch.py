@@ -67,6 +67,12 @@ with no selection. `P-oracle` (house_lib only) is P-all's pool with the answer k
 task is shown only the rules written on training tasks that share one of its lessons
 (`signature.lessons`), in training order.
 
+`history_start` (default 0) makes a batch run histories [start, start + histories): a world's histories can be
+split over batches (the L64 gate runs history 0 first, the rest follow) with the same per-history seeds,
+shuffles and banks as one batch of all of them, since a bank belongs to (run, history, group).
+`measure_blocks` (`elh measure-block`) builds the static groups' blocks from a source history's stored bank
+without running an episode.
+
 Every episode carries `batch_id = <experiment>/<history>` (the analysis convention, elh/analysis.py);
 the phase is recoverable from split + checkpoint.
 """
@@ -88,10 +94,12 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from elh.controller import memory_for, open_snapshot, run_id_for, run_single_episode, snapshot_memory
 from elh.learner import workflows as wf
-from elh.memory.base import MemoryItem, NullMemory, OracleMemory, StaticMemory
+from elh.memory.base import MemoryItem, NullMemory, OracleMemory, StaticMemory, render_memory_block
 from elh.memory.hindsight import RULE_DOC_SUFFIX, RulesOnlyMemory, render_rule_verbatim
 from elh.registry import ExperimentConfig
 from elh.runner.models import InfraError
+from elh.runner.prompts import first_user_message, system_prompt
+from elh.runner.prompts import tools as tool_list
 from elh.tasks.base import TaskInstance, get_family
 
 STATIC_GROUPS = ("P-all", "A0", "B-rules", "B-replay", "P-hand", "P-all-ep", "P-oracle", "P-task")   # fixed memory, never train
@@ -188,6 +196,7 @@ class Experiment(_Strict):
     overrides: dict[str, Any] = Field(default_factory=dict)
     family: str = "cpu_mem"
     histories: int = Field(1, ge=1)
+    history_start: int = Field(0, ge=0)   # first history index: runs histories [start, start + histories)
     groups: list[str] = Field(min_length=1, validation_alias=AliasChoices("groups", "arms"))  # "arms": legacy key
     phases: list[Phase] = Field(min_length=1)
     dev: DevSpec | None = None
@@ -333,7 +342,7 @@ def schedule(exp: Experiment, cfg: ExperimentConfig) -> list[Step]:
     family = get_family(exp.family)
     learners = [a for a in exp.groups if a not in NON_LEARNING]
     steps: list[Step] = []
-    for h in range(exp.histories):
+    for h in range(exp.history_start, exp.history_start + exp.histories):
         n_train = 0
         for i, (label, ph) in enumerate(_labelled(exp)):
             tasks = expand_tasks(family, ph.spec.tasks, seed=cfg.schedule.seed, history=h, phase_index=i)
@@ -628,6 +637,32 @@ def static_memory(store, exp: Experiment, history: int, group: str, cfg: Experim
                             f"static+records:{sp.from_experiment}/{history}/{sp.group}/e{sp.after}")
     items = static_rules(store, exp, history)
     return StaticMemory(items, f"static:{sp.from_experiment}/{history}/{sp.group}/e{sp.after}")
+
+
+def measure_blocks(store, exp: Experiment, cfg: ExperimentConfig, history: int = 0, *, reserve: int = 16384) -> list[dict]:
+    """Size of each static group's first message for one history, built from the stored source bank and
+    no episode: the largest over the history's eval tickets (P-oracle's block varies by ticket), with the
+    system prompt and tools, in tokens at 4 characters each (analysis/exp22_grid.py's measure). `fits`:
+    that plus `reserve` tokens for the episode itself is within the pinned context (core-grid §10)."""
+    ms = cfg.memory_service
+    on = bool(ms and ms.agent_search)
+    fixed = len(system_prompt(on)) + len(json.dumps(tool_list(on)))
+    tickets = [s.task for s in schedule(exp, cfg) if s.history == history and s.kind == "eval"]
+    out = []
+    for group in [g for g in exp.groups if g in STATIC_GROUPS]:
+        memory = static_memory(store, exp, history, group, cfg)
+        biggest = (0, 0, 0)
+        for task in tickets:
+            items = memory.recall(task, ms.k if ms else 5)
+            block = render_memory_block(items)
+            first = first_user_message(task, "/workspace", block, memory_check=on, **(
+                {"header": ms.experience_header, "position": ms.experience_position} if ms else {}))
+            biggest = max(biggest, ((fixed + len(first)) // 4, len(block) // 4, len(items)))
+        prompt, block, items = biggest
+        out.append({"group": group, "items": items, "block_tokens": block, "prompt_tokens": prompt,
+                    "context_tokens": cfg.model.pin.context_tokens, "reserve": reserve,
+                    "fits": prompt + reserve <= cfg.model.pin.context_tokens})
+    return out
 
 
 def _default_reflection_client(cfg: ExperimentConfig) -> Callable[[], Any]:
