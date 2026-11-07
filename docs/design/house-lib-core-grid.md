@@ -59,7 +59,7 @@ episodes also retain and consolidate memory; not yet measured on house_lib, assu
 | 4.0 Prerequisites | P-oracle group; dropped-lesson handling; train/eval panel generator; B smoke run (≈ 10 train + 4 eval on L16-c50) | ≈ 14 | ≈ 20 min |
 | 4.1 Go / no-go | L16-c0 and L16-c50 (after their exp21 recalibration), 3 histories, all six groups | 192 train + 864 eval = 1,056 | ≈ 15 h |
 | 4.2 Calibrate | exp21 (A, P-hand) and exp24 (P-task, the learnability control), 8 tasks per lesson: L4 ×2 and L16 ×2 (before 4.1), then L64 ×2 (before 4.3) | 960 + 3,072 | ≈ 12 h + ≈ 36 h |
-| 4.3 Full grid | 6 worlds; 4.1's histories reused if nothing changed | see below | see below |
+| 4.3 Full grid | 6 worlds; B's histories rerun with k14r12 (§9, §10); A and P-hand reused at L16 | see below | see below |
 
 Stage 4.0 status (2026-11-01): P-oracle (`OracleMemory`, `elh/batch.py oracle_rules`), kept-lesson
 scoring and the panel and batch generator (`elh/tasks/families/house_lib/grid.py`) are built and
@@ -79,8 +79,8 @@ than once per history.
 | 3 | 3,600 | ≈ 2.5 days |
 | 8 | 8,160 | ≈ 5.5 days |
 
-The history count for the confirmatory study (SPEC §14 item 8) is set from 4.1's variance, not
-before.
+The history count for the confirmatory study (SPEC §14 item 8) is set by the power analysis in
+§10, with variances from 4.3.
 
 ## 6. Go / no-go rule
 
@@ -155,3 +155,39 @@ Decision (2026-11-07): the full grid runs B with (k, recall_k, budget) = (14, 12
 `grid.GRID_RECALL`, via `grid.batch_docs(..., recall=GRID_RECALL)`. B recalls during training as
 well, so 4.1's B histories are not reused in 4.3; A and P-hand do not depend on recall. The tuning
 tickets were chosen for this decision only and stay out of every reported comparison.
+
+## 10. Next steps (decided 2026-11-07; roadmap in SPEC §13 "Roadmap to the sealed study")
+
+**4.3 is an estimation run, not confirmatory.** It gives effect sizes and variances, not the H6
+claim. B's recall was tuned (exp28) after 4.1 showed B behind P-all, with no matching tuning for
+P-all; this is a stated deviation in the methods. The H6 claim is made only in the sealed study.
+
+1. **L64 calibration first** (exp21 + exp24 at L64-c0 and L64-c50, ≈ 3,072 episodes, started
+   2026-11-07, finishing ≈ 2026-11-09), then `analysis/exp17_calibration.py --write`.
+2. **L64 gate.** Train L64 history 0 for B and measure the real P-all-ep block. If it plus an
+   episode does not fit the 65,536-token pinned context (projections from L16: ≈ 36k P-all, ≈ 52k
+   P-all-ep, §9), open a Forgejo infrastructure issue for a larger context (new registration and pins
+   from the host administrator; SPEC §14 item 7 already decided to raise the context rather than cap
+   P-all). The rest of 4.3 waits, and all of 4.3 runs under the new registration.
+3. **Full grid.** 6 worlds (L ∈ {4, 16, 64} × c ∈ {0, 0.5}, w1), 3 histories, B with recall k14r12
+   (`grid.GRID_RECALL` = (14, 12, 8192)) fixed across every world, not scaled with L; this is a stated
+   limitation. Report per world how often a rule for the ticket's primary lesson was shown, so a
+   recall drop at L64 is visible rather than tuned away.
+4. **Reuse at L16.** 4.1's A and P-hand (`exp22-grid-*`) are reused: they do not depend on recall,
+   and the eval tickets and registration are the same. B is rerun, and so are the groups built from
+   its banks (P-all, P-all-ep, P-oracle), since B recalls during training. If the context changes,
+   everything reruns.
+5. **No extensions** (C, D, G-opt, hidden, B-rules, P-wrong, W-hand, few-shot) before the sealed
+   study. Decided before 4.3 so the choice cannot depend on its results.
+
+Sealed study (SPEC §13): primary test B vs P-all-ep at L64-c50 (lesson-check pass on kept lessons,
+paired by ticket); the §4 mixed model on the B − P-all-ep gap across L × c is secondary, tested only
+if the primary succeeds. Power: smallest effect of interest 10 points B − P-all-ep (fixed, not 4.3's
+observed effect), α = 0.05 two-sided, power 0.80, by simulation from the §4 model with 4.3's ticket
+and history variances; cap 10 histories, and if more are needed, add eval tickets per world rather
+than histories. New worlds use seed 2 (w2), generated, validated and calibrated while 4.3 is
+analysed.
+
+Engineering for 4.3: batch generator with the L64 gate first (`grid.batch_docs` with
+`recall=GRID_RECALL`, reuse of 4.1's A and P-hand); analysis combining 4.1's A and P-hand with 4.3's
+groups (extends `analysis/exp22_grid.py`).

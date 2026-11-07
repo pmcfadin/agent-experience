@@ -580,6 +580,44 @@ together. Groups C and D did not beat B in the pilot and move out of the core gr
 | 4 | Core `house_lib` grid: A, B, P-all, P-oracle, P-hand × L ∈ {4, 16, 64} × c ∈ {0, 0.5}, 8–10 histories, 3–5 replicate runs per probe ticket per snapshot | H6 test as in §12; H7 repeatability and between-history ICC | ≥ 4.5 days (that figure is for 3 histories; scales with history count); a 2-world go/no-go first |
 | 5 | Lock the protocol, including the H6/H7 controls and the history count from a power analysis, then run the sealed confirmatory study | protocol locked; sealed test completed | as Phase 2, larger |
 
+### Roadmap to the sealed study (decided 2026-11-07)
+
+Details of 4.3: `docs/design/house-lib-core-grid.md` §10.
+
+| Step | Work | Exit criterion |
+|---|---|---|
+| Now | L64 calibration: exp21 + exp24 at L64-c0 and L64-c50 (≈ 3,072 episodes), started 2026-11-07, finishing ≈ 2026-11-09; then `analysis/exp17_calibration.py --write` | `experiments/calibration/L64-*.json` written |
+| 4.3 | Estimation run, not confirmatory: effect sizes and variances, not the H6 claim. L64 gate first (train L64 history 0 for B, measure the real P-all-ep block; if it plus an episode does not fit 65,536 tokens, a Forgejo issue asks for a larger context and all of 4.3 runs under the new registration). Then 6 worlds (L ∈ {4, 16, 64} × c ∈ {0, 0.5}, w1) × 3 histories, B with recall k14r12 in every world | per-world lesson-check pass for every group; how often the ticket's primary lesson's rule was shown; ticket and history variances |
+| 5 | Sealed confirmatory study on new worlds (below) | protocol locked at tag `prereg-v1`; sealed test completed |
+
+4.3 is an estimation run because B's recall was tuned (exp28) after 4.1 showed B behind P-all, with
+no matching tuning for P-all; this is a stated deviation in the methods. The H6 claim is made only
+in the sealed study. No extensions (C, D, G-opt, hidden, B-rules, P-wrong, W-hand, few-shot) run
+before the sealed study; this is decided before 4.3 so the choice cannot depend on its results.
+
+Sealed study (step 5):
+
+- **Primary test**: B vs P-all-ep at L64-c50, lesson-check pass on kept lessons, paired by ticket.
+  Secondary, tested only if the primary succeeds: the B − P-all-ep gap across L × c (the mixed model
+  in core-grid §4).
+- **Power analysis**: smallest effect of interest fixed at 10 percentage points B − P-all-ep in
+  lesson-check pass rate (not 4.3's observed effect; 4.3 supplies only the ticket and history
+  variances), α = 0.05 two-sided, power 0.80, by simulation from the mixed model. Cap 10 histories
+  (≈ 7 days); if more are needed, change the design (e.g. more eval tickets per world), not the
+  history count.
+- **New worlds**: world seed 2 (w2) for all six cells, freshly generated, validated and calibrated
+  (exp21 + exp24 per world) while 4.3 is analysed; w1 has informed every choice so far.
+- **Lock**: protocol document plus frozen batch files and analysis script, committed and tagged
+  `prereg-v1` before any w2 evaluation episode; a harness check refuses sealed batches whose files
+  do not match the hashes recorded at the tag; a public registry entry (OSF or AsPredicted) carrying
+  the tag's commit hash, filed by the owner.
+- **Model**: one agent model (the registered Qwen3-Coder-30B). A Sonnet 5.5 replication of the
+  primary test is named in the protocol as a planned follow-up, not part of the sealed study.
+
+Engineering to do: 4.3 batch generator with the L64 gate first; 4.3 analysis combining 4.1's A and
+P-hand with 4.3's groups; the power-analysis simulation; w2 world generation and validation; the
+harness hash-lock; the protocol document.
+
 ### Phase 0 status (2026-10-24)
 
 Verified on the LocalSandbox: task generation is deterministic; generator validation (§4.4) runs
@@ -612,9 +650,11 @@ the earlier ticket; the useful verdict detail is thin, which is worth watching i
 5. ~~Dedicated Hindsight~~ and ~~checkpoint snapshots~~ (done 2026-10-25, §10). First real-model
    `train` episodes on group B ran 2026-10-25 (retain, learning ledger, recall into the next episode).
 6. Optional: Anthropic credentials for the Sonnet comparison configuration.
+   A Sonnet 5.5 replication of the primary test is a planned follow-up after the sealed study, not
+   part of it (§13, decided 2026-11-07).
 7. ~~`house_lib` design decisions~~ (decided 2026-10-28, `docs/design/house-lib-family.md` §9):
    `hidden` lessons are an extension, not in the main grid; P-all uses raw rules, condensed rules
    belong to G-opt; the context size is raised if P-all at 64 lessons does not fit; the library
    starts small, with size as a later parameter.
-8. Number of histories for the confirmatory study (8–10 proposed, set by power analysis after
-   step 4) and the GPU time that implies.
+8. Number of histories for the confirmatory study: set by the power-analysis rule in §13 (fixed
+   effect of interest 10 points, cap 10 histories, variances from 4.3), and the GPU time that implies.
