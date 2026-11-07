@@ -341,6 +341,10 @@ def test_grid_panels_and_scores_over_kept_lessons(tmp_path):
         assert sorted((s.task.cause, s.task.theme, s.task.seed) for s in steps if s.kind == "eval" and s.history == 0
                       and s.group == exp.groups[0]) == sorted(evals)
     assert static["static"] == {"from_experiment": learn["name"], "group": "B", "after": 32}
+    tuned, _ = grid.batch_docs(fam, kept, recall=grid.GRID_RECALL)
+    o = tuned["overrides"]
+    assert (o["memory_service.k"], o["rules"]["recall_k"], o["memory_service.recall_max_tokens"]) == grid.GRID_RECALL
+    assert grid.GRID_RECALL in grid.TUNE_SETTINGS and "memory_service.k" not in learn["overrides"]
 
 
 @pytest.mark.parametrize("path", sorted((Path(__file__).parent.parent / "experiments" / "batches").glob("exp2[23]-grid-*.yaml")),

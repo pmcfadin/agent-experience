@@ -120,3 +120,38 @@ checks 47/135 vs 0/135, L16-c50 39/141 vs 1/141, McNemar p < 0.001); largest blo
   26/72 (c50) eval tickets were shown a rule from a training ticket with their primary lesson.
 - `event_fields` at c = 0.5: 0/12 for every memory-derived group (B's rules never captured the key
   recipe), 12/12 with the handbook. `feature_flag`: the handbook is weakest (3/24, 7/27).
+
+## 9. Recall tuning, exp28 (2026-11-07; analysis/exp28_tune.py, runs/logs/exp28-analysis.md)
+
+B's exp22 banks replayed read-only (`B-replay`, after 32 training tickets) on 12 tuning tickets per
+history (seeds 3000+, never in a reported panel), 3 histories, under (`memory_service.k`,
+`rules.recall_k`, recall budget), with P-all on the same tickets. 288 episodes, 0 infra errors. The
+first k8r6 L16-c0 run was cut off by a host reboot after 15 episodes; they are kept under
+`exp28-tune-k8r6-L16-c0-w1-aborted` and the batch was rerun in full.
+
+| World | Setting | Task pass | Lesson checks | Primary-lesson rule shown | Lesson checks vs P-all (McNemar) |
+|---|---|---|---|---|---|
+| L16-c0 | k5r2 (4.1) | 6/36 | 13/54 | 6/36 | 3 vs 27, p < 0.001 |
+| L16-c0 | k8r6 | 13/36 | 24/54 | 18/36 | 8 vs 21, p = 0.024 |
+| L16-c0 | k14r12 | 15/36 | 28/54 | 26/36 | 6 vs 15, p = 0.078 |
+| L16-c0 | P-all | 20/36 | 37/54 | - | - |
+| L16-c50 | k5r2 (4.1) | 3/36 | 19/78 | 16/36 | 9 vs 22, p = 0.029 |
+| L16-c50 | k8r6 | 8/36 | 36/78 | 25/36 | 15 vs 11, p = 0.56 |
+| L16-c50 | k14r12 | 6/36 | 31/78 | 30/36 | 9 vs 10, p = 1.0 |
+| L16-c50 | P-all | 9/36 | 32/78 | - | - |
+
+- Retrieval was the bottleneck §8 named: showing more rules raises how often the ticket's primary
+  lesson's rule is shown, and lesson checks follow. At c = 0 the gap to P-all shrinks from 24 to 9
+  checks; at c = 0.5 B matches P-all.
+- k8r6 and k14r12 are within noise of each other at c = 0.5; k14r12 is ahead at c = 0 and shows the
+  primary lesson's rule most often.
+- Blocks (≈ 4 characters per token, largest / mean): k14r12 4.5k / 3.4k at L16-c50, P-all 9.0k / 8.3k.
+  B's block is bounded by its 14 items, not by the bank, so at L64 it projects to the same few
+  thousand tokens: criterion 3 of §6 holds for B. P-all is not bounded: ≈ 4× the rules at L64
+  projects to ≈ 36k tokens for P-all and ≈ 52k for P-all-ep (13k at L16 in 4.1), which leaves too
+  little of the 65,536-token context for an episode. To settle before 4.3 (design §9.4).
+
+Decision (2026-11-07): the full grid runs B with (k, recall_k, budget) = (14, 12, 8192),
+`grid.GRID_RECALL`, via `grid.batch_docs(..., recall=GRID_RECALL)`. B recalls during training as
+well, so 4.1's B histories are not reused in 4.3; A and P-hand do not depend on recall. The tuning
+tickets were chosen for this decision only and stay out of every reported comparison.

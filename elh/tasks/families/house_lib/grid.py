@@ -68,16 +68,28 @@ OVERRIDES = {"memory_service.record_format": "lesson-v3", "memory_service.recall
              "rules": {"enabled": True, "store": "verbatim", "context": True,
                        "feedback_where": True}}
 HISTORIES = 3
+# Full grid (4.3) recall, (memory_service.k, rules.recall_k, recall budget): chosen by exp28 (core-grid
+# §9); 4.1 ran on the base config's (5, 2, 2048).
+GRID_RECALL = (14, 12, 8192)
 
 
-def batch_docs(family, kept: list[str], histories: int = HISTORIES) -> tuple[dict, dict]:
+def recall_overrides(k: int, rule_k: int, budget: int) -> dict:
+    """OVERRIDES with B's recall set to k items, rule_k of them rules, within budget tokens."""
+    return {**OVERRIDES, "rules": {**OVERRIDES["rules"], "recall_k": rule_k}, "memory_service.k": k,
+            "memory_service.recall_max_tokens": budget}
+
+
+def batch_docs(family, kept: list[str], histories: int = HISTORIES,
+               recall: tuple[int, int, int] | None = None) -> tuple[dict, dict]:
     """The two batches of one world: `exp22-grid-<world>` (A, B and P-hand; B trains, then all are
     evaluated) and `exp23-grid-static-<world>` (P-all, P-all-ep and P-oracle from exp22's B after
-    training, same evaluation tickets)."""
+    training, same evaluation tickets). `recall` overrides B's recall (4.3: GRID_RECALL); B recalls
+    while training too, so a new recall setting needs new B histories."""
     world = family.world.id
     train, evals = grid_tasks(family, kept)
     label = f"after-{len(train)}"
-    common = {"base_config": "experiments/phase0-local.yaml", "overrides": OVERRIDES,
+    common = {"base_config": "experiments/phase0-local.yaml",
+              "overrides": recall_overrides(*recall) if recall else OVERRIDES,
               "family": f"house_lib/{world}", "histories": histories}
     ev = {"eval": {"label": label, "tasks": {"items": [list(t) for t in evals]}}}
     learn = {"name": f"exp22-grid-{world}", **common, "groups": ["A", "B", "P-hand"],
@@ -106,10 +118,8 @@ def tune_docs(family, kept: list[str], histories: int = HISTORIES) -> list[dict]
     after = TRAIN_PER_LESSON * len(family.causes)
     out = []
     for k, rule_k, budget in TUNE_SETTINGS:
-        rules = {**OVERRIDES["rules"], "recall_k": rule_k}
         out.append({"name": f"exp28-tune-k{k}r{rule_k}-{world}", "base_config": "experiments/phase0-local.yaml",
-                    "overrides": {**OVERRIDES, "rules": rules, "memory_service.k": k,
-                                  "memory_service.recall_max_tokens": budget},
+                    "overrides": recall_overrides(k, rule_k, budget),
                     "family": f"house_lib/{world}", "histories": histories, "groups": ["B-replay"],
                     "static": {"from_experiment": f"exp22-grid-{world}", "group": "B", "after": after},
                     "phases": [{"eval": {"label": f"after-{after}", "tasks": {"items": items}}}]})
