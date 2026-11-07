@@ -64,6 +64,12 @@ runs/                       (gitignored) SQLite DB, traces, snapshots per run
 (sha256 of the canonicalised file) and stamps it on every row it writes. A run refuses to start if a
 file with the same `name` was previously run under a different hash.
 
+Sealed batches add a protocol lock (§13): a batch with `sealed: true` runs only if the working tree
+matches `experiments/prereg/manifest.json` (sha256 of the sealed batch files, their base config, the
+analysis scripts, the whole `elh/` tree, `uv.lock`, calibration tables and Hindsight pins), the
+manifest is the one at git tag `prereg-v1`, and HEAD contains the tag (`elh prereg-lock`,
+`elh prereg-verify`; `elh/prereg.py`). Batches without `sealed` are unaffected.
+
 ```yaml
 name: phase0-local
 version: 1
@@ -610,13 +616,16 @@ Sealed study (step 5):
 - **Lock**: protocol document plus frozen batch files and analysis script, committed and tagged
   `prereg-v1` before any w2 evaluation episode; a harness check refuses sealed batches whose files
   do not match the hashes recorded at the tag; a public registry entry (OSF or AsPredicted) carrying
-  the tag's commit hash, filed by the owner.
+  the tag's commit hash, filed by the owner. The check is built (§3, `elh prereg-lock` /
+  `prereg-verify`, `docs/reproducing.md`): `experiments/prereg/manifest.json` hashes the sealed batch
+  files (`sealed: true`), their base config, the analysis scripts, the whole `elh/` tree, `uv.lock`
+  and the calibration and Hindsight pins; the manifest must equal the one at the tag.
 - **Model**: one agent model (the registered Qwen3-Coder-30B). A Sonnet 5.5 replication of the
   primary test is named in the protocol as a planned follow-up, not part of the sealed study.
 
 Engineering to do: 4.3 batch generator with the L64 gate first; 4.3 analysis combining 4.1's A and
 P-hand with 4.3's groups; the power-analysis simulation; w2 world generation and validation; the
-harness hash-lock; the protocol document.
+protocol document (the harness hash-lock is built).
 
 ### Phase 0 status (2026-10-24)
 

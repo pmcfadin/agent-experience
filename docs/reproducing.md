@@ -44,6 +44,8 @@ uv run elh validate-family cpu_mem --sandbox local # generator validation (SPEC 
 uv run elh sandbox-setup                           # once per boot: UserSandbox pool users + nftables rule
 uv run elh run-batch experiments/batches/exp13-histories.yaml --dry-run       # print the schedule
 uv run elh run-batch experiments/batches/exp13-histories.yaml --client model  # run it
+uv run elh prereg-lock --batches experiments/batches/<sealed>.yaml --analysis analysis/<script>.py  # protocol lock (SPEC §13)
+uv run elh prereg-verify [batch.yaml]              # check the tree against experiments/prereg/manifest.json
 uv run elh analyze exp13-histories                 # comparisons, bootstrap, ΔRR/ΔNL, GPU-seconds
 ```
 
@@ -51,6 +53,19 @@ Runs write a SQLite database, content-addressed JSONL traces, workspaces and mem
 `runs/` (gitignored; `--runs-dir` to change). `elh regrade` re-grades a stored episode and compares
 verdicts. `--sandbox local` uses the `LocalSandbox` (a temp directory with resource limits, no isolation);
 it is for development only, and each episode row records which backend it ran on.
+
+## Protocol lock (sealed batches)
+
+A batch YAML with `sealed: true` runs only when the lock verifies (SPEC §13); other batches are
+unaffected. From the repo root, `prereg-lock` writes `experiments/prereg/manifest.json`: sha256 of the
+listed batches, their `base_config`, the listed analysis scripts, the whole `elh/` tree, `uv.lock`,
+`pyproject.toml`, `experiments/calibration/` and the `services/hindsight/` pins, one combined digest,
+and the commit it was made at. Commit the manifest, then tag that commit `prereg-v1` by hand (the tool
+never tags). `prereg-verify` lists every mismatched, added or missing file and uncommitted change.
+`run-batch` on a sealed batch refuses unless the manifest exists and lists the batch, all hashes
+match, hashed files are committed, `prereg-v1` exists, HEAD contains it and the manifest equals the
+one at the tag. `run-batch --dry-run` prints the same verdict and still shows the schedule. Changing
+a hashed file after the tag needs a new lock under a new tag name, not a quiet re-lock.
 
 ## Repository layout
 

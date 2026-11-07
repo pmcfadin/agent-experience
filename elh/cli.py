@@ -110,6 +110,15 @@ def cmd_run_batch(args) -> int:
     from elh.tasks.base import get_family
 
     exp, cfg = load_experiment(args.experiment)
+    digest = None
+    if exp.sealed:  # SPEC §13: the protocol lock must verify, also for a dry run (which only reports it)
+        from elh import prereg
+
+        res = prereg.verify(Path.cwd(), args.experiment)
+        print(prereg.format_result(res))
+        digest = res.digest
+        if not res.ok and not args.dry_run:
+            raise SystemExit("run-batch: sealed batch refused (see above)")
     if args.dry_run:
         print_schedule(exp, cfg, schedule(exp, cfg))
         return 0
@@ -127,9 +136,28 @@ def cmd_run_batch(args) -> int:
         extra = {"make_induction_client": ScriptedInductionClient,
                  "make_reflection_client": lambda: scripted_reflection}
     results = run_batch(exp, cfg, store, lambda task: shared or _client(args.client, cfg, task, family),
-                        sandbox_backend=args.sandbox, **extra)
+                        sandbox_backend=args.sandbox, sealed_digest=digest, **extra)
     report(exp, store, results)
     return 0
+
+
+def cmd_prereg_lock(args) -> int:
+    from elh import prereg
+
+    root = Path.cwd()
+    m = prereg.lock(root, args.batches, args.analysis or [])
+    path = prereg.write_manifest(root, m)
+    print(f"{path}: {len(m['files'])} files, digest {m['digest']}, commit {m['commit']}")
+    print(f"commit it, then tag that commit {prereg.TAG} (not done here)")
+    return 0
+
+
+def cmd_prereg_verify(args) -> int:
+    from elh import prereg
+
+    res = prereg.verify(Path.cwd(), args.batch)
+    print(prereg.format_result(res))
+    return 0 if res.ok else 1
 
 
 def cmd_analyze(args) -> int:
@@ -180,6 +208,15 @@ def main(argv: list[str] | None = None) -> int:
                    choices=["model", "scripted-reference", "scripted-wrong", "scripted-noop"])
     p.add_argument("--dry-run", action="store_true", help="print the expanded schedule and exit")
     p.set_defaults(fn=cmd_run_batch)
+
+    p = sub.add_parser("prereg-lock", help="write the protocol-lock manifest for sealed batches (SPEC §13); run at the repo root")
+    p.add_argument("--batches", nargs="+", required=True, help="sealed batch YAMLs (must say `sealed: true`)")
+    p.add_argument("--analysis", nargs="*", help="analysis scripts to lock")
+    p.set_defaults(fn=cmd_prereg_lock)
+
+    p = sub.add_parser("prereg-verify", help="check the working tree against the protocol-lock manifest; run at the repo root")
+    p.add_argument("batch", nargs="?", help="also require this batch to be listed")
+    p.set_defaults(fn=cmd_prereg_verify)
 
     p = sub.add_parser("analyze", help="compare groups for a batch (see python -m elh.analysis --help)")
     p.add_argument("rest", nargs=argparse.REMAINDER)
