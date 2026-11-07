@@ -191,3 +191,29 @@ analysed.
 Engineering for 4.3: batch generator with the L64 gate first (`grid.batch_docs` with
 `recall=GRID_RECALL`, reuse of 4.1's A and P-hand); analysis combining 4.1's A and P-hand with 4.3's
 groups (extends `analysis/exp22_grid.py`).
+
+### Power analysis for the sealed study (`analysis/power_sealed.py`)
+
+Primary test: per (history, ticket) cell, the check-weighted B − P-all-ep difference in lesson-check
+pass; a crossed history × ticket ANOVA on those cells (one observation per cell) gives the
+difference, its variance `(MS_h + MS_t − MS_e) / (H T)` (floored at `MS_e / (H T)`) and a
+Satterthwaite t test. It is a linear mixed model on the paired contrast, chosen over a fitted mixed
+logistic model because it is closed-form and has small-sample df with ~10 histories. Power comes
+from simulating the logistic model (random intercepts and B-by-cluster slopes for history, ticket,
+check within ticket and ticket × history cell) and running that same test; mu and the B effect are
+solved so the marginal rates are the baseline and baseline + 10 points. Variance components are
+method-of-moments estimates from paired check outcomes. Type-I error is ≈ 0.05 for ≥ 6 histories
+(≈ 0.07 at 3 histories and many tickets).
+
+After 4.3 (L64-c50, 3 histories, B recall k14r12), with the batch prefixes the generator printed:
+
+    uv run python analysis/power_sealed.py --from-batches <B batch> <P-all-ep batch> --world L64-c50-w1 \
+        --baseline <P-all-ep pass rate to plan for> --sims 5000
+
+It prints the estimated logit-scale SDs and power for 3–10 histories × 24 / 36 / 48 eval tickets.
+Pick the fewest histories reaching 0.80 (cap 10); if none do at 24 tickets, take the smallest ticket
+count that does, and say so in the protocol. `--variances` / `--slope-variances` plan from stated SDs
+instead. The 4.3 estimates rest on 3 histories, so also run the table at the upper end of the
+history SDs (e.g. doubled) and plan for that. Demo on 4.1's L16-c50 (not the decision): 3 histories,
+24 tickets, 1.96 checks per ticket, P-all-ep pass 0.43; power at 10 histories 0.47 / 0.55 / 0.62 for
+24 / 36 / 48 tickets, so that design would not reach 0.80.
