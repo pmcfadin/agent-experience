@@ -192,28 +192,50 @@ Engineering for 4.3: batch generator with the L64 gate first (`grid.batch_docs` 
 `recall=GRID_RECALL`, reuse of 4.1's A and P-hand); analysis combining 4.1's A and P-hand with 4.3's
 groups (extends `analysis/exp22_grid.py`).
 
+
 ### Power analysis for the sealed study (`analysis/power_sealed.py`)
 
-Primary test: per (history, ticket) cell, the check-weighted B − P-all-ep difference in lesson-check
-pass; a crossed history × ticket ANOVA on those cells (one observation per cell) gives the
-difference, its variance `(MS_h + MS_t − MS_e) / (H T)` (floored at `MS_e / (H T)`) and a
-Satterthwaite t test. It is a linear mixed model on the paired contrast, chosen over a fitted mixed
-logistic model because it is closed-form and has small-sample df with ~10 histories. Power comes
-from simulating the logistic model (random intercepts and B-by-cluster slopes for history, ticket,
-check within ticket and ticket × history cell) and running that same test; mu and the B effect are
-solved so the marginal rates are the baseline and baseline + 10 points. Variance components are
-method-of-moments estimates from paired check outcomes. Type-I error is ≈ 0.05 for ≥ 6 histories
-(≈ 0.07 at 3 histories and many tickets).
+Primary test (proposed): per (history, ticket) cell, the check-weighted B − P-all-ep difference in
+lesson-check pass, averaged over the cell's R runs; a crossed history × ticket ANOVA on those cells
+(one observation per cell) gives the difference, its variance `(MS_h + MS_t − MS_e) / (H T)`
+(floored at `MS_e / (H T)`) and a Satterthwaite t test. It is a linear mixed model on the paired
+contrast, chosen over a fitted mixed logistic model because it is closed-form and has small-sample df
+with ~10 histories. R enters only through the run average: episode noise in `MS_e` shrinks by about
+1/R, while history, ticket and true ticket × history variance do not, so replicates trade for
+histories only as far as episode noise dominates. The function is the same for every R.
 
-After 4.3 (L64-c50, 3 histories, B recall k14r12), with the batch prefixes the generator printed:
+Power comes from simulating the logistic model (random intercepts and B-by-cluster slopes for history,
+ticket, check within ticket and ticket × history cell, plus an episode effect per run) and running
+that same test; mu and the B effect are solved so the marginal rates are the baseline and baseline +
+10 points. Variance components are method-of-moments estimates from paired check outcomes. With
+replicates (4.3 at the primary cell: 3 runs per group, history and ticket), check pairs of one cell
+from different runs give the ticket × history slope and the excess covariance within a run gives the
+episode effect; with one run per cell the two cannot be separated and all of it is reported as cell
+variance, the conservative case. Type-I error is ≈ 0.05 for ≥ 6 histories (≈ 0.07 at 3 histories and
+many tickets).
+
+After 4.3 (L64-c50, 3 histories × 3 runs, B recall k14r12), with the batch prefixes the generator printed:
 
     uv run python analysis/power_sealed.py --from-batches <B batch> <P-all-ep batch> --world L64-c50-w1 \
         --baseline <P-all-ep pass rate to plan for> --sims 5000
 
-It prints the estimated logit-scale SDs and power for 3–10 histories × 24 / 36 / 48 eval tickets.
-Pick the fewest histories reaching 0.80 (cap 10); if none do at 24 tickets, take the smallest ticket
-count that does, and say so in the protocol. `--variances` / `--slope-variances` plan from stated SDs
-instead. The 4.3 estimates rest on 3 histories, so also run the table at the upper end of the
-history SDs (e.g. doubled) and plan for that. Demo on 4.1's L16-c50 (not the decision): 3 histories,
-24 tickets, 1.96 checks per ticket, P-all-ep pass 0.43; power at 10 histories 0.47 / 0.55 / 0.62 for
-24 / 36 / 48 tickets, so that design would not reach 0.80.
+It prints the estimated logit-scale SDs and power for 3–10 histories × 24 / 36 / 48 eval tickets ×
+1 / 2 / 3 runs per cell. Pick the fewest histories reaching 0.80 (cap 10); if none do at 24 tickets,
+take the smallest ticket count that does, and say so in the protocol. `--variances` /
+`--slope-variances` / `--run-sd` plan from stated SDs instead. The 4.3 estimates rest on 3 histories,
+so also run the table at the upper end of the history SDs (e.g. doubled) and plan for that. Proposed,
+pending the owner's review before preregistration: the pooled-over-checks estimand, the 10 points as
+a marginal pass-rate difference, P-all-ep's 4.3 rate as the baseline, and the conservative (upper-end)
+history variances.
+
+Demo on 4.1's L16-c50 (not the decision; one run per cell, 3 histories, 24 tickets, 1.96 checks per
+ticket, P-all-ep pass 0.43). The cell slope SD of 1.5 cannot be split, so the table gives both
+extremes. Power at 10 histories, for 1 / 2 / 3 runs:
+
+| Split of the cell variance | 24 tickets | 36 tickets | 48 tickets |
+|---|---|---|---|
+| all ticket × history (conservative) | 0.46 / 0.55 / 0.56 | 0.55 / 0.63 / 0.63 | 0.59 / 0.65 / 0.68 |
+| all episode noise | 0.49 / 0.62 / 0.69 | 0.57 / 0.72 / 0.73 | 0.64 / 0.73 / 0.76 |
+
+At the 4.1 variances no design reaches 0.80 within 10 histories; replicates help modestly, and only
+if the cell variance is mostly episode noise.
