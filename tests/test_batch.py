@@ -403,3 +403,37 @@ def test_measure_blocks_sizes_static_groups_without_an_episode(tmp_path, monkeyp
     assert not batch.measure_blocks(store, exp, cfg, 0, reserve=65536)[0]["fits"]
     assert store.db.execute("SELECT COUNT(*) FROM episodes WHERE batch_id LIKE ?", (f"{exp.name}/%",)).fetchone()[0] == 0
     assert main(["measure-block", str(path), "--runs-dir", str(tmp_path / "runs")]) == 0
+
+
+def test_replicates_repeat_a_groups_eval_runs_and_leave_everything_else_alone(tmp_path):
+    base = _write(tmp_path, name="rep-test", groups=["A", "B"])
+    plain, plain_cfg = load_experiment(base)
+    rep, rep_cfg = load_experiment(_write(tmp_path, name="rep-test", groups=["A", "B"], replicates={"B": 3}))
+    assert run_id_for(plain_cfg) == run_id_for(rep_cfg)  # not part of the registration
+    old, new = schedule(plain, plain_cfg), schedule(rep, rep_cfg)
+    assert all(s.replicate == 0 for s in old)
+    assert [s for s in new if s.replicate == 0] == old  # same episodes, same relative order
+    extra = [s for s in new if s.replicate]
+    assert {(s.group, s.kind, s.replicate) for s in extra} == {("B", "eval", 1), ("B", "eval", 2)}
+    assert len(new) == len(old) + 2 * len([s for s in old if s.kind == "eval" and s.group == "B"])
+    for bad in ({"C": 2}, {"B": 0}):
+        with pytest.raises(ValidationError, match="replicates"):
+            load_experiment(_write(tmp_path, groups=["A", "B"], replicates=bad))
+
+
+def test_replicate_index_is_recorded_per_episode(tmp_path):
+    exp, cfg = load_experiment(_write(tmp_path, groups=["A"], replicates={"A": 2}, phases=[
+        {"eval": {"tasks": {"causes": ["nested_scan_join"], "themes": ["inventory"], "seeds": [2000, 2002]}}}]))
+    store = Store(tmp_path / "runs")
+    run_batch(exp, cfg, store, _client, sandbox_backend="local", out=lambda _: None)
+    rows = store.db.execute("SELECT task_id, replicate, ordinal FROM episodes WHERE batch_id LIKE ?",
+                            (f"{exp.name}/%",)).fetchall()
+    assert len(rows) == 4 and sorted(r["replicate"] for r in rows) == [0, 0, 1, 1]
+    assert len({(r["task_id"], r["replicate"]) for r in rows}) == 4
+
+
+@pytest.mark.parametrize("path", sorted((ROOT / "experiments" / "batches").glob("*.yaml")), ids=lambda p: p.stem)
+def test_existing_batches_have_no_replicates(path):
+    exp, cfg = load_experiment(path)
+    assert exp.replicates == {} or path.stem.startswith(("exp29-", "exp30-"))
+    assert all(s.replicate == 0 for s in schedule(exp, cfg))

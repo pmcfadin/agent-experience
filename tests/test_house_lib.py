@@ -421,6 +421,9 @@ def test_stage43_l16_reuses_4_1_and_l64_splits_history_0_as_the_gate(tmp_path):
     assert rest_static["static"] == {"from_experiment": rest["name"], "group": "B", "after": 128}
     assert gate_static["histories"] == 1 and rest_static["history_start"] == 1
     whole = grid.batch_docs(fam, kept, recall=grid.GRID_RECALL)[0]
+    assert gate["replicates"] == rest["replicates"] == {"B": 3}
+    assert gate_static["replicates"] == rest_static["replicates"] == {"P-all-ep": 3}
+    whole["replicates"] = gate["replicates"]
     assert gate["phases"] == rest["phases"] == whole["phases"]
     # the split runs the histories exactly as one batch of three would (same tickets, orders, checkpoints)
     steps = {}
@@ -429,7 +432,41 @@ def test_stage43_l16_reuses_4_1_and_l64_splits_history_0_as_the_gate(tmp_path):
         path = tmp_path / f"{doc['name']}.yaml"
         path.write_text(yaml.safe_dump(doc))
         exp, cfg = load_experiment(path)
-        steps[doc["name"]] = [(s.history, s.phase, s.kind, s.group, s.task.task_id, s.after) for s in schedule(exp, cfg)]
+        steps[doc["name"]] = [(s.history, s.phase, s.kind, s.group, s.task.task_id, s.after, s.replicate) for s in schedule(exp, cfg)]
     assert steps[gate["name"]] + steps[rest["name"]] == steps[whole["name"]]
     assert sum(k == "train" for _, _, k, *_ in steps[gate["name"]]) == 128
     assert {h for h, *_ in steps[gate["name"]]} == {0} and {h for h, *_ in steps[rest["name"]]} == {1, 2}
+
+
+def test_stage43_replicates_only_at_the_primary_cell(tmp_path):
+    from collections import Counter
+
+    from elh.tasks.families.house_lib import grid
+
+    def counts(doc):
+        doc = dict(doc, base_config=str(CONFIG))
+        path = tmp_path / f"{doc['name']}.yaml"
+        path.write_text(yaml.safe_dump(doc))
+        exp, cfg = load_experiment(path)
+        steps = schedule(exp, cfg)
+        ev = [s for s in steps if s.kind == "eval"]
+        per = Counter((s.history, s.group, s.task.task_id) for s in ev)
+        ids = Counter((s.history, s.group, s.task.task_id, s.replicate) for s in ev)
+        assert max(ids.values()) == 1  # replicate ids distinguish every episode
+        assert all(s.replicate == 0 for s in steps if s.kind == "train")
+        return len(steps), per, {s.replicate for s in ev}
+
+    for world, total in (("L64-c50-w1", 816 + 288), ("L64-c0-w1", 816)):
+        fam = get_family(f"house_lib/{world}")
+        docs = grid.grid43_docs(fam, list(fam.causes))
+        n = 0
+        for doc in docs:
+            size, per, reps = counts(doc)
+            n += size
+            for (_, group, _), k in per.items():
+                assert k == (3 if world == grid.REPLICATE_WORLD and group in ("B", "P-all-ep") else 1)
+            assert reps == ({0, 1, 2} if "replicates" in doc else {0})
+        assert n == total
+    for world in ("L4-c50-w1", "L16-c50-w1"):  # no other world has replicates
+        assert all("replicates" not in d for d in grid.grid43_docs(get_family(f"house_lib/{world}"),
+                                                                  grid.kept_lessons(world)))

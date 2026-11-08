@@ -59,7 +59,7 @@ episodes also retain and consolidate memory; not yet measured on house_lib, assu
 | 4.0 Prerequisites | P-oracle group; dropped-lesson handling; train/eval panel generator; B smoke run (≈ 10 train + 4 eval on L16-c50) | ≈ 14 | ≈ 20 min |
 | 4.1 Go / no-go | L16-c0 and L16-c50 (after their exp21 recalibration), 3 histories, all six groups | 192 train + 864 eval = 1,056 | ≈ 15 h |
 | 4.2 Calibrate | exp21 (A, P-hand) and exp24 (P-task, the learnability control), 8 tasks per lesson: L4 ×2 and L16 ×2 (before 4.1), then L64 ×2 (before 4.3) | 960 + 3,072 | ≈ 12 h + ≈ 36 h |
-| 4.3 Full grid | 6 worlds; B's histories rerun with k14r12 (§9, §10); A and P-hand reused at L16 | 3,312 (§5 below, §10) | ≈ 2.3 days |
+| 4.3 Full grid | 6 worlds; B's histories rerun with k14r12 (§9, §10); A and P-hand reused at L16 | 3,600 (§5 below, §10) | ≈ 2.5 days |
 
 Stage 4.0 status (2026-11-01): P-oracle (`OracleMemory`, `elh/batch.py oracle_rules`), kept-lesson
 scoring and the panel and batch generator (`elh/tasks/families/house_lib/grid.py`) are built and
@@ -79,9 +79,10 @@ than once per history. Exact counts for the batches of §10 (3 histories, 24 eva
 | L4 (each of 2) | 24 train + 216 eval = 240 | 216 | 456 |
 | L16 (each of 2) | 96 train + 72 eval (B only; 4.1's A and P-hand reused) = 168 | 216 | 384 |
 | L64 (each of 2) | 384 train + 216 eval = 600 | 216 | 816 |
-| All six | | | **3,312** (3,600 without the L16 reuse) |
+| L64-c50 replicates (+2 runs of B and of P-all-ep per history and ticket) | 144 | 144 | +288 |
+| All six | | | **3,600** = 3,312 + 288 replicates (3,888 without the L16 reuse) |
 
-GPU time ≈ 2.3 days (the former ≈ 2.5 days scaled by 3,312 / 3,600). Counts for another history count
+GPU time ≈ 2.5 days (3,312 episodes ≈ 2.3 days, plus ≈ 4 h of replicates). Counts for another history count
 come from `grid.grid43_docs(..., histories)`.
 
 The history count for the confirmatory study (SPEC §14 item 8) is set by the power analysis in
@@ -205,9 +206,19 @@ the `exp29` batch's B after the whole training panel). Same panels and seeds as 
 |---|---|---|
 | L4-c0, L4-c50 | `exp29-grid-<w>`, `exp30-grid-static-<w>` | 240 + 216 each |
 | L16-c0, L16-c50 | `exp29-grid-<w>` (B only), `exp30-grid-static-<w>` | 168 + 216 each |
-| L64-c0, L64-c50 | `exp29-gate-<w>`, `exp30-gate-static-<w>`, `exp29-grid-<w>`, `exp30-grid-static-<w>` | 200 + 72 + 400 + 144 each |
+| L64-c0 | `exp29-gate-<w>`, `exp30-gate-static-<w>`, `exp29-grid-<w>`, `exp30-grid-static-<w>` | 200 + 72 + 400 + 144 |
+| L64-c50 (with replicates) | the same four | 248 + 120 + 496 + 240 |
 
-Total 3,312 episodes (counts and the L16 saving in §5).
+Total 3,600 episodes (counts and the L16 saving in §5).
+
+**Replicate evaluation runs (decided 2026-11-07).** At the primary cell L64-c50-w1 only, B and P-all-ep run
+each (history, ticket) evaluation 3 times in all (2 extra), no other group or world: the history × ticket
+variance then splits into episode noise and real history effects for the power analysis (+288 episodes,
+≈ 4 h). Mechanism: the batch field `replicates: {B: 3}` (eval phases; default 1 per group), run in rounds so
+no group's runs cluster in time; each episode stores its `replicate` index (0, 1, 2; new `episodes.replicate`
+column, NULL on older rows, exposed by `analysis.py`). It is not part of the registration, so run ids and
+every existing batch are unchanged. Replicates share the bank snapshot and the ticket, so they differ only
+by sampling; they are not independent histories.
 
 **L64 gate procedure.** A batch refuses to start if its run already has episodes (no resume), and a
 bank belongs to one batch's run, so history 0 cannot be trained once and then extended by a later

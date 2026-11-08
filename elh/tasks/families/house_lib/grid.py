@@ -105,6 +105,9 @@ def batch_docs(family, kept: list[str], histories: int = HISTORIES,
 # at the worlds it ran (REUSED_L); a world with L >= GATE_L splits history 0 off as the gate.
 WORLDS_43 = tuple(f"L{n}-c{c}-w1" for n in (4, 16, 64) for c in (0, 50))
 REUSED_L, GATE_L = (16,), 64
+# Replicate evaluation runs (decided 2026-11-07), at the primary cell only: B and P-all-ep run each
+# (history, ticket) REPLICATES times, to split the history x ticket variance into episode noise and history effects.
+REPLICATE_WORLD, REPLICATE_GROUPS, REPLICATES = "L64-c50-w1", ("B", "P-all-ep"), 3
 
 
 def grid43_docs(family, kept: list[str], histories: int = HISTORIES) -> list[dict]:
@@ -124,6 +127,9 @@ def grid43_docs(family, kept: list[str], histories: int = HISTORIES) -> list[dic
                "groups": ["B"] if n in REUSED_L else learn["groups"]}
         st = {**static, "name": f"exp30-{part}-static-{world}", "histories": count, **extra,
               "static": {**static["static"], "from_experiment": lrn["name"]}}
+        if world == REPLICATE_WORLD:
+            lrn["replicates"] = {g: REPLICATES for g in lrn["groups"] if g in REPLICATE_GROUPS}
+            st["replicates"] = {g: REPLICATES for g in st["groups"] if g in REPLICATE_GROUPS}
         out += [lrn, st]
     return out
 

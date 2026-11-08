@@ -72,7 +72,8 @@ class Store:
         self._rename_legacy_columns()
         self.db.executescript(SCHEMA)
         self._add_columns("episodes", {"memory_props_sha256": "TEXT", "batch_id": "TEXT", "retrieval_json": "TEXT",
-                                       "memory_searches_json": "TEXT", "rule_json": "TEXT"})
+                                       "memory_searches_json": "TEXT", "rule_json": "TEXT",
+                                       "replicate": "INTEGER"})  # eval repeat index (batch `replicates`)
         # Group D: the procedure library revision a snapshot pins (NULL: none promoted yet, or not group D).
         self._add_columns("memory_snapshots", {"library_revision": "INTEGER"})
         # Learning spend with no episode (group D induction / GEPA reflection): which stream and why.

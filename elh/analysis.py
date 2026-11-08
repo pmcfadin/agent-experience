@@ -225,7 +225,7 @@ def load_episodes(store: Store, batch_prefix: str | None = None, run_id: str | N
         out.append({
             "episode_id": r["episode_id"], "run_id": r["run_id"], "batch_id": r.get("batch_id"),
             "history": r["history"], "history_label": hist, "group": r["test_group"], "split": r["split"],
-            "checkpoint": r["checkpoint"], "ordinal": r["ordinal"], "phase": phase_of(r["split"], r["checkpoint"]),
+            "checkpoint": r["checkpoint"], "ordinal": r["ordinal"], "replicate": r.get("replicate") or 0, "phase": phase_of(r["split"], r["checkpoint"]),
             "task_id": r["task_id"], "outcome": r["outcome"], "passed": bool(r["passed"]),
             "checks": verdict.get("checks") or {}, "turns": r["turns"], "wall_s": r["wall_s"],
             "started_at": r["started_at"], "finished_at": r["finished_at"],
