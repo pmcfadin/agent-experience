@@ -254,6 +254,15 @@ def test_p_hand_shows_the_world_handbook_and_never_trains(tmp_path):
 def test_calibration_batches_are_the_calibration_panel(path):
     exp, _ = load_experiment(path)
     fam = get_family(exp.family)
+    if "-rest" in path.stem:  # remainder of an interrupted batch: one group, a subset of the original's panel
+        whole, _ = load_experiment(path.parent / (path.stem.split("-rest")[0] + ".yaml"))
+        assert len(exp.groups) == 1 and exp.groups[0] in whole.groups and len(exp.phases) == 1
+        assert (exp.family, exp.base_config, exp.overrides, exp.histories) == \
+            (whole.family, whole.base_config, whole.overrides, whole.histories)
+        assert exp.phases[0].spec.label == whole.phases[0].spec.label
+        panel = whole.phases[0].spec.tasks.triples()
+        assert set(exp.phases[0].spec.tasks.triples()) <= set(panel)
+        return
     assert exp.groups == ["A", "P-hand"] and len(exp.phases) == 1
     learn = path.parent / path.name.replace("exp21-calib-", "exp24-learn-")
     if path.stem.startswith("exp21-"):  # its learnability control runs the same panel

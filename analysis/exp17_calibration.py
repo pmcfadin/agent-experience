@@ -1,5 +1,5 @@
 """house_lib calibration (design §5, phase 2): per-lesson guessability (A) and learnability (P-hand)
-from the exp21-calib-<world> batches, through `calibration.filter_lessons`; earlier runs on the same
+from the exp21-calib-<world> batches (plus any `exp21-calib-<world>-rest*` remainder batch), through `calibration.filter_lessons`; earlier runs on the same
 tasks (exp17-19, L4-c0 only) are shown alongside but do not enter the filter.
 
 Also per group: whole-task pass rate, the feature check, and lesson-check pass rates by template, so
@@ -48,8 +48,11 @@ GROUPS = [label for _, labels in BATCHES for label in labels.values()]
 def load(db: sqlite3.Connection, world: str) -> list[dict]:
     out = []
     for prefix, labels in BATCHES:
+        # A batch interrupted by a host failure is finished by `<name>-rest*` batches (the remainder of
+        # its schedule); both are pooled. No `-rest*` batch exists for the worlds calibrated whole.
         rows = db.execute("SELECT test_group, cause, passed, verdict_json, turns, wall_s, outcome FROM episodes "
-                          "WHERE batch_id = ? ORDER BY started_at", (f"{prefix}-{world}/0",)).fetchall()
+                          "WHERE batch_id = ? OR batch_id LIKE ? ORDER BY started_at",
+                          (f"{prefix}-{world}/0", f"{prefix}-{world}-rest%/0")).fetchall()
         out += [{"group": labels[g], "cause": c, "passed": bool(p), "checks": json.loads(v)["checks"], "turns": t,
                  "wall_s": w, "outcome": o} for g, c, p, v, t, w, o in rows if g in labels]
     return out
