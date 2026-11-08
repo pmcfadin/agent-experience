@@ -24,7 +24,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from elh.tasks.base import get_family
-from elh.tasks.families.house_lib.calibration import calibration_tasks, filter_lessons
+from elh.tasks.families.house_lib.calibration import batch_prefixes, calibration_tasks, filter_lessons
 from elh.tasks.families.house_lib.grid import CALIBRATION_DIR
 
 WORLDS = ["L4-c0-w1", "L4-c50-w1", "L16-c0-w1", "L16-c50-w1", "L64-c0-w1", "L64-c50-w1"]
@@ -35,8 +35,11 @@ WORLDS = ["L4-c0-w1", "L4-c50-w1", "L16-c0-w1", "L16-c50-w1", "L64-c0-w1", "L64-
 # comparisons and never enter the filter (their tasks differ from exp21's):
 # exp17 (block before the ticket), exp18 (handbook inside the ticket, group A), exp19a (unhedged
 # header), exp19b (block after the ticket, old wording).
+# The sealed study's w2 worlds run the same panels as exp40-calib (= exp21) and exp41-learn (= exp24).
 BATCHES = [("exp21-calib", {"A": "A", "P-hand": "P-hand (whole handbook)"}),
            ("exp24-learn", {"P-task": "P-task"}),
+           ("exp40-calib", {"A": "A", "P-hand": "P-hand (whole handbook)"}),
+           ("exp41-learn", {"P-task": "P-task"}),
            ("exp20-calib", {"A": "A (exp20)", "P-hand": "P-hand (exp20)"}),
            ("exp17-calib", {"A": "A (exp17)", "P-hand": "P-hand before (exp17)"}),
            ("exp19a-hand-plain", {"P-hand": "P-hand plain (exp19a)"}),
@@ -95,9 +98,10 @@ def report(world: str, eps: list[dict], write: bool = False) -> None:
         main = [e for e in eps if e["group"] in ("A", "P-task")]
         if len(main) != 2 * len(calibration_tasks(fam, per_lesson=8)):
             raise SystemExit(f"{world}: exp21 A + exp24 P-task are incomplete ({len(main)} episodes); not writing a verdict")
+        calib, learn = batch_prefixes(world)
         out = CALIBRATION_DIR / f"{world}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps({"world": world, "batches": [f"exp21-calib-{world}/0 (A)", f"exp24-learn-{world}/0 (P-task)"],
+        out.write_text(json.dumps({"world": world, "batches": [f"{calib}-{world}/0 (A)", f"{learn}-{world}/0 (P-task)"],
                                    "episodes": len(main),
                                    "lessons": [dataclasses.asdict(r) for r in rows]}, indent=1) + "\n")
         print(f"wrote {out}\n")
