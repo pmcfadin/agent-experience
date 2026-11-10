@@ -16,7 +16,10 @@ dependencies = [
 elh = "elh.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "numpy>=2.5.4",
+    "pytest>=8",
+]
 
 [build-system]
 requires = ["hatchling"]
