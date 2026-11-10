@@ -217,17 +217,21 @@ batch. Instead the L64 grid is split by history, with a new `history_start` fiel
 histories `[history_start, history_start + histories)`, with the seeds, shuffles and checkpoints of
 one batch of all three; tested). Nothing run in the gate is repeated:
 
-1. Run `exp29-gate-L64-c50-w1` (history 0: B trains 128 tickets, then A, B and P-hand evaluate 24
+The L64-c50 gate first ran as `exp29-gate-L64-c50-w1` and crashed on 2026-11-10 after 7 training
+episodes (a rule-writer bug, fixed in 3807223); a crashed run's bank is named after its run id, so the
+rerun is `exp29b`/`exp30b` (`grid.RERUN`, decided 2026-11-10). The 7 episodes stay in the database.
+
+1. Run `exp29b-gate-L64-c50-w1` (history 0: B trains 128 tickets, then A, B and P-hand evaluate 24
    tickets). c50 is the sealed study's primary world and has the most to remember; the c0 gate is the
    same batch for the other world and follows it. The bank is snapshotted when training ends, before
    the first evaluation episode.
 2. As soon as the first evaluation episode appears (≈ 128 × 90 s ≈ 3.2 h in), run
-   `uv run elh measure-block experiments/batches/exp30-gate-static-L64-c50-w1.yaml`. It builds P-all,
+   `uv run elh measure-block experiments/batches/exp30b-gate-static-L64-c50-w1.yaml`. It builds P-all,
    P-all-ep and P-oracle from that bank with no episode and prints their blocks and whole first
    message (system prompt, tools, ticket) in tokens (4 characters each, as in `analysis/exp22_grid.py`)
    against the pinned 65,536 with `--reserve` (default 16,384) kept for the episode; it exits non-zero
    if P-all-ep does not fit. It reads the main `runs/` through `--runs-dir`.
-3. If it fits, let the gate finish, run `exp30-gate-static-L64-c50-w1`, then the same two for c0 and
+3. If it fits, let the gate finish, run `exp30b-gate-static-L64-c50-w1`, then the same two for c0 and
    `exp29-grid-<w>`, `exp30-grid-static-<w>` (histories 1 and 2). If it does not, interrupt the batch
    (the evaluation episodes are not needed; everything reruns under a new registration) and open
    the Forgejo issue for a larger context (item 2).

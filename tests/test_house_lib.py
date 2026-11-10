@@ -434,7 +434,7 @@ def test_batch_texts_reproduce_the_w1_files(n, c):
 BATCHES = Path(__file__).parent.parent / "experiments" / "batches"
 
 
-@pytest.mark.parametrize("path", sorted(BATCHES.glob("exp29-*.yaml")) + sorted(BATCHES.glob("exp30-*.yaml")),
+@pytest.mark.parametrize("path", sorted(BATCHES.glob("exp29*-*.yaml")) + sorted(BATCHES.glob("exp30*-*.yaml")),
                          ids=lambda p: p.stem)
 def test_stage43_batches_match_the_generator(path):
     from elh.tasks.families.house_lib import grid
@@ -452,7 +452,7 @@ def test_stage43_batches_exist_for_every_calibrated_world():
     for world in grid.WORLDS_43:
         if (grid.CALIBRATION_DIR / f"{world}.json").exists():
             want |= {d["name"] for d in grid.grid43_docs(get_family(f"house_lib/{world}"), grid.kept_lessons(world))}
-    assert want and want == {p.stem for p in BATCHES.glob("exp29-*.yaml")} | {p.stem for p in BATCHES.glob("exp30-*.yaml")}
+    assert want and want == {p.stem for p in BATCHES.glob("exp29*-*.yaml")} | {p.stem for p in BATCHES.glob("exp30*-*.yaml")}
 
 
 def test_stage43_l16_reuses_4_1_and_l64_splits_history_0_as_the_gate(tmp_path):
@@ -476,7 +476,7 @@ def test_stage43_l16_reuses_4_1_and_l64_splits_history_0_as_the_gate(tmp_path):
     kept = [c for c in fam.causes if c != fam.causes[0]]
     gate, gate_static, rest, rest_static = grid.grid43_docs(fam, kept)
     assert [d["name"] for d in (gate, gate_static, rest, rest_static)] == [
-        "exp29-gate-L64-c50-w1", "exp30-gate-static-L64-c50-w1", "exp29-grid-L64-c50-w1", "exp30-grid-static-L64-c50-w1"]
+        "exp29b-gate-L64-c50-w1", "exp30b-gate-static-L64-c50-w1", "exp29-grid-L64-c50-w1", "exp30-grid-static-L64-c50-w1"]
     assert (gate["histories"], rest["histories"], rest["history_start"]) == (1, 2, 1) and "history_start" not in gate
     assert gate["groups"] == rest["groups"] == ["A", "B", "P-hand"]
     assert gate_static["static"] == {"from_experiment": gate["name"], "group": "B", "after": 128}

@@ -108,6 +108,10 @@ REUSED_L, GATE_L = (16,), 64
 # Replicate evaluation runs (decided 2026-11-07), at the primary cell only: B and P-all-ep run each
 # (history, ticket) REPLICATES times, to split the history x ticket variance into episode noise and history effects.
 REPLICATE_WORLD, REPLICATE_GROUPS, REPLICATES = "L64-c50-w1", ("B", "P-all-ep"), 3
+# Parts rerun under a new name (a crashed run's bank is named after its run id, so a clean rerun needs
+# a new name): (world, part) -> suffix after exp29/exp30. The L64-c50 gate crashed on 2026-11-10 after 7
+# training episodes (rule-writer bug, fixed in 3807223); its rerun is exp29b/exp30b (owner, 2026-11-10).
+RERUN = {("L64-c50-w1", "gate"): "b"}
 
 
 def grid43_docs(family, kept: list[str], histories: int = HISTORIES) -> list[dict]:
@@ -123,9 +127,10 @@ def grid43_docs(family, kept: list[str], histories: int = HISTORIES) -> list[dic
     out = []
     for part, start, count in parts:
         extra = {"history_start": start} if start else {}
-        lrn = {**learn, "name": f"exp29-{part}-{world}", "histories": count, **extra,
+        r = RERUN.get((world, part), "")
+        lrn = {**learn, "name": f"exp29{r}-{part}-{world}", "histories": count, **extra,
                "groups": ["B"] if n in REUSED_L else learn["groups"]}
-        st = {**static, "name": f"exp30-{part}-static-{world}", "histories": count, **extra,
+        st = {**static, "name": f"exp30{r}-{part}-static-{world}", "histories": count, **extra,
               "static": {**static["static"], "from_experiment": lrn["name"]}}
         if world == REPLICATE_WORLD:
             lrn["replicates"] = {g: REPLICATES for g in lrn["groups"] if g in REPLICATE_GROUPS}
