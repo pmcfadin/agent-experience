@@ -311,3 +311,19 @@ def test_feedback_where_names_the_convention_file_only_for_failed_checks():
     assert "this convention is defined in `acmecore/docs/audit.md`" in out.prompt
     with pytest.raises(ValueError, match="cannot place"):
         feedback_where(get_family("cpu_mem").generate("queue_pop_front", "billing", 1), verdict)
+
+
+def test_text_only_reply_is_bounced_as_a_user_turn(failed_episode):
+    """A reflection reply with no tool call at all gets the no-call rejection as a plain user turn
+    (it was once appended as a bare string, which broke the chat-completions translation)."""
+    task, result, verdict, final_ws = failed_episode
+    client = Recording([
+        [],
+        _create("AVOID: editing protected tests",
+                f"WHEN the job is slow do NOT edit tests/test_job.py; the change to job/core.py broke output {AVOID_TAIL}"),
+    ])
+    out = write_rule(client, task, result, verdict, final_ws)
+    assert out.rule is not None and out.rejections[0].startswith("NOT SAVED -- you did not call memory_create")
+    last = client.requests[1]["messages"][-1]
+    assert last == {"role": "user", "content": out.rejections[0]}
+    to_openai_messages("sys", client.requests[1]["messages"])

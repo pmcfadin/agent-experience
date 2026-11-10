@@ -543,8 +543,8 @@ def write_rule(client: ModelClient, task: TaskInstance, result: EpisodeResult, v
             rejection = REJECT_NO_CALL
             results = [{"type": "tool_result", "tool_use_id": b["id"], "content": REJECT_OTHER_TOOL, "is_error": True}
                        for b in uses]
-            messages.append({"role": "user", "content": results + [{"type": "text", "text": rejection}]}
-                            if results else rejection)
+            messages.append({"role": "user", "content": results + [{"type": "text", "text": rejection}]
+                             if results else rejection})
         else:
             rule, rejection, gaps = _check(kind, creates[0].get("input") or {}, required,
                                            "WHEN or " + ("THEN" if kind == "verified" else "do NOT") if context else None)
