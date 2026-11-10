@@ -264,11 +264,11 @@ def test_calibration_batches_are_the_calibration_panel(path):
         assert set(exp.phases[0].spec.tasks.triples()) <= set(panel)
         return
     assert exp.groups == ["A", "P-hand"] and len(exp.phases) == 1
-    learn = path.parent / path.name.replace("exp21-calib-", "exp24-learn-")
-    if path.stem.startswith("exp21-"):  # its learnability control runs the same panel
+    learn = path.parent / path.name.replace("exp21-calib-", "exp24-learn-").replace("exp40-calib-", "exp41-learn-")
+    if path.stem.startswith(("exp21-", "exp40-")):  # its learnability control runs the same panel
         ctl, _ = load_experiment(learn)
         assert ctl.groups == ["P-task"] and ctl.phases[0].spec.tasks.triples() == exp.phases[0].spec.tasks.triples()
-    per_lesson = 8 if path.stem.startswith("exp21-") else 4  # exp21 doubled the panel (design §10)
+    per_lesson = 8 if path.stem.startswith(("exp21-", "exp40-")) else 4  # exp21 doubled the panel (design §10)
     assert exp.phases[0].spec.tasks.triples() == calibration.calibration_tasks(fam, per_lesson=per_lesson)
 
 
@@ -376,3 +376,56 @@ def test_tune_batches_match_the_generator(path):
     world = doc["family"].split("/")[1]
     assert doc in grid.tune_docs(get_family(doc["family"]), grid.kept_lessons(world))
     assert all(seed >= grid.TUNE_SEED for _, _, seed in doc["phases"][0]["eval"]["tasks"]["items"])
+
+
+# The sealed study's worlds (roadmap 2026-11-07): world seed 2 for all six cells.
+W1_DIGEST = "c7468a261fcee779966e0629d10b2103f87a123ec377f765920daec01cdc1f41"
+CELLS = [(n, c) for n in (4, 16, 64) for c in (0, 50)]
+
+
+def test_w1_worlds_are_unchanged():
+    """sha256 over the six w1 worlds' catalogues and handbooks and two tasks each (first and last
+    lesson), taken before w2 was added: any change to w1 generation changes it."""
+    import hashlib
+
+    h = hashlib.sha256()
+    for n, c in CELLS:
+        fam = get_family(f"house_lib/L{n}-c{c}-w1")
+        h.update(repr(fam.world).encode())
+        h.update(calibration.handbook(fam).encode())
+        for cause in (fam.causes[0], fam.causes[-1]):
+            t = fam.generate(cause, "billing", 3000)
+            h.update(json.dumps([t.task_id, t.content_hash, t.prompt], sort_keys=True).encode())
+    assert h.hexdigest() == W1_DIGEST
+
+
+@pytest.mark.parametrize("n,c", CELLS, ids=lambda x: str(x))
+def test_w2_worlds_are_deterministic_and_differ_from_w1(n, c):
+    w1, w2 = get_family(f"house_lib/L{n}-c{c}-w1"), get_family(f"house_lib/L{n}-c{c}-w2")
+    again = get_family(f"house_lib/L{n}-c{c}-w2")
+    assert w2.world == again.world and w2.world.seed == 2 and len(w2.world.lessons) == n
+    assert calibration.handbook(w2) == calibration.handbook(again)
+    assert calibration.handbook(w1) != calibration.handbook(w2)
+    assert calibration.calibration_tasks(w1, 8) != calibration.calibration_tasks(w2, 8)
+    cause = next((x for x in w2.causes if x in w1.causes), None)
+    t, u = w2.generate(w2.causes[0], "billing", 3000), again.generate(w2.causes[0], "billing", 3000)
+    assert (t.content_hash, t.prompt, t.workspace) == (u.content_hash, u.prompt, u.workspace)
+    if cause:  # a lesson both worlds have: still a different task (own records, library and oracle)
+        assert w1.generate(cause, "billing", 3000).content_hash != w2.generate(cause, "billing", 3000).content_hash
+
+
+def test_w2_batch_files_are_the_generated_ones():
+    batches = Path(__file__).parent.parent / "experiments" / "batches"
+    for n, c in CELLS:
+        fam = get_family(f"house_lib/L{n}-c{c}-w2")
+        for (prefix, text) in zip(calibration.batch_prefixes(fam.world.id), calibration.batch_texts(fam)):
+            assert (batches / f"{prefix}-{fam.world.id}.yaml").read_text() == text
+
+
+@pytest.mark.parametrize("n,c", CELLS, ids=lambda x: str(x))
+def test_batch_texts_reproduce_the_w1_files(n, c):
+    batches = Path(__file__).parent.parent / "experiments" / "batches"
+    fam = get_family(f"house_lib/L{n}-c{c}-w1")
+    for prefix, text in zip(calibration.batch_prefixes(fam.world.id), calibration.batch_texts(fam)):
+        old = (batches / f"{prefix}-{fam.world.id}.yaml").read_text()
+        assert text[text.index("name:"):] == old[old.index("name:"):]
