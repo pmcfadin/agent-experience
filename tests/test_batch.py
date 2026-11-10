@@ -435,5 +435,8 @@ def test_replicate_index_is_recorded_per_episode(tmp_path):
 @pytest.mark.parametrize("path", sorted((ROOT / "experiments" / "batches").glob("*.yaml")), ids=lambda p: p.stem)
 def test_existing_batches_have_no_replicates(path):
     exp, cfg = load_experiment(path)
-    assert exp.replicates == {} or path.stem.startswith(("exp29-", "exp30-"))
+    if "L64-c50" in path.stem and path.stem.startswith(("exp29-", "exp30-")):  # 4.3's primary cell (Q15)
+        assert exp.replicates in ({"B": 3}, {"P-all-ep": 3})
+        return
+    assert exp.replicates == {}
     assert all(s.replicate == 0 for s in schedule(exp, cfg))
