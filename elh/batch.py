@@ -192,6 +192,7 @@ class Experiment(_Strict):
     phases: list[Phase] = Field(min_length=1)
     dev: DevSpec | None = None
     static: StaticSpec | None = None
+    sealed: bool = False   # SPEC §13: runs only if the protocol lock verifies (elh/prereg.py)
 
     @model_validator(mode="after")
     def _static(self) -> "Experiment":
@@ -438,13 +439,20 @@ class _GroupD:
 def run_batch(exp: Experiment, cfg: ExperimentConfig, store, make_client: Callable[[TaskInstance], Any], *,
               sandbox_backend: str | None = None, out=print,
               make_induction_client: Callable[[], Any] | None = None,
-              make_reflection_client: Callable[[], Any] | None = None) -> list[dict]:
+              make_reflection_client: Callable[[], Any] | None = None,
+              sealed_digest: str | None = None) -> list[dict]:
     """Run the schedule in order. An InfraError skips that episode; anything else stops the batch.
     Returns one result dict per scheduled episode, plus one per group-D dev episode (kind "dev").
 
     `make_induction_client()` gives AWM's induction model (default: the registered agent model,
     `workflows.make_induction_client`); `make_reflection_client()` gives GEPA's reflection model
-    (default: the agent model's ModelClient). Both are built only when first needed."""
+    (default: the agent model's ModelClient). Both are built only when first needed.
+
+    A `sealed` experiment needs `sealed_digest`, the manifest digest of a passed `prereg.verify`
+    (the CLI supplies it); without it the batch refuses to start."""
+    if exp.sealed and not sealed_digest:
+        raise RuntimeError(f"experiment {exp.name} is sealed: run it through `elh run-batch`, which verifies the "
+                           "protocol lock (elh/prereg.py) first")
     run_id = run_id_for(cfg)
     prior = store.db.execute("SELECT COUNT(*) FROM episodes WHERE run_id = ? AND batch_id LIKE ?",
                              (run_id, f"{exp.name}/%")).fetchone()[0]
