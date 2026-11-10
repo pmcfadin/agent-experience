@@ -1,0 +1,586 @@
+{
+ "world": "L64-c50-w1",
+ "batches": [
+  "exp21-calib-L64-c50-w1/0 (A)",
+  "exp24-learn-L64-c50-w1/0 (P-task)"
+ ],
+ "episodes": 1024,
+ "lessons": [
+  {
+   "lesson": "call_order.catalog",
+   "a_n": 71,
+   "a_rate": 0.0,
+   "hand_n": 71,
+   "hand_rate": 0.7746478873239436,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "call_order.crm",
+   "a_n": 58,
+   "a_rate": 0.0,
+   "hand_n": 58,
+   "hand_rate": 0.7413793103448276,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "call_order.ledger",
+   "a_n": 53,
+   "a_rate": 0.0,
+   "hand_n": 53,
+   "hand_rate": 0.8490566037735849,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "call_order.orders",
+   "a_n": 62,
+   "a_rate": 0.0,
+   "hand_n": 62,
+   "hand_rate": 0.7903225806451613,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "call_order.payments",
+   "a_n": 56,
+   "a_rate": 0.0,
+   "hand_n": 56,
+   "hand_rate": 0.8928571428571429,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "call_order.payroll",
+   "a_n": 66,
+   "a_rate": 0.0,
+   "hand_n": 66,
+   "hand_rate": 0.8939393939393939,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "call_order.reporting",
+   "a_n": 69,
+   "a_rate": 0.0,
+   "hand_n": 69,
+   "hand_rate": 0.8115942028985508,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "call_order.shipping",
+   "a_n": 77,
+   "a_rate": 0.0,
+   "hand_n": 77,
+   "hand_rate": 0.8831168831168831,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "event_fields.catalog",
+   "a_n": 13,
+   "a_rate": 0.0,
+   "hand_n": 13,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "event_fields.crm",
+   "a_n": 11,
+   "a_rate": 0.0,
+   "hand_n": 11,
+   "hand_rate": 0.9090909090909091,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "event_fields.ledger",
+   "a_n": 12,
+   "a_rate": 0.0,
+   "hand_n": 12,
+   "hand_rate": 0.9166666666666666,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "event_fields.orders",
+   "a_n": 12,
+   "a_rate": 0.08333333333333333,
+   "hand_n": 12,
+   "hand_rate": 0.9166666666666666,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "event_fields.payments",
+   "a_n": 12,
+   "a_rate": 0.0,
+   "hand_n": 12,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "event_fields.payroll",
+   "a_n": 11,
+   "a_rate": 0.0,
+   "hand_n": 11,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "event_fields.reporting",
+   "a_n": 16,
+   "a_rate": 0.0,
+   "hand_n": 16,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "event_fields.shipping",
+   "a_n": 11,
+   "a_rate": 0.0,
+   "hand_n": 11,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "feature_flag.catalog",
+   "a_n": 71,
+   "a_rate": 0.0,
+   "hand_n": 71,
+   "hand_rate": 0.9859154929577465,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "feature_flag.crm",
+   "a_n": 58,
+   "a_rate": 0.0,
+   "hand_n": 58,
+   "hand_rate": 0.9482758620689655,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "feature_flag.ledger",
+   "a_n": 53,
+   "a_rate": 0.0,
+   "hand_n": 53,
+   "hand_rate": 0.8679245283018868,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "feature_flag.orders",
+   "a_n": 62,
+   "a_rate": 0.0,
+   "hand_n": 62,
+   "hand_rate": 0.9193548387096774,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "feature_flag.payments",
+   "a_n": 56,
+   "a_rate": 0.0,
+   "hand_n": 56,
+   "hand_rate": 0.8392857142857143,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "feature_flag.payroll",
+   "a_n": 66,
+   "a_rate": 0.0,
+   "hand_n": 66,
+   "hand_rate": 0.8181818181818182,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "feature_flag.reporting",
+   "a_n": 69,
+   "a_rate": 0.0,
+   "hand_n": 69,
+   "hand_rate": 0.8695652173913043,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "feature_flag.shipping",
+   "a_n": 77,
+   "a_rate": 0.0,
+   "hand_n": 77,
+   "hand_rate": 0.935064935064935,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.brant",
+   "a_n": 16,
+   "a_rate": 0.0,
+   "hand_n": 16,
+   "hand_rate": 0.875,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.corvo",
+   "a_n": 16,
+   "a_rate": 0.0,
+   "hand_n": 16,
+   "hand_rate": 0.875,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.dorrin",
+   "a_n": 13,
+   "a_rate": 0.0,
+   "hand_n": 13,
+   "hand_rate": 0.8461538461538461,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.elm",
+   "a_n": 17,
+   "a_rate": 0.0,
+   "hand_n": 17,
+   "hand_rate": 0.7647058823529411,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.fjord",
+   "a_n": 14,
+   "a_rate": 0.0,
+   "hand_n": 14,
+   "hand_rate": 0.8571428571428571,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.halden",
+   "a_n": 12,
+   "a_rate": 0.0,
+   "hand_n": 12,
+   "hand_rate": 0.8333333333333334,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.kessa",
+   "a_n": 18,
+   "a_rate": 0.0,
+   "hand_n": 18,
+   "hand_rate": 0.9444444444444444,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.lumo",
+   "a_n": 13,
+   "a_rate": 0.0,
+   "hand_n": 13,
+   "hand_rate": 0.6923076923076923,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.mirro",
+   "a_n": 12,
+   "a_rate": 0.0,
+   "hand_n": 12,
+   "hand_rate": 0.75,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.nadir",
+   "a_n": 16,
+   "a_rate": 0.0,
+   "hand_n": 16,
+   "hand_rate": 0.6875,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.orsk",
+   "a_n": 14,
+   "a_rate": 0.0,
+   "hand_n": 14,
+   "hand_rate": 0.7857142857142857,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.quent",
+   "a_n": 18,
+   "a_rate": 0.0,
+   "hand_n": 18,
+   "hand_rate": 0.7222222222222222,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.sabel",
+   "a_n": 18,
+   "a_rate": 0.0,
+   "hand_n": 18,
+   "hand_rate": 0.9444444444444444,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.tellis",
+   "a_n": 18,
+   "a_rate": 0.0,
+   "hand_n": 18,
+   "hand_rate": 0.8333333333333334,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.varna",
+   "a_n": 16,
+   "a_rate": 0.0,
+   "hand_n": 16,
+   "hand_rate": 0.875,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.ystad",
+   "a_n": 20,
+   "a_rate": 0.0,
+   "hand_n": 20,
+   "hand_rate": 0.95,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "region_redaction.apac",
+   "a_n": 13,
+   "a_rate": 0.0,
+   "hand_n": 13,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "region_redaction.ca",
+   "a_n": 16,
+   "a_rate": 0.0,
+   "hand_n": 16,
+   "hand_rate": 0.9375,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "region_redaction.eu",
+   "a_n": 18,
+   "a_rate": 0.0,
+   "hand_n": 18,
+   "hand_rate": 0.8333333333333334,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "region_redaction.latam",
+   "a_n": 13,
+   "a_rate": 0.0,
+   "hand_n": 13,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "region_redaction.mena",
+   "a_n": 15,
+   "a_rate": 0.0,
+   "hand_n": 15,
+   "hand_rate": 0.9333333333333333,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "region_redaction.nordics",
+   "a_n": 15,
+   "a_rate": 0.0,
+   "hand_n": 15,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "region_redaction.uk",
+   "a_n": 17,
+   "a_rate": 0.0,
+   "hand_n": 17,
+   "hand_rate": 0.9411764705882353,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "region_redaction.us",
+   "a_n": 20,
+   "a_rate": 0.0,
+   "hand_n": 20,
+   "hand_rate": 0.95,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "required_wrapper.catalog",
+   "a_n": 10,
+   "a_rate": 0.0,
+   "hand_n": 10,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "required_wrapper.crm",
+   "a_n": 12,
+   "a_rate": 0.0,
+   "hand_n": 12,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "required_wrapper.ledger",
+   "a_n": 10,
+   "a_rate": 0.0,
+   "hand_n": 10,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "required_wrapper.orders",
+   "a_n": 12,
+   "a_rate": 0.0,
+   "hand_n": 12,
+   "hand_rate": 0.75,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "required_wrapper.payments",
+   "a_n": 11,
+   "a_rate": 0.0,
+   "hand_n": 11,
+   "hand_rate": 0.9090909090909091,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "required_wrapper.payroll",
+   "a_n": 12,
+   "a_rate": 0.0,
+   "hand_n": 12,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "required_wrapper.reporting",
+   "a_n": 10,
+   "a_rate": 0.0,
+   "hand_n": 10,
+   "hand_rate": 0.9,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "required_wrapper.shipping",
+   "a_n": 11,
+   "a_rate": 0.09090909090909091,
+   "hand_n": 11,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "unit_convention.catalog",
+   "a_n": 12,
+   "a_rate": 0.0,
+   "hand_n": 12,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "unit_convention.crm",
+   "a_n": 13,
+   "a_rate": 0.0,
+   "hand_n": 13,
+   "hand_rate": 0.9230769230769231,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "unit_convention.ledger",
+   "a_n": 13,
+   "a_rate": 0.0,
+   "hand_n": 13,
+   "hand_rate": 0.9230769230769231,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "unit_convention.orders",
+   "a_n": 11,
+   "a_rate": 0.0,
+   "hand_n": 11,
+   "hand_rate": 0.8181818181818182,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "unit_convention.payments",
+   "a_n": 10,
+   "a_rate": 0.0,
+   "hand_n": 10,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "unit_convention.payroll",
+   "a_n": 12,
+   "a_rate": 0.0,
+   "hand_n": 12,
+   "hand_rate": 0.9166666666666666,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "unit_convention.reporting",
+   "a_n": 13,
+   "a_rate": 0.0,
+   "hand_n": 13,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "unit_convention.shipping",
+   "a_n": 11,
+   "a_rate": 0.0,
+   "hand_n": 11,
+   "hand_rate": 0.9090909090909091,
+   "keep": true,
+   "reason": "kept"
+  }
+ ]
+}

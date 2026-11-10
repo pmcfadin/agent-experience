@@ -50,11 +50,11 @@ def load(db: sqlite3.Connection, world: str) -> list[dict]:
     for prefix, labels in BATCHES:
         # A batch interrupted by a host failure is finished by `<name>-rest*` batches (the remainder of
         # its schedule); both are pooled. No `-rest*` batch exists for the worlds calibrated whole.
-        rows = db.execute("SELECT test_group, cause, passed, verdict_json, turns, wall_s, outcome FROM episodes "
+        rows = db.execute("SELECT test_group, cause, passed, verdict_json, turns, wall_s, outcome, batch_id FROM episodes "
                           "WHERE batch_id = ? OR batch_id LIKE ? ORDER BY started_at",
                           (f"{prefix}-{world}/0", f"{prefix}-{world}-rest%/0")).fetchall()
         out += [{"group": labels[g], "cause": c, "passed": bool(p), "checks": json.loads(v)["checks"], "turns": t,
-                 "wall_s": w, "outcome": o} for g, c, p, v, t, w, o in rows if g in labels]
+                 "wall_s": w, "outcome": o, "batch": b} for g, c, p, v, t, w, o, b in rows if g in labels]
     return out
 
 
@@ -98,9 +98,12 @@ def report(world: str, eps: list[dict], write: bool = False) -> None:
         main = [e for e in eps if e["group"] in ("A", "P-task")]
         if len(main) != 2 * len(calibration_tasks(fam, per_lesson=8)):
             raise SystemExit(f"{world}: exp21 A + exp24 P-task are incomplete ({len(main)} episodes); not writing a verdict")
+        def pooled(prefix: str, group: str) -> str:
+            ids = list(dict.fromkeys(e["batch"] for e in main if e["group"] == group))
+            return " + ".join(ids)
         out = CALIBRATION_DIR / f"{world}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps({"world": world, "batches": [f"exp21-calib-{world}/0 (A)", f"exp24-learn-{world}/0 (P-task)"],
+        out.write_text(json.dumps({"world": world, "batches": [f"{pooled('exp21-calib', 'A')} (A)", f"{pooled('exp24-learn', 'P-task')} (P-task)"],
                                    "episodes": len(main),
                                    "lessons": [dataclasses.asdict(r) for r in rows]}, indent=1) + "\n")
         print(f"wrote {out}\n")
