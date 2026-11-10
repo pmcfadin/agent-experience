@@ -429,3 +429,106 @@ def test_batch_texts_reproduce_the_w1_files(n, c):
     for prefix, text in zip(calibration.batch_prefixes(fam.world.id), calibration.batch_texts(fam)):
         old = (batches / f"{prefix}-{fam.world.id}.yaml").read_text()
         assert text[text.index("name:"):] == old[old.index("name:"):]
+
+
+BATCHES = Path(__file__).parent.parent / "experiments" / "batches"
+
+
+@pytest.mark.parametrize("path", sorted(BATCHES.glob("exp29-*.yaml")) + sorted(BATCHES.glob("exp30-*.yaml")),
+                         ids=lambda p: p.stem)
+def test_stage43_batches_match_the_generator(path):
+    from elh.tasks.families.house_lib import grid
+
+    doc = yaml.safe_load(path.read_text())
+    world = doc["family"].split("/")[1]
+    assert doc in grid.grid43_docs(get_family(doc["family"]), grid.kept_lessons(world))
+
+
+def test_stage43_batches_exist_for_every_calibrated_world():
+    """A world whose verdict has been written must have its 4.3 files: `python -m ...house_lib.grid` makes them."""
+    from elh.tasks.families.house_lib import grid
+
+    want = set()
+    for world in grid.WORLDS_43:
+        if (grid.CALIBRATION_DIR / f"{world}.json").exists():
+            want |= {d["name"] for d in grid.grid43_docs(get_family(f"house_lib/{world}"), grid.kept_lessons(world))}
+    assert want and want == {p.stem for p in BATCHES.glob("exp29-*.yaml")} | {p.stem for p in BATCHES.glob("exp30-*.yaml")}
+
+
+def test_stage43_l16_reuses_4_1_and_l64_splits_history_0_as_the_gate(tmp_path):
+    from elh.tasks.families.house_lib import grid
+
+    l16 = get_family("house_lib/L16-c50-w1")
+    learn, static = grid.grid43_docs(l16, grid.kept_lessons("L16-c50-w1"))
+    assert (learn["name"], static["name"]) == ("exp29-grid-L16-c50-w1", "exp30-grid-static-L16-c50-w1")
+    assert learn["groups"] == ["B"] and static["groups"] == ["P-all", "P-all-ep", "P-oracle"]  # 4.1's A, P-hand reused
+    assert "history_start" not in learn and learn["histories"] == 3
+    l4, _ = grid.grid43_docs(get_family("house_lib/L4-c0-w1"), grid.kept_lessons("L4-c0-w1"))
+    assert l4["groups"] == ["A", "B", "P-hand"]
+    for doc in (learn, static, l4):  # B recalls k14r12 in training and eval, in every world
+        o = doc["overrides"]
+        assert (o["memory_service.k"], o["rules"]["recall_k"], o["memory_service.recall_max_tokens"]) == grid.GRID_RECALL
+    old = yaml.safe_load((BATCHES / "exp22-grid-L16-c50-w1.yaml").read_text())
+    assert learn["phases"] == old["phases"] and learn["family"] == old["family"]  # same tickets as 4.1's A and P-hand
+
+    # L64 needs a calibration verdict; use a synthetic one (never written to the repository).
+    fam = get_family("house_lib/L64-c50-w1")
+    kept = [c for c in fam.causes if c != fam.causes[0]]
+    gate, gate_static, rest, rest_static = grid.grid43_docs(fam, kept)
+    assert [d["name"] for d in (gate, gate_static, rest, rest_static)] == [
+        "exp29-gate-L64-c50-w1", "exp30-gate-static-L64-c50-w1", "exp29-grid-L64-c50-w1", "exp30-grid-static-L64-c50-w1"]
+    assert (gate["histories"], rest["histories"], rest["history_start"]) == (1, 2, 1) and "history_start" not in gate
+    assert gate["groups"] == rest["groups"] == ["A", "B", "P-hand"]
+    assert gate_static["static"] == {"from_experiment": gate["name"], "group": "B", "after": 128}
+    assert rest_static["static"] == {"from_experiment": rest["name"], "group": "B", "after": 128}
+    assert gate_static["histories"] == 1 and rest_static["history_start"] == 1
+    whole = grid.batch_docs(fam, kept, recall=grid.GRID_RECALL)[0]
+    assert gate["replicates"] == rest["replicates"] == {"B": 3}
+    assert gate_static["replicates"] == rest_static["replicates"] == {"P-all-ep": 3}
+    whole["replicates"] = gate["replicates"]
+    assert gate["phases"] == rest["phases"] == whole["phases"]
+    # the split runs the histories exactly as one batch of three would (same tickets, orders, checkpoints)
+    steps = {}
+    for doc in (gate, rest, whole):
+        doc["base_config"] = str(CONFIG)
+        path = tmp_path / f"{doc['name']}.yaml"
+        path.write_text(yaml.safe_dump(doc))
+        exp, cfg = load_experiment(path)
+        steps[doc["name"]] = [(s.history, s.phase, s.kind, s.group, s.task.task_id, s.after, s.replicate) for s in schedule(exp, cfg)]
+    assert steps[gate["name"]] + steps[rest["name"]] == steps[whole["name"]]
+    assert sum(k == "train" for _, _, k, *_ in steps[gate["name"]]) == 128
+    assert {h for h, *_ in steps[gate["name"]]} == {0} and {h for h, *_ in steps[rest["name"]]} == {1, 2}
+
+
+def test_stage43_replicates_only_at_the_primary_cell(tmp_path):
+    from collections import Counter
+
+    from elh.tasks.families.house_lib import grid
+
+    def counts(doc):
+        doc = dict(doc, base_config=str(CONFIG))
+        path = tmp_path / f"{doc['name']}.yaml"
+        path.write_text(yaml.safe_dump(doc))
+        exp, cfg = load_experiment(path)
+        steps = schedule(exp, cfg)
+        ev = [s for s in steps if s.kind == "eval"]
+        per = Counter((s.history, s.group, s.task.task_id) for s in ev)
+        ids = Counter((s.history, s.group, s.task.task_id, s.replicate) for s in ev)
+        assert max(ids.values()) == 1  # replicate ids distinguish every episode
+        assert all(s.replicate == 0 for s in steps if s.kind == "train")
+        return len(steps), per, {s.replicate for s in ev}
+
+    for world, total in (("L64-c50-w1", 816 + 288), ("L64-c0-w1", 816)):
+        fam = get_family(f"house_lib/{world}")
+        docs = grid.grid43_docs(fam, list(fam.causes))
+        n = 0
+        for doc in docs:
+            size, per, reps = counts(doc)
+            n += size
+            for (_, group, _), k in per.items():
+                assert k == (3 if world == grid.REPLICATE_WORLD and group in ("B", "P-all-ep") else 1)
+            assert reps == ({0, 1, 2} if "replicates" in doc else {0})
+        assert n == total
+    for world in ("L4-c50-w1", "L16-c50-w1"):  # no other world has replicates
+        assert all("replicates" not in d for d in grid.grid43_docs(get_family(f"house_lib/{world}"),
+                                                                  grid.kept_lessons(world)))

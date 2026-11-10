@@ -67,6 +67,14 @@ with no selection. `P-oracle` (house_lib only) is P-all's pool with the answer k
 task is shown only the rules written on training tasks that share one of its lessons
 (`signature.lessons`), in training order.
 
+`replicates` (eval phases only; `{B: 3}`) runs a group's evaluation of each (history, ticket) that many times,
+in rounds, each episode carrying its `replicate` index (0, 1, ...) in the store; the registration, hence the
+run id, is unchanged. `history_start` (default 0) makes a batch run histories [start, start + histories): a world's histories can be
+split over batches (the L64 gate runs history 0 first, the rest follow) with the same per-history seeds,
+shuffles and banks as one batch of all of them, since a bank belongs to (run, history, group).
+`measure_blocks` (`elh measure-block`) builds the static groups' blocks from a source history's stored bank
+without running an episode.
+
 Every episode carries `batch_id = <experiment>/<history>` (the analysis convention, elh/analysis.py);
 the phase is recoverable from split + checkpoint.
 """
@@ -88,10 +96,12 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from elh.controller import memory_for, open_snapshot, run_id_for, run_single_episode, snapshot_memory
 from elh.learner import workflows as wf
-from elh.memory.base import MemoryItem, NullMemory, OracleMemory, StaticMemory
+from elh.memory.base import MemoryItem, NullMemory, OracleMemory, StaticMemory, render_memory_block
 from elh.memory.hindsight import RULE_DOC_SUFFIX, RulesOnlyMemory, render_rule_verbatim
 from elh.registry import ExperimentConfig
 from elh.runner.models import InfraError
+from elh.runner.prompts import first_user_message, system_prompt
+from elh.runner.prompts import tools as tool_list
 from elh.tasks.base import TaskInstance, get_family
 
 STATIC_GROUPS = ("P-all", "A0", "B-rules", "B-replay", "P-hand", "P-all-ep", "P-oracle", "P-task")   # fixed memory, never train
@@ -188,6 +198,8 @@ class Experiment(_Strict):
     overrides: dict[str, Any] = Field(default_factory=dict)
     family: str = "cpu_mem"
     histories: int = Field(1, ge=1)
+    replicates: dict[str, int] = Field(default_factory=dict)   # group -> eval runs per (history, ticket), default 1
+    history_start: int = Field(0, ge=0)   # first history index: runs histories [start, start + histories)
     groups: list[str] = Field(min_length=1, validation_alias=AliasChoices("groups", "arms"))  # "arms": legacy key
     phases: list[Phase] = Field(min_length=1)
     dev: DevSpec | None = None
@@ -204,6 +216,9 @@ class Experiment(_Strict):
                 raise ValueError(f"group {g} needs a house_lib world (a handbook of its lessons), not {self.family}")
         if "P-oracle" in self.groups and not self.family.startswith("house_lib"):
             raise ValueError(f"group P-oracle needs a house_lib world (tasks that list their lessons), not {self.family}")
+        bad = sorted(g for g, n in self.replicates.items() if g not in self.groups or n < 1)
+        if bad:
+            raise ValueError(f"`replicates` must name this experiment's groups with counts >= 1, got {bad}")
         return self
 
     @field_validator("groups")
@@ -226,6 +241,7 @@ class Step:
     task: TaskInstance
     after: int        # train episodes scheduled before this step in its history
     ordinal: int      # train: position in the train stream; eval/retention: position in the phase
+    replicate: int = 0   # eval: which of the group's `replicates` runs of this (history, ticket)
 
 
 SPLIT_OF_KIND = {"train": "train", "eval": "checkpoint", "retention": "retention"}
@@ -333,8 +349,9 @@ def schedule(exp: Experiment, cfg: ExperimentConfig) -> list[Step]:
     Group D's dev episodes are not scheduled here: they run when an induction makes a candidate."""
     family = get_family(exp.family)
     learners = [a for a in exp.groups if a not in NON_LEARNING]
+    max_rep = max(exp.replicates.values(), default=1)
     steps: list[Step] = []
-    for h in range(exp.histories):
+    for h in range(exp.history_start, exp.history_start + exp.histories):
         n_train = 0
         for i, (label, ph) in enumerate(_labelled(exp)):
             tasks = expand_tasks(family, ph.spec.tasks, seed=cfg.schedule.seed, history=h, phase_index=i)
@@ -343,8 +360,9 @@ def schedule(exp: Experiment, cfg: ExperimentConfig) -> list[Step]:
                     steps += [Step(h, label, "train", a, task, n_train, n_train) for a in learners]
                     n_train += 1
             else:
-                for j, task in enumerate(tasks):
-                    steps += [Step(h, label, ph.kind, a, task, n_train, j) for a in exp.groups]
+                for j, task in enumerate(tasks):  # replicate rounds: every group's r-th run before any (r+1)-th
+                    steps += [Step(h, label, ph.kind, a, task, n_train, j, r) for r in range(max_rep)
+                              for a in exp.groups if r < (exp.replicates.get(a, 1) if ph.kind == "eval" else 1)]
     return steps
 
 
@@ -493,7 +511,7 @@ def run_batch(exp: Experiment, cfg: ExperimentConfig, store, make_client: Callab
         try:
             _, result, verdict = run_single_episode(
                 cfg, store, s.task, make_client(s.task), group=s.group, split=split, history=s.history,
-                ordinal=s.ordinal, checkpoint=checkpoint, memory=memory,
+                ordinal=s.ordinal, replicate=s.replicate, checkpoint=checkpoint, memory=memory,
                 sandbox_backend=sandbox_backend, batch_id=batch_id(exp, s))
             res.update(passed=verdict.passed, turns=result.turns, wall_s=result.wall_s)
             out(f"[{n}/{len(steps)}] h{s.history} {s.phase} {s.group} {s.task.task_id} "
@@ -636,6 +654,32 @@ def static_memory(store, exp: Experiment, history: int, group: str, cfg: Experim
                             f"static+records:{sp.from_experiment}/{history}/{sp.group}/e{sp.after}")
     items = static_rules(store, exp, history)
     return StaticMemory(items, f"static:{sp.from_experiment}/{history}/{sp.group}/e{sp.after}")
+
+
+def measure_blocks(store, exp: Experiment, cfg: ExperimentConfig, history: int = 0, *, reserve: int = 16384) -> list[dict]:
+    """Size of each static group's first message for one history, built from the stored source bank and
+    no episode: the largest over the history's eval tickets (P-oracle's block varies by ticket), with the
+    system prompt and tools, in tokens at 4 characters each (analysis/exp22_grid.py's measure). `fits`:
+    that plus `reserve` tokens for the episode itself is within the pinned context (core-grid §10)."""
+    ms = cfg.memory_service
+    on = bool(ms and ms.agent_search)
+    fixed = len(system_prompt(on)) + len(json.dumps(tool_list(on)))
+    tickets = [s.task for s in schedule(exp, cfg) if s.history == history and s.kind == "eval"]
+    out = []
+    for group in [g for g in exp.groups if g in STATIC_GROUPS]:
+        memory = static_memory(store, exp, history, group, cfg)
+        biggest = (0, 0, 0)
+        for task in tickets:
+            items = memory.recall(task, ms.k if ms else 5)
+            block = render_memory_block(items)
+            first = first_user_message(task, "/workspace", block, memory_check=on, **(
+                {"header": ms.experience_header, "position": ms.experience_position} if ms else {}))
+            biggest = max(biggest, ((fixed + len(first)) // 4, len(block) // 4, len(items)))
+        prompt, block, items = biggest
+        out.append({"group": group, "items": items, "block_tokens": block, "prompt_tokens": prompt,
+                    "context_tokens": cfg.model.pin.context_tokens, "reserve": reserve,
+                    "fits": prompt + reserve <= cfg.model.pin.context_tokens})
+    return out
 
 
 def _default_reflection_client(cfg: ExperimentConfig) -> Callable[[], Any]:

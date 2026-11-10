@@ -160,6 +160,19 @@ def cmd_prereg_verify(args) -> int:
     return 0 if res.ok else 1
 
 
+def cmd_measure_block(args) -> int:
+    from elh.batch import load_experiment, measure_blocks
+    from elh.store import Store
+
+    exp, cfg = load_experiment(args.experiment)
+    rows = measure_blocks(Store(args.runs_dir), exp, cfg, args.history, reserve=args.reserve)
+    for r in rows:
+        print(f"{r['group']:9s} {r['items']:4d} items  block {r['block_tokens']:6,d} tokens  first message + system + tools "
+              f"{r['prompt_tokens']:6,d} of {r['context_tokens']:,d}  (+ {r['reserve']:,d} reserved: "
+              f"{'fits' if r['fits'] else 'DOES NOT FIT'})")
+    return 0 if all(r["fits"] for r in rows) else 1
+
+
 def cmd_analyze(args) -> int:
     from elh.analysis import main as analysis_main
 
@@ -217,6 +230,13 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("prereg-verify", help="check the working tree against the protocol-lock manifest; run at the repo root")
     p.add_argument("batch", nargs="?", help="also require this batch to be listed")
     p.set_defaults(fn=cmd_prereg_verify)
+
+    p = sub.add_parser("measure-block", help="size a static batch's blocks from its source bank, without an episode")
+    p.add_argument("experiment", help="a static batch file (groups P-all, P-all-ep, P-oracle)")
+    p.add_argument("--runs-dir", default="runs")
+    p.add_argument("--history", type=int, default=0)
+    p.add_argument("--reserve", type=int, default=16384, help="tokens kept free for the episode itself")
+    p.set_defaults(fn=cmd_measure_block)
 
     p = sub.add_parser("analyze", help="compare groups for a batch (see python -m elh.analysis --help)")
     p.add_argument("rest", nargs=argparse.REMAINDER)

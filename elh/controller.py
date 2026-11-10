@@ -226,7 +226,7 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
                        group: str = "A", split: str = "dev", history: int = 0, ordinal: int = 0,
                        checkpoint: int | None = None, memory: Memory | None = None,
                        sandbox_backend: str | None = None, memory_k: int | None = None,
-                       batch_id: str | None = None, charge_as: str = "inference",
+                       batch_id: str | None = None, charge_as: str = "inference", replicate: int = 0,
                        procedures: tuple[int | None, wf.WorkflowLibrary] | None = None,
                        ) -> tuple[str, EpisodeResult, Verdict]:
     """Run, grade and record one episode.
@@ -335,7 +335,7 @@ def run_single_episode(cfg: ExperimentConfig, store: Store, task: TaskInstance, 
     u = result.usage
     store.insert("episodes", {
         "episode_id": episode_id, "run_id": run_id, "history": history, "test_group": group, "split": split,
-        "checkpoint": checkpoint, "ordinal": ordinal, "task_id": task.task_id, "family": task.family,
+        "checkpoint": checkpoint, "ordinal": ordinal, "replicate": replicate, "task_id": task.task_id, "family": task.family,
         "cause": task.cause, "theme": task.theme, "seed": task.seed, "task_hash": task.content_hash,
         "model_id": client.model_id, "sandbox_backend": backend, "sandbox_image": image,
         "outcome": result.outcome, "passed": int(verdict.passed), "verdict_json": json.dumps(verdict.to_dict()),

@@ -592,7 +592,7 @@ Details of 4.3: `docs/design/house-lib-core-grid.md` §10.
 
 | Step | Work | Exit criterion |
 |---|---|---|
-| Now | L64 calibration: exp21 + exp24 at L64-c0 and L64-c50 (≈ 3,072 episodes), started 2026-11-07, finishing ≈ 2026-11-09; then `analysis/exp17_calibration.py --write` | `experiments/calibration/L64-*.json` written |
+| Done 2026-11-10 | L64 calibration: exp21 + exp24 at L64-c0 and L64-c50 (≈ 3,072 episodes; 64 of 64 lessons kept in both worlds); then `analysis/exp17_calibration.py --write` | `experiments/calibration/L64-*.json` written |
 | 4.3 | Estimation run, not confirmatory: effect sizes and variances, not the H6 claim. L64 gate first (train L64 history 0 for B, measure the real P-all-ep block; if it plus an episode does not fit 65,536 tokens, a Forgejo issue asks for a larger context and all of 4.3 runs under the new registration). Then 6 worlds (L ∈ {4, 16, 64} × c ∈ {0, 0.5}, w1) × 3 histories, B with recall k14r12 in every world | per-world lesson-check pass for every group; how often the ticket's primary lesson's rule was shown; ticket and history variances |
 | 5 | Sealed confirmatory study on new worlds (below) | protocol locked at tag `prereg-v1`; sealed test completed |
 
@@ -620,6 +620,16 @@ Sealed study (step 5):
   `prereg-verify`, `docs/reproducing.md`): `experiments/prereg/manifest.json` hashes the sealed batch
   files (`sealed: true`), their base config, the analysis scripts, the whole `elh/` tree, `uv.lock`
   and the calibration and Hindsight pins; the manifest must equal the one at the tag.
+- **Decision Q14 (owner, 2026-11-07/08)**: L64-w2 shares all 64 lesson ids with w1 (the pool is 64
+  lessons; only the choices (24–30 of 64 differ), the visibility and the conflict pairs are redrawn).
+  Accepted and stated as a limitation; the primary result is also reported on the subset of L64-w2
+  lessons whose choice differs from w1.
+- **Decision Q15 (owner, 2026-11-07/08)**: replicate evaluation runs in 4.3 at L64-c50 only: B and
+  P-all-ep get 3 runs per (history, ticket) (+288 episodes), to split episode noise from history ×
+  ticket variance for the power analysis.
+- **Open**: the power demo on 4.1 L16-c50 data did not reach 0.80 within 10 histories even with 3
+  replicates and 48 tickets (core-grid §10), so the sealed design may need revisiting after 4.3;
+  decision deferred to the owner.
 - **Model**: one agent model (the registered Qwen3-Coder-30B). A Sonnet 5.5 replication of the
   primary test is named in the protocol as a planned follow-up, not part of the sealed study.
 
