@@ -175,7 +175,17 @@ def test_check_degenerate_lists_stored_degenerate_replies(tmp_path, capsys):
         store.db.execute("UPDATE episodes SET trace_sha256 = ? WHERE episode_id = ?", (sha, row["episode_id"]))
     assert main(["check-degenerate", exp.name, "--runs-dir", str(tmp_path / "runs")]) == 1
     out = capsys.readouterr().out
-    assert row["episode_id"] in out and "1 degenerate episode" in out
+    assert row["episode_id"] in out and "1 degenerate episode" in out and "0 cache-retried" in out
+    # A cache_retry on a response event is listed with its retry_clean flag; it does not change the exit code.
+    resp.pop("content"); resp["content"] = [{"type": "text", "text": "ok"}]
+    resp["cache_retry"] = {"first_request_id": "r1", "first_output_tokens": 8192, "first_finish": "max_tokens",
+                           "retry_clean": True, "retry_cached_tokens": 0}
+    with store.db:
+        store.db.execute("UPDATE episodes SET trace_sha256 = ? WHERE episode_id = ?",
+                         (store.put_trace(events), row["episode_id"]))
+    assert main(["check-degenerate", exp.name, "--runs-dir", str(tmp_path / "runs")]) == 0
+    out = capsys.readouterr().out
+    assert "1 cache-retried turn(s): 1 clean, 0 still degenerate" in out and "retry_clean=True" in out
 
 
 def _up() -> bool:

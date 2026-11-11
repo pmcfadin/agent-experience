@@ -532,9 +532,10 @@ def write_rule(client: ModelClient, task: TaskInstance, result: EpisodeResult, v
             out.usage[k] += resp.usage.get(k) or 0
         out.calls.append({"attempt": attempt, "request_id": resp.request_id, "model": resp.model,
                           "stop_reason": resp.stop_reason, "usage": resp.usage, "latency_s": resp.latency_s,
-                          "served": resp.served})
+                          "served": resp.served, **({"cache_retry": resp.cache_retry} if resp.cache_retry else {})})
         out.trace.append({"event": "rule_response", "attempt": attempt, "request_id": resp.request_id,
-                          "stop_reason": resp.stop_reason, "usage": resp.usage, "content": resp.content})
+                          "stop_reason": resp.stop_reason, "usage": resp.usage,
+                          **({"cache_retry": resp.cache_retry} if resp.cache_retry else {}), "content": resp.content})
         messages.append({"role": "assistant", "content": resp.content})
 
         uses = [b for b in resp.content if b.get("type") == "tool_use"]

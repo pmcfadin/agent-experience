@@ -190,7 +190,7 @@ def cmd_sandbox_setup(args) -> int:
 def cmd_check_degenerate(args) -> int:
     from collections import Counter
 
-    from elh.degenerate import scan
+    from elh.degenerate import scan, scan_retries
     from elh.store import Store
 
     found = scan(Store(args.runs_dir), args.prefixes, args.since)
@@ -199,6 +199,15 @@ def cmd_check_degenerate(args) -> int:
               f"{f['episode_id']}\tturns {f['turns']}\t{f['reason']}")
     per = Counter(f["batch_id"] for f in found)
     print(f"{len(found)} degenerate episode(s)" + "".join(f"\n  {b}: {n}" for b, n in sorted(per.items())))
+    retries = scan_retries(Store(args.runs_dir), args.prefixes, args.since)
+    for f in retries:
+        print(f"{f['batch_id']}\t{f['group']}\t{f['task_id']}\trep{f['replicate']}\t{f['episode_id']}\t"
+              f"{f['event']} {f['turn']}\tfirst {f['first_request_id']} ({f['first_output_tokens']} tok, {f['first_finish']})"
+              f"\tretry_clean={f['retry_clean']} cached={f['retry_cached_tokens']}")
+    clean = sum(1 for f in retries if f["retry_clean"])
+    print(f"{len(retries)} cache-retried turn(s): {clean} clean, {len(retries) - clean} still degenerate")
+    per = Counter((f["batch_id"], f["retry_clean"]) for f in retries)
+    print("".join(f"  {b}: retry_clean={c}: {n}\n" for (b, c), n in sorted(per.items())), end="")
     return 1 if found else 0
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import sys
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -23,6 +24,7 @@ class ModelResponse:
     request_id: str | None = None
     latency_s: float = 0.0
     served: dict = field(default_factory=dict)  # backend identity as reported by the gateway
+    cache_retry: dict | None = None  # set when a degenerate reply was retried without the prompt cache
 
 
 class InfraError(RuntimeError):
@@ -31,6 +33,10 @@ class InfraError(RuntimeError):
 
 class DegenerateOutputError(InfraError):
     """The backend returned a degenerate reply (a server fault, not agent behaviour); the episode is skipped."""
+
+    def __init__(self, msg: str, cache_retry: dict | None = None):
+        super().__init__(msg)
+        self.cache_retry = cache_retry
 
 
 # Degenerate-reply detector. A reply is degenerate when a text block of at least
@@ -236,6 +242,26 @@ class OpenAICompatClient:
         self.client = openai.OpenAI(base_url=base_url, api_key=api_key, max_retries=max_retries, timeout=timeout_s)
 
     def create(self, *, system: str, messages: list[dict], tools: list[dict], max_tokens: int) -> ModelResponse:
+        """One request. A degenerate reply (a corrupted reused prompt-cache prefix on the server) is retried
+        ONCE with cache_prompt=false; a clean retry is the response (recorded in `cache_retry`), a second
+        degenerate reply raises DegenerateOutputError."""
+        resp, why = self._request(system, messages, tools, max_tokens, None)
+        if not why:
+            return resp
+        retry, why2 = self._request(system, messages, tools, max_tokens, {"cache_prompt": False})
+        info = {"first_request_id": resp.request_id, "first_output_tokens": resp.usage["output_tokens"],
+                "first_finish": resp.stop_reason, "retry_request_id": retry.request_id, "retry_clean": not why2,
+                "retry_cached_tokens": retry.usage["cache_read_input_tokens"]}
+        print(f"DEGENERATE reply (request {resp.request_id}): retried without prompt cache -> "
+              f"{'degenerate' if why2 else 'clean'} (request {retry.request_id})", file=sys.stderr, flush=True)
+        if why2:
+            raise DegenerateOutputError(
+                f"degenerate reply from {self.model_id} (stop {retry.stop_reason}, {retry.usage['output_tokens']} "
+                f"output tokens, also without prompt cache; first request {resp.request_id}): {why2}", cache_retry=info)
+        retry.cache_retry = info
+        return retry
+
+    def _request(self, system, messages, tools, max_tokens, extra_body) -> tuple[ModelResponse, str | None]:
         openai = self._openai
         kwargs: dict = {}
         if self.temperature is not None:
@@ -247,7 +273,8 @@ class OpenAICompatClient:
                 t0 = time.perf_counter()
                 raw = self.client.chat.completions.with_raw_response.create(
                     model=self.model_id, messages=to_openai_messages(system, messages),
-                    tools=to_openai_tools(tools), max_tokens=max_tokens, **kwargs)
+                    tools=to_openai_tools(tools), max_tokens=max_tokens,
+                    **kwargs, **({"extra_body": extra_body} if extra_body else {}))
         except openai.BadRequestError as exc:
             if "context" in str(exc).lower() or "too long" in str(exc).lower():
                 raise ContextLimitError(str(exc)) from exc
@@ -284,10 +311,7 @@ class OpenAICompatClient:
         stop = FINISH_TO_STOP.get(choice.finish_reason or "", choice.finish_reason)
         if stop == "end_turn" and msg.tool_calls:
             stop = "tool_use"
-        if msg.content and (why := degenerate_reason(msg.content, stop)):
-            raise DegenerateOutputError(
-                f"degenerate reply from {self.model_id} (stop {stop}, "
-                f"{(resp.usage.completion_tokens if resp.usage else '?')} output tokens): {why}")
+        why = degenerate_reason(msg.content, stop) if msg.content else None
         u = resp.usage
         cached = 0
         if u is not None and getattr(u, "prompt_tokens_details", None) is not None:
@@ -302,7 +326,7 @@ class OpenAICompatClient:
             served["timings"] = timings
         return ModelResponse(content=content, stop_reason=stop, usage=usage, model=resp.model or self.model_id,
                              request_id=raw.headers.get("x-litellm-call-id") or raw.headers.get("x-request-id")
-                             or resp.id, latency_s=latency, served=served)
+                             or resp.id, latency_s=latency, served=served), why
 
 
 def make_client(model_cfg) -> "ModelClient":

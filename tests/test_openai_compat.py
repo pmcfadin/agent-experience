@@ -67,7 +67,7 @@ class _Gateway:
                         "choices": [{"index": 0, "message": msg,
                                      "finish_reason": "tool_calls" if calls else "length" if text_reply else "stop"}],
                         "usage": {"prompt_tokens": 1200, "completion_tokens": 80, "total_tokens": 1280,
-                                  "prompt_tokens_details": {"cached_tokens": 1000}}}
+                                  "prompt_tokens_details": {"cached_tokens": 0 if body.get("cache_prompt") is False else 1000}}}
                 data = json.dumps(resp).encode()
                 self.send_response(200)
                 self.send_header("content-type", "application/json")
@@ -201,7 +201,7 @@ def test_degenerate_detector():
 def test_client_raises_on_a_degenerate_reply(tmp_path, family, monkeypatch):
     monkeypatch.setenv("ELH_LOCK_DIR", str(tmp_path / "locks"))
     cfg = load_config(CONFIG)
-    gw = _Gateway(["?" * 8192])
+    gw = _Gateway(["?" * 8192, "?" * 8192])
     client = OpenAICompatClient(cfg.model.id, gw.url, "k")
     with pytest.raises(DegenerateOutputError, match="degenerate reply") as exc:
         client.create(system="s", messages=[{"role": "user", "content": "hi"}], tools=TOOLS, max_tokens=8192)
@@ -212,10 +212,53 @@ def test_client_raises_on_a_degenerate_reply(tmp_path, family, monkeypatch):
     assert ok.stop_reason == "max_tokens" and ok.content[0]["text"] == REAL_CODE
 
 
+def _create(client):
+    return client.create(system="s", messages=[{"role": "user", "content": "hi"}], tools=TOOLS, max_tokens=8192)
+
+
+def test_degenerate_reply_is_retried_once_without_prompt_cache(capsys):
+    gw = _Gateway(["?" * 8192, [("bash", {"command": "ls"})]])
+    resp = _create(OpenAICompatClient(load_config(CONFIG).model.id, gw.url, "k"))
+    assert resp.stop_reason == "tool_use" and resp.content[0]["name"] == "bash"
+    assert "cache_prompt" not in gw.requests[0] and gw.requests[1]["cache_prompt"] is False
+    assert {k: v for k, v in gw.requests[0].items() if k != "cache_prompt"} == \
+        {k: v for k, v in gw.requests[1].items() if k != "cache_prompt"}
+    cr = resp.cache_retry
+    assert cr["retry_clean"] is True and cr["retry_cached_tokens"] == 0
+    assert cr["first_output_tokens"] == 80 and cr["first_finish"] == "max_tokens" and cr["first_request_id"]
+    assert "DEGENERATE reply" in capsys.readouterr().err
+
+
+def test_degenerate_twice_raises_and_logs_the_retry(capsys):
+    gw = _Gateway(["?" * 8192, "?" * 8192])
+    with pytest.raises(DegenerateOutputError) as exc:
+        _create(OpenAICompatClient(load_config(CONFIG).model.id, gw.url, "k"))
+    assert len(gw.requests) == 2 and gw.requests[1]["cache_prompt"] is False
+    assert exc.value.cache_retry["retry_clean"] is False
+    assert "-> degenerate" in capsys.readouterr().err
+
+
+def test_normal_reply_has_no_retry_and_no_extra_body():
+    gw = _Gateway([[("bash", {"command": "ls"})]])
+    resp = _create(OpenAICompatClient(load_config(CONFIG).model.id, gw.url, "k"))
+    assert len(gw.requests) == 1 and "cache_prompt" not in gw.requests[0] and resp.cache_retry is None
+
+
+def test_trace_response_event_carries_cache_retry(tmp_path, family, monkeypatch):
+    monkeypatch.setenv("ELH_LOCK_DIR", str(tmp_path / "locks"))
+    cfg = load_config(CONFIG)
+    gw = _Gateway(["?" * 8192, [("submit", {"summary": "x"})]])
+    _, result, _ = run_single_episode(cfg, Store(tmp_path), family.generate("queue_pop_front", "billing", 1),
+                                      OpenAICompatClient(cfg.model.id, gw.url, "k"), sandbox_backend="local")
+    resp = [e for e in result.trace if e["event"] == "response"]
+    assert resp[0]["cache_retry"]["retry_clean"] is True
+    assert result.calls[0]["cache_retry"] == resp[0]["cache_retry"]
+
+
 def test_degenerate_reply_mid_episode_records_no_episode(tmp_path, family, monkeypatch):
     monkeypatch.setenv("ELH_LOCK_DIR", str(tmp_path / "locks"))
     cfg = load_config(CONFIG)
-    gw = _Gateway([[("bash", {"command": "ls"})], "?" * 8192])
+    gw = _Gateway([[("bash", {"command": "ls"})], "?" * 8192, "?" * 8192])
     store = Store(tmp_path)
     with pytest.raises(DegenerateOutputError):
         run_single_episode(cfg, store, family.generate("queue_pop_front", "billing", 1),

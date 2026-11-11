@@ -110,10 +110,11 @@ def run_episode(task: TaskInstance, sandbox: Sandbox, client: ModelClient, budge
             result.usage[k] += resp.usage.get(k) or 0
         result.calls.append({"turn": turn, "request_id": resp.request_id, "model": resp.model,
                              "stop_reason": resp.stop_reason, "usage": resp.usage, "latency_s": resp.latency_s,
-                             "served": resp.served})
+                             "served": resp.served, **({"cache_retry": resp.cache_retry} if resp.cache_retry else {})})
         result.trace.append({"event": "response", "turn": turn, "request_id": resp.request_id,
                              "stop_reason": resp.stop_reason, "usage": resp.usage,
                              "latency_s": round(resp.latency_s, 3), "served": resp.served,
+                             **({"cache_retry": resp.cache_retry} if resp.cache_retry else {}),
                              "content": resp.content})
         messages.append({"role": "assistant", "content": resp.content})
 

@@ -141,6 +141,18 @@ and the memory LLM (Gemma 4 26B, used by Hindsight) are pinned by weights sha256
 llama.cpp build and flags, and context size; every episode reads the backend's `/props` and is an
 infrastructure error if any of these differ from the pin.
 
+**Degenerate replies and the prompt-cache retry.** The self-hosted coder occasionally returns a
+degenerate reply (e.g. 8,192 `?` characters) when a reused prompt-cache prefix on the llama.cpp
+server is corrupted; the same request is fine with the cache off. The prompt cache stays on for
+normal requests. On a degenerate reply the client retries that one request once with
+`cache_prompt=false` (same messages, tools, sampling and `max_tokens`). A clean retry is the turn's
+response, so a retried turn is a fresh sample of the same request, not a replay of the first reply.
+A degenerate retry raises `DegenerateOutputError` (an infrastructure error; the episode is skipped).
+Either way the event is logged to stderr and recorded as `cache_retry` (first request id, first
+output tokens and finish reason, `retry_clean`, `retry_cached_tokens`, which is 0 when the server
+honoured the flag) on the trace's `response` / `rule_response` event; `elh check-degenerate` lists
+these per batch. Decided 2026-11-11 with the server admin.
+
 **Splits and seeds.** Splits are assigned over (cause, theme) cells, not seeds. In the batch
 experiments, training uses five themes and evaluation uses a sixth (`inventory`), with disjoint
 seed ranges: train seeds 1000–1999, eval seeds 2000–2999 (2900+ for difficulty probes), dev seeds

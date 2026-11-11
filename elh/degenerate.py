@@ -12,9 +12,25 @@ from elh.runner.models import degenerate_reason
 from elh.store import Store
 
 
-def scan(store: Store, prefixes: list[str], since: str | None = None) -> list[dict]:
-    """Episodes whose batch_id starts with any prefix (all when none) and that started at or after
-    `since` (ISO date), with one finding per degenerate response turn."""
+def scan_retries(store: Store, prefixes: list[str], since: str | None = None) -> list[dict]:
+    """Episodes whose stored trace holds a `cache_retry` (a degenerate reply retried without the prompt
+    cache), one finding per retried turn with its retry_clean flag."""
+    found = []
+    for r in _episodes(store, prefixes, since):
+        if not r["trace_sha256"]:
+            continue
+        for line in store.get_blob("traces", r["trace_sha256"]).decode().splitlines():
+            if '"cache_retry"' not in line:
+                continue
+            ev = json.loads(line)
+            if ev.get("cache_retry"):
+                found.append({"episode_id": r["episode_id"], "batch_id": r["batch_id"], "group": r["test_group"],
+                              "task_id": r["task_id"], "replicate": r["replicate"], "started_at": r["started_at"],
+                              "turn": ev.get("turn", ev.get("attempt")), "event": ev["event"], **ev["cache_retry"]})
+    return found
+
+
+def _episodes(store: Store, prefixes: list[str], since: str | None):
     where, args = [], []
     if prefixes:
         where.append("(" + " OR ".join("batch_id LIKE ?" for _ in prefixes) + ")")
@@ -22,9 +38,15 @@ def scan(store: Store, prefixes: list[str], since: str | None = None) -> list[di
     if since:
         where.append("started_at >= ?")
         args.append(since)
-    rows = store.db.execute(
+    return store.db.execute(
         "SELECT episode_id, batch_id, test_group, task_id, replicate, ordinal, started_at, trace_sha256 FROM episodes"
         + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY started_at", args).fetchall()
+
+
+def scan(store: Store, prefixes: list[str], since: str | None = None) -> list[dict]:
+    """Episodes whose batch_id starts with any prefix (all when none) and that started at or after
+    `since` (ISO date), with one finding per degenerate response turn."""
+    rows = _episodes(store, prefixes, since)
     found = []
     for r in rows:
         if not r["trace_sha256"]:
