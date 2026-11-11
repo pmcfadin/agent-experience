@@ -29,6 +29,40 @@ class InfraError(RuntimeError):
     """The episode could not run for reasons outside the agent's control; it is re-queued."""
 
 
+class DegenerateOutputError(InfraError):
+    """The backend returned a degenerate reply (a server fault, not agent behaviour); the episode is skipped."""
+
+
+# Degenerate-reply detector. A reply is degenerate when a text block of at least
+# DEGENERATE_MIN_CHARS characters is made up >= DEGENERATE_SHARE of one single character (the
+# self-hosted server's fault state returns 8192 '?'), or, when generation hit the token limit
+# (stop_reason max_tokens), when the same covers a short repeated pattern of at most
+# DEGENERATE_MAX_PERIOD characters. Real code, prose and tables never put 90% of 200+ characters
+# on one character (the commonest one, a space, is ~15-30% even in padded tables), so the
+# thresholds are deliberately far from legitimate output.
+DEGENERATE_MIN_CHARS = 200
+DEGENERATE_SHARE = 0.9
+DEGENERATE_MAX_PERIOD = 8
+
+
+def degenerate_reason(text: str, stop_reason: str | None = None) -> str | None:
+    """Why `text` (one text block of a model reply) is degenerate, or None."""
+    if len(text) < DEGENERATE_MIN_CHARS:
+        return None
+    from collections import Counter
+
+    ch, n = Counter(text).most_common(1)[0]
+    if n / len(text) >= DEGENERATE_SHARE:
+        return f"{n} of {len(text)} characters are {ch!r}"
+    if stop_reason == "max_tokens":
+        for period in range(2, DEGENERATE_MAX_PERIOD + 1):
+            unit = text[:period]
+            covered = sum(1 for i, c in enumerate(text) if c == unit[i % period])
+            if covered / len(text) >= DEGENERATE_SHARE:
+                return f"{len(text)} characters repeat {unit!r} until the token limit"
+    return None
+
+
 class ModelClient(Protocol):
     model_id: str
 
@@ -250,6 +284,10 @@ class OpenAICompatClient:
         stop = FINISH_TO_STOP.get(choice.finish_reason or "", choice.finish_reason)
         if stop == "end_turn" and msg.tool_calls:
             stop = "tool_use"
+        if msg.content and (why := degenerate_reason(msg.content, stop)):
+            raise DegenerateOutputError(
+                f"degenerate reply from {self.model_id} (stop {stop}, "
+                f"{(resp.usage.completion_tokens if resp.usage else '?')} output tokens): {why}")
         u = resp.usage
         cached = 0
         if u is not None and getattr(u, "prompt_tokens_details", None) is not None:

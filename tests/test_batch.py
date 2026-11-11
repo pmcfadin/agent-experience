@@ -129,6 +129,55 @@ def test_infra_error_skips_the_episode(tmp_path, monkeypatch):
     assert (phase, group, n, rate, infra) == ("after-2", "A", "1", "1.00", "1")
 
 
+def test_degenerate_reply_is_an_infra_error_and_the_batch_continues(tmp_path):
+    """A degenerate reply mid-episode skips that episode (no episodes row, so no analysis counts it)."""
+    from elh.runner.models import DegenerateOutputError
+
+    exp, cfg = load_experiment(_write(tmp_path))
+    n = []
+
+    def client(task):
+        inner = _client(task)
+        n.append(1)
+        if len(n) == 1:
+            class Bad:
+                model_id = inner.model_id
+
+                def create(self, **kw):
+                    inner.create(**kw)  # one good turn, then the server goes degenerate
+                    raise DegenerateOutputError("degenerate reply: 8192 of 8192 characters are '?'")
+            return Bad()
+        return inner
+
+    store = Store(tmp_path / "runs")
+    lines: list[str] = []
+    results = run_batch(exp, cfg, store, client, sandbox_backend="local", out=lines.append)
+    assert [r["error"] is None for r in results] == [False, True]
+    assert "INFRA ERROR" in lines[0] and "degenerate" in lines[0]
+    rows = store.db.execute("SELECT task_id FROM episodes WHERE batch_id LIKE ?", (f"{exp.name}/%",)).fetchall()
+    assert len(rows) == 1 and rows[0]["task_id"] == results[1]["task_id"]
+
+
+def test_check_degenerate_lists_stored_degenerate_replies(tmp_path, capsys):
+    exp, cfg = load_experiment(_write(tmp_path))
+    store = Store(tmp_path / "runs")
+    run_batch(exp, cfg, store, _client, sandbox_backend="local", out=lambda _: None)
+    assert main(["check-degenerate", exp.name, "--runs-dir", str(tmp_path / "runs")]) == 0
+    # Plant a degenerate reply in one stored trace.
+    row = store.db.execute("SELECT episode_id, trace_sha256 FROM episodes WHERE batch_id LIKE ?",
+                           (f"{exp.name}/%",)).fetchone()
+    events = [json.loads(line) for line in store.get_blob("traces", row["trace_sha256"]).decode().splitlines()]
+    resp = next(e for e in events if e["event"] == "response")
+    resp["stop_reason"] = "max_tokens"
+    resp["content"] = [{"type": "text", "text": "?" * 8192}]
+    sha = store.put_trace(events)
+    with store.db:
+        store.db.execute("UPDATE episodes SET trace_sha256 = ? WHERE episode_id = ?", (sha, row["episode_id"]))
+    assert main(["check-degenerate", exp.name, "--runs-dir", str(tmp_path / "runs")]) == 1
+    out = capsys.readouterr().out
+    assert row["episode_id"] in out and "1 degenerate episode" in out
+
+
 def _up() -> bool:
     try:
         urllib.request.urlopen(URL + "/health", timeout=2).close()

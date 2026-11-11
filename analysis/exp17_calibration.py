@@ -48,16 +48,27 @@ BATCHES = [("exp21-calib", {"A": "A", "P-hand": "P-hand (whole handbook)"}),
 GROUPS = [label for _, labels in BATCHES for label in labels.values()]
 
 
+EXCLUDED_FILE = CALIBRATION_DIR / "excluded-episodes.json"
+
+
+def excluded_episode_ids() -> set[str]:
+    """Episodes that ran while the model server returned only '?' (see the file's `reason`); their
+    rows stay in the database but are not calibration observations. Replaced by `-rest*` batches."""
+    return {e["episode_id"] for e in json.loads(EXCLUDED_FILE.read_text())["episodes"]} if EXCLUDED_FILE.exists() else set()
+
+
 def load(db: sqlite3.Connection, world: str) -> list[dict]:
     out = []
+    excluded = excluded_episode_ids()
     for prefix, labels in BATCHES:
         # A batch interrupted by a host failure is finished by `<name>-rest*` batches (the remainder of
         # its schedule); both are pooled. No `-rest*` batch exists for the worlds calibrated whole.
-        rows = db.execute("SELECT test_group, cause, passed, verdict_json, turns, wall_s, outcome, batch_id FROM episodes "
+        rows = db.execute("SELECT test_group, cause, passed, verdict_json, turns, wall_s, outcome, batch_id, episode_id FROM episodes "
                           "WHERE batch_id = ? OR batch_id LIKE ? ORDER BY started_at",
                           (f"{prefix}-{world}/0", f"{prefix}-{world}-rest%/0")).fetchall()
         out += [{"group": labels[g], "cause": c, "passed": bool(p), "checks": json.loads(v)["checks"], "turns": t,
-                 "wall_s": w, "outcome": o, "batch": b} for g, c, p, v, t, w, o, b in rows if g in labels]
+                 "wall_s": w, "outcome": o, "batch": b} for g, c, p, v, t, w, o, b, eid in rows
+                if g in labels and eid not in excluded]
     return out
 
 

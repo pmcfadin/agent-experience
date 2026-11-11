@@ -1,0 +1,28 @@
+# Rerun of the 7 exp21-calib-L64-c0-w1 group P-hand episodes that ran while the model server was degenerate
+# (every reply 8,192 '?', Nov 8 09:36-12:55). They are listed in experiments/calibration/excluded-episodes.json and left out
+# of the calibration by analysis/exp17_calibration.py; the database rows are untouched. Same base_config, overrides,
+# family, histories and phase label as the original; only `name` differs (it is part of the run id and config hash),
+# and group P-hand has no per-run memory, so the episodes are comparable. exp17_calibration.py pools `exp21-calib-<world>-rest*`.
+name: exp21-calib-L64-c0-w1-rest2-phand
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  memory_service.experience_position: after_ticket
+  rules: {enabled: true, store: verbatim}
+family: house_lib/L64-c0-w1
+histories: 1
+groups: [P-hand]
+phases:
+- eval:
+    label: calibration
+    tasks:
+      items:
+      - [call_order.ledger, course_registration, 3021]
+      - [partner_format.lumo, inventory, 3249]
+      - [partner_format.ystad, billing, 3312]
+      - [region_redaction.apac, network_flows, 3324]
+      - [region_redaction.mena, inventory, 3359]
+      - [required_wrapper.crm, course_registration, 3397]
+      - [unit_convention.catalog, billing, 3454]

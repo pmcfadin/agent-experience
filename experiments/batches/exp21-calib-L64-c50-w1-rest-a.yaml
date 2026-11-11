@@ -1,0 +1,24 @@
+# Rerun of the 3 exp21-calib-L64-c50-w1 group A episodes that ran while the model server was degenerate
+# (every reply 8,192 '?', Nov 9 00:17-05:09). They are listed in experiments/calibration/excluded-episodes.json and left out
+# of the calibration by analysis/exp17_calibration.py; the database rows are untouched. Same base_config, overrides,
+# family, histories and phase label as the original; only `name` differs (it is part of the run id and config hash),
+# and group A has no per-run memory, so the episodes are comparable. exp17_calibration.py pools `exp21-calib-<world>-rest*`.
+name: exp21-calib-L64-c50-w1-rest-a
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  memory_service.experience_position: after_ticket
+  rules: {enabled: true, store: verbatim}
+family: house_lib/L64-c50-w1
+histories: 1
+groups: [A]
+phases:
+- eval:
+    label: calibration
+    tasks:
+      items:
+      - [region_redaction.latam, network_flows, 3344]
+      - [region_redaction.nordics, inventory, 3364]
+      - [required_wrapper.orders, network_flows, 3408]

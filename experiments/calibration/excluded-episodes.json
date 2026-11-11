@@ -1,0 +1,147 @@
+{
+ "reason": "the self-hosted model server was in a degenerate state (every reply 8,192 '?' characters, stop_reason max_tokens) for part of these episodes; they ended as agent failures that say nothing about the agent. Found by `elh check-degenerate`. exp17_calibration.py leaves them out and the replacement runs are the `-rest*` remainder batches named in `rerun_batches`. The database rows are untouched.",
+ "date": "2026-11-11",
+ "rerun_batches": [
+  "exp21-calib-L64-c0-w1-rest2-phand",
+  "exp21-calib-L64-c50-w1-rest-a",
+  "exp21-calib-L64-c50-w1-rest-phand"
+ ],
+ "episodes": [
+  {
+   "episode_id": "c480cbddcdf54798982dccadcc7c26e8",
+   "batch_id": "exp21-calib-L64-c0-w1-rest-phand/0",
+   "group": "P-hand",
+   "task_id": "house_lib/L64-c0-w1/partner_format.lumo/inventory/3249",
+   "world": "L64-c0-w1",
+   "first_degenerate_turn": 17
+  },
+  {
+   "episode_id": "8c043b5ec86d438a80a00f2ddcbdfd60",
+   "batch_id": "exp21-calib-L64-c0-w1-rest-phand/0",
+   "group": "P-hand",
+   "task_id": "house_lib/L64-c0-w1/region_redaction.apac/network_flows/3324",
+   "world": "L64-c0-w1",
+   "first_degenerate_turn": 16
+  },
+  {
+   "episode_id": "639d6236466945aba8885b78ea5533a5",
+   "batch_id": "exp21-calib-L64-c0-w1-rest-phand/0",
+   "group": "P-hand",
+   "task_id": "house_lib/L64-c0-w1/region_redaction.mena/inventory/3359",
+   "world": "L64-c0-w1",
+   "first_degenerate_turn": 17
+  },
+  {
+   "episode_id": "58fe49eaf0944a1b99be9ed633e06f0b",
+   "batch_id": "exp21-calib-L64-c0-w1-rest-phand/0",
+   "group": "P-hand",
+   "task_id": "house_lib/L64-c0-w1/call_order.ledger/course_registration/3021",
+   "world": "L64-c0-w1",
+   "first_degenerate_turn": 14
+  },
+  {
+   "episode_id": "42bb5bddf7144dbba5c0ce9713763699",
+   "batch_id": "exp21-calib-L64-c0-w1-rest-phand/0",
+   "group": "P-hand",
+   "task_id": "house_lib/L64-c0-w1/partner_format.ystad/billing/3312",
+   "world": "L64-c0-w1",
+   "first_degenerate_turn": 13
+  },
+  {
+   "episode_id": "9754538767204e279b01fa1a0f69b448",
+   "batch_id": "exp21-calib-L64-c0-w1-rest-phand/0",
+   "group": "P-hand",
+   "task_id": "house_lib/L64-c0-w1/unit_convention.catalog/billing/3454",
+   "world": "L64-c0-w1",
+   "first_degenerate_turn": 21
+  },
+  {
+   "episode_id": "498d14e602854394ae8b0d1e3848798c",
+   "batch_id": "exp21-calib-L64-c0-w1-rest-phand/0",
+   "group": "P-hand",
+   "task_id": "house_lib/L64-c0-w1/required_wrapper.crm/course_registration/3397",
+   "world": "L64-c0-w1",
+   "first_degenerate_turn": 22
+  },
+  {
+   "episode_id": "06c37f930a44456a9935d6d5b4bec2ee",
+   "batch_id": "exp21-calib-L64-c50-w1/0",
+   "group": "P-hand",
+   "task_id": "house_lib/L64-c50-w1/required_wrapper.orders/course_registration/3415",
+   "world": "L64-c50-w1",
+   "first_degenerate_turn": 12
+  },
+  {
+   "episode_id": "e6833da2a62f42d8b8da8a221b999322",
+   "batch_id": "exp21-calib-L64-c50-w1/0",
+   "group": "A",
+   "task_id": "house_lib/L64-c50-w1/region_redaction.nordics/inventory/3364",
+   "world": "L64-c50-w1",
+   "first_degenerate_turn": 19
+  },
+  {
+   "episode_id": "aa9ddcb7ba814925ac7bd1be2b84d767",
+   "batch_id": "exp21-calib-L64-c50-w1/0",
+   "group": "P-hand",
+   "task_id": "house_lib/L64-c50-w1/region_redaction.nordics/inventory/3364",
+   "world": "L64-c50-w1",
+   "first_degenerate_turn": 16
+  },
+  {
+   "episode_id": "3f9c0179359547b09c88df234897475d",
+   "batch_id": "exp21-calib-L64-c50-w1/0",
+   "group": "P-hand",
+   "task_id": "house_lib/L64-c50-w1/required_wrapper.payroll/logistics/3429",
+   "world": "L64-c50-w1",
+   "first_degenerate_turn": 15
+  },
+  {
+   "episode_id": "3b97f3978b2a4530b4157f6fb9f3c3e7",
+   "batch_id": "exp21-calib-L64-c50-w1/0",
+   "group": "A",
+   "task_id": "house_lib/L64-c50-w1/required_wrapper.orders/network_flows/3408",
+   "world": "L64-c50-w1",
+   "first_degenerate_turn": 18
+  },
+  {
+   "episode_id": "794bdeace4b048c4b57d43aef713178c",
+   "batch_id": "exp21-calib-L64-c50-w1/0",
+   "group": "P-hand",
+   "task_id": "house_lib/L64-c50-w1/required_wrapper.orders/network_flows/3408",
+   "world": "L64-c50-w1",
+   "first_degenerate_turn": 12
+  },
+  {
+   "episode_id": "1e6251cf20d0492cbb67cd03a3998cbf",
+   "batch_id": "exp21-calib-L64-c50-w1/0",
+   "group": "P-hand",
+   "task_id": "house_lib/L64-c50-w1/feature_flag.shipping/telemetry/3186",
+   "world": "L64-c50-w1",
+   "first_degenerate_turn": 16
+  },
+  {
+   "episode_id": "92c17a476d8c4e28a82c128c1fe57823",
+   "batch_id": "exp21-calib-L64-c50-w1/0",
+   "group": "A",
+   "task_id": "house_lib/L64-c50-w1/region_redaction.latam/network_flows/3344",
+   "world": "L64-c50-w1",
+   "first_degenerate_turn": 14
+  },
+  {
+   "episode_id": "fc232659163e4d4c9c7271066ada89fe",
+   "batch_id": "exp21-calib-L64-c50-w1/0",
+   "group": "P-hand",
+   "task_id": "house_lib/L64-c50-w1/region_redaction.latam/network_flows/3344",
+   "world": "L64-c50-w1",
+   "first_degenerate_turn": 18
+  },
+  {
+   "episode_id": "8a1e2ae530554986852f8c7d48f13ec4",
+   "batch_id": "exp21-calib-L64-c50-w1/0",
+   "group": "P-hand",
+   "task_id": "house_lib/L64-c50-w1/region_redaction.eu/network_flows/3336",
+   "world": "L64-c50-w1",
+   "first_degenerate_turn": 15
+  }
+ ]
+}

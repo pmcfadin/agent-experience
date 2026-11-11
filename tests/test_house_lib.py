@@ -532,3 +532,20 @@ def test_stage43_replicates_only_at_the_primary_cell(tmp_path):
     for world in ("L4-c50-w1", "L16-c50-w1"):  # no other world has replicates
         assert all("replicates" not in d for d in grid.grid43_docs(get_family(f"house_lib/{world}"),
                                                                   grid.kept_lessons(world)))
+
+
+def test_degenerate_rerun_batches_schedule_exactly_the_excluded_episodes():
+    """experiments/calibration/excluded-episodes.json lists the exp21 episodes run against a degenerate
+    model server; the `-rest*` batches it names rerun exactly those (group, task) pairs."""
+    from collections import Counter
+
+    from elh.batch import schedule
+
+    doc = json.loads((Path(__file__).parent.parent / "experiments" / "calibration" / "excluded-episodes.json").read_text())
+    assert len(doc["episodes"]) == 17 and len({e["episode_id"] for e in doc["episodes"]}) == 17
+    want = Counter((e["world"], e["group"], e["task_id"]) for e in doc["episodes"])
+    got = Counter()
+    for name in doc["rerun_batches"]:
+        exp, cfg = load_experiment(Path(__file__).parent.parent / "experiments" / "batches" / f"{name}.yaml")
+        got.update((exp.family.split("/")[1], s.group, s.task.task_id) for s in schedule(exp, cfg))
+    assert got == want

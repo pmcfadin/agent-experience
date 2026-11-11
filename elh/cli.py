@@ -187,6 +187,21 @@ def cmd_sandbox_setup(args) -> int:
     return 0
 
 
+def cmd_check_degenerate(args) -> int:
+    from collections import Counter
+
+    from elh.degenerate import scan
+    from elh.store import Store
+
+    found = scan(Store(args.runs_dir), args.prefixes, args.since)
+    for f in found:
+        print(f"{f['batch_id']}\t{f['group']}\t{f['task_id']}\trep{f['replicate']}\t{f['started_at']}\t"
+              f"{f['episode_id']}\tturns {f['turns']}\t{f['reason']}")
+    per = Counter(f["batch_id"] for f in found)
+    print(f"{len(found)} degenerate episode(s)" + "".join(f"\n  {b}: {n}" for b, n in sorted(per.items())))
+    return 1 if found else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="elh")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -241,6 +256,12 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("analyze", help="compare groups for a batch (see python -m elh.analysis --help)")
     p.add_argument("rest", nargs=argparse.REMAINDER)
     p.set_defaults(fn=cmd_analyze)
+
+    p = sub.add_parser("check-degenerate", help="list stored episodes holding a degenerate model reply (read-only; exit 1 if any)")
+    p.add_argument("prefixes", nargs="*", help="batch-name prefixes (default: every batch)")
+    p.add_argument("--runs-dir", default="runs")
+    p.add_argument("--since", help="only episodes started on/after this ISO date")
+    p.set_defaults(fn=cmd_check_degenerate)
 
     p = sub.add_parser("show-task", help="print a task's ticket; optionally write its workspace")
     p.add_argument("family")

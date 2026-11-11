@@ -9,7 +9,7 @@ import pytest
 
 from elh.controller import run_single_episode
 from elh.registry import ModelPin, load_config
-from elh.runner.models import InfraError, OpenAICompatClient, to_openai_messages, to_openai_tools
+from elh.runner.models import (DegenerateOutputError, InfraError, OpenAICompatClient, degenerate_reason, to_openai_messages, to_openai_tools)
 from elh.runner.prompts import TOOLS
 from elh.store import Store
 from elh.tasks.base import get_family
@@ -56,14 +56,16 @@ class _Gateway:
                 body = json.loads(self.rfile.read(int(self.headers["content-length"])))
                 gw.requests.append(body)
                 calls = gw.turns.pop(0) if gw.turns else []
-                msg = {"role": "assistant", "content": None if calls else "done",
+                text_reply = calls if isinstance(calls, str) else None  # a str turn: a text-only reply that hits the limit
+                calls = [] if text_reply else calls
+                msg = {"role": "assistant", "content": text_reply or (None if calls else "done"),
                        "tool_calls": [{"id": f"call_{len(gw.requests)}_{i}", "type": "function",
                                        "function": {"name": n, "arguments": a if isinstance(a, str) else json.dumps(a)}}
                                       for i, (n, a) in enumerate(calls)] or None}
                 resp = {"id": f"chatcmpl-{len(gw.requests)}", "object": "chat.completion", "created": 0,
                         "model": "qwen3-coder-30b-a3b",
                         "choices": [{"index": 0, "message": msg,
-                                     "finish_reason": "tool_calls" if calls else "stop"}],
+                                     "finish_reason": "tool_calls" if calls else "length" if text_reply else "stop"}],
                         "usage": {"prompt_tokens": 1200, "completion_tokens": 80, "total_tokens": 1280,
                                   "prompt_tokens_details": {"cached_tokens": 1000}}}
                 data = json.dumps(resp).encode()
@@ -174,3 +176,48 @@ def test_props_checked_against_pin():
     swapped = {**good, "model_path": "/srv/models/other.gguf", "build_info": "b2-ffffff",
                "default_generation_settings": {"n_ctx": 32768}}
     assert len(pin.props_mismatches(swapped)) == 3
+
+
+REAL_CODE = "".join(f"def f{i}(x):\n    return [y * {i} for y in x if y % 3 == 0]\n\n" for i in range(40))
+BIG_TABLE = "| col_a | col_b | col_c |\n|-------|-------|-------|\n" + "".join(
+    f"| {i:5d} | {'x' * 5} | {i * 7:5d} |\n" for i in range(60))
+
+
+def test_degenerate_detector():
+    assert degenerate_reason("?" * 8192, "max_tokens")
+    assert degenerate_reason("?" * 8192)  # one character is enough, whatever the stop reason
+    assert degenerate_reason("?" * 7600 + "ok go" * 20)  # 98% '?'
+    assert degenerate_reason("ab" * 4000, "max_tokens")  # a short repeated pattern at the token limit
+    assert degenerate_reason("ab" * 4000, "end_turn") is None  # ... only judged at the limit
+    # Never trips: short replies, real code, a long table, plain prose, separators inside real text.
+    assert degenerate_reason("?" * 150, "max_tokens") is None
+    assert degenerate_reason("Done.") is None
+    assert degenerate_reason(REAL_CODE, "max_tokens") is None
+    assert len(BIG_TABLE) > 1000 and degenerate_reason(BIG_TABLE, "max_tokens") is None
+    assert degenerate_reason("The quick brown fox jumps over the lazy dog. " * 100, "max_tokens") is None
+    assert degenerate_reason("x = 1\n" + "#" * 100 + "\n" + REAL_CODE) is None
+
+
+def test_client_raises_on_a_degenerate_reply(tmp_path, family, monkeypatch):
+    monkeypatch.setenv("ELH_LOCK_DIR", str(tmp_path / "locks"))
+    cfg = load_config(CONFIG)
+    gw = _Gateway(["?" * 8192])
+    client = OpenAICompatClient(cfg.model.id, gw.url, "k")
+    with pytest.raises(DegenerateOutputError, match="degenerate reply") as exc:
+        client.create(system="s", messages=[{"role": "user", "content": "hi"}], tools=TOOLS, max_tokens=8192)
+    assert isinstance(exc.value, InfraError)
+    # A legitimate long reply at the limit is returned as is.
+    ok = OpenAICompatClient(cfg.model.id, _Gateway([REAL_CODE]).url, "k").create(
+        system="s", messages=[{"role": "user", "content": "hi"}], tools=TOOLS, max_tokens=8192)
+    assert ok.stop_reason == "max_tokens" and ok.content[0]["text"] == REAL_CODE
+
+
+def test_degenerate_reply_mid_episode_records_no_episode(tmp_path, family, monkeypatch):
+    monkeypatch.setenv("ELH_LOCK_DIR", str(tmp_path / "locks"))
+    cfg = load_config(CONFIG)
+    gw = _Gateway([[("bash", {"command": "ls"})], "?" * 8192])
+    store = Store(tmp_path)
+    with pytest.raises(DegenerateOutputError):
+        run_single_episode(cfg, store, family.generate("queue_pop_front", "billing", 1),
+                           OpenAICompatClient(cfg.model.id, gw.url, "k"), sandbox_backend="local")
+    assert store.db.execute("SELECT COUNT(*) FROM episodes").fetchone()[0] == 0
