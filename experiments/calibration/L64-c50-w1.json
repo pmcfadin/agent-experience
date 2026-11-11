@@ -1,7 +1,7 @@
 {
  "world": "L64-c50-w1",
  "batches": [
-  "exp21-calib-L64-c50-w1/0 (A)",
+  "exp21-calib-L64-c50-w1/0 + exp21-calib-L64-c50-w1-rest-a/0 (A)",
   "exp24-learn-L64-c50-w1/0 (P-task)"
  ],
  "episodes": 1024,
