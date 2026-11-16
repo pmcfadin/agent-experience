@@ -158,6 +158,62 @@ def test_degenerate_reply_is_an_infra_error_and_the_batch_continues(tmp_path):
     assert len(rows) == 1 and rows[0]["task_id"] == results[1]["task_id"]
 
 
+def _three_task_exp(tmp_path):
+    return load_experiment(_write(tmp_path, phases=[
+        {"eval": {"tasks": {"causes": ["nested_scan_join"], "themes": ["inventory"], "seeds": [2000, 2006]}}}]))
+
+
+def _fail_first(monkeypatch, errors):
+    """run_single_episode raises errors[i] on call i (None = run for real)."""
+    real = batch.run_single_episode
+    calls = []
+
+    def fake(*a, **kw):
+        i = len(calls)
+        calls.append(1)
+        if i < len(errors) and errors[i] is not None:
+            raise errors[i]
+        return real(*a, **kw)
+
+    monkeypatch.setattr(batch, "run_single_episode", fake)
+    return calls
+
+
+def test_unreachable_backend_aborts_at_once(tmp_path, monkeypatch):
+    from elh.runner.models import BackendUnreachableError
+
+    exp, cfg = _three_task_exp(tmp_path)
+    calls = _fail_first(monkeypatch, [BackendUnreachableError("could not fetch backend /props: HTTP Error 502")] * 6)
+    lines: list[str] = []
+    with pytest.raises(batch.BatchAbort, match="backend unreachable"):
+        run_batch(exp, cfg, Store(tmp_path / "runs"), _client, sandbox_backend="local", out=lines.append)
+    assert len(calls) == 1
+    assert lines[-1].startswith("ABORT: backend unreachable") and "0 episodes recorded" in lines[-1]
+
+
+def test_three_consecutive_degenerate_errors_abort(tmp_path, monkeypatch):
+    from elh.runner.models import DegenerateOutputError
+
+    exp, cfg = _three_task_exp(tmp_path)
+    calls = _fail_first(monkeypatch, [DegenerateOutputError("degenerate reply")] * 6)
+    lines: list[str] = []
+    with pytest.raises(batch.BatchAbort, match="3 consecutive infra errors"):
+        run_batch(exp, cfg, Store(tmp_path / "runs"), _client, sandbox_backend="local", out=lines.append)
+    assert len(calls) == batch.MAX_CONSECUTIVE_INFRA_ERRORS == 3
+    assert lines[-1].startswith("ABORT: 3 consecutive infra errors") and "0 episodes recorded" in lines[-1]
+
+
+def test_isolated_degenerate_errors_do_not_abort(tmp_path, monkeypatch):
+    """Two errors, a success, two errors: the streak resets, so the batch runs to the end."""
+    from elh.runner.models import DegenerateOutputError
+
+    exp, cfg = _three_task_exp(tmp_path)
+    bad = DegenerateOutputError("degenerate reply")
+    _fail_first(monkeypatch, [bad, bad, None, bad, bad])
+    results = run_batch(exp, cfg, Store(tmp_path / "runs"), _client, sandbox_backend="local", out=lambda _: None)
+    assert [r["error"] is None for r in results] == [False, False, True, False, False, True]
+
+
 def test_check_degenerate_lists_stored_degenerate_replies(tmp_path, capsys):
     exp, cfg = load_experiment(_write(tmp_path))
     store = Store(tmp_path / "runs")

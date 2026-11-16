@@ -18,7 +18,7 @@ from elh.memory.base import Memory, NullMemory, StaticMemory, render_memory_bloc
 from elh.memory.hindsight import HindsightMemory, is_rule_item, restore_bank, usage_to_ledger, workspace_diff
 from elh.registry import ExperimentConfig
 from elh.runner.agent import EpisodeResult, run_episode
-from elh.runner.models import InfraError, ModelClient, fetch_backend_props
+from elh.runner.models import BackendUnreachableError, InfraError, ModelClient, fetch_backend_props
 from elh.sandbox.base import make_sandbox
 from elh.store import Store, utcnow
 from elh.tasks.base import TaskInstance, get_family
@@ -59,7 +59,7 @@ def capture_props(store: Store, m, split: str, what: str = "backend") -> str | N
         raw = fetch_backend_props(url)
         props = json.loads(raw)
     except (OSError, ValueError) as exc:
-        raise InfraError(f"could not fetch {what} /props from {url}: {exc}") from exc
+        raise BackendUnreachableError(f"could not fetch {what} /props from {url}: {exc}") from exc
     if m.pin.complete:
         bad = m.pin.props_mismatches(props)
         if bad:

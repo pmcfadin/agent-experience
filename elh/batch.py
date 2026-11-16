@@ -99,7 +99,7 @@ from elh.learner import workflows as wf
 from elh.memory.base import MemoryItem, NullMemory, OracleMemory, StaticMemory, render_memory_block
 from elh.memory.hindsight import RULE_DOC_SUFFIX, RulesOnlyMemory, render_rule_verbatim
 from elh.registry import ExperimentConfig
-from elh.runner.models import InfraError
+from elh.runner.models import BackendUnreachableError, InfraError
 from elh.runner.prompts import first_user_message, system_prompt
 from elh.runner.prompts import tools as tool_list
 from elh.tasks.base import TaskInstance, get_family
@@ -454,12 +454,21 @@ class _GroupD:
         return self._reflection
 
 
+MAX_CONSECUTIVE_INFRA_ERRORS = 3  # a run of this many InfraErrors in a row stops the batch
+
+
+class BatchAbort(RuntimeError):
+    """The batch stopped because the backend looks down, not because of one bad episode."""
+
+
 def run_batch(exp: Experiment, cfg: ExperimentConfig, store, make_client: Callable[[TaskInstance], Any], *,
               sandbox_backend: str | None = None, out=print,
               make_induction_client: Callable[[], Any] | None = None,
               make_reflection_client: Callable[[], Any] | None = None,
               sealed_digest: str | None = None) -> list[dict]:
-    """Run the schedule in order. An InfraError skips that episode; anything else stops the batch.
+    """Run the schedule in order. An isolated InfraError (e.g. a degenerate reply) skips that episode;
+    MAX_CONSECUTIVE_INFRA_ERRORS in a row, or one BackendUnreachableError, raises BatchAbort; anything else
+    stops the batch too.
     Returns one result dict per scheduled episode, plus one per group-D dev episode (kind "dev").
 
     `make_induction_client()` gives AWM's induction model (default: the registered agent model,
@@ -486,6 +495,7 @@ def run_batch(exp: Experiment, cfg: ExperimentConfig, store, make_client: Callab
     snaps: dict[tuple[int, str, int], str] = {}  # (history, group, after) -> snapshot id
     static: dict[tuple[int, str], Any] = {}
     results: list[dict] = []
+    streak = 0
     for n, s in enumerate(steps, 1):
         split = SPLIT_OF_KIND[s.kind]
         checkpoint = s.after if s.kind != "train" else None
@@ -514,12 +524,22 @@ def run_batch(exp: Experiment, cfg: ExperimentConfig, store, make_client: Callab
                 ordinal=s.ordinal, replicate=s.replicate, checkpoint=checkpoint, memory=memory,
                 sandbox_backend=sandbox_backend, batch_id=batch_id(exp, s))
             res.update(passed=verdict.passed, turns=result.turns, wall_s=result.wall_s)
+            streak = 0
             out(f"[{n}/{len(steps)}] h{s.history} {s.phase} {s.group} {s.task.task_id} "
                 f"passed={int(verdict.passed)} turns={result.turns} wall={result.wall_s:.1f}s")
         except InfraError as exc:
             res["error"] = str(exc)
             out(f"[{n}/{len(steps)}] h{s.history} {s.phase} {s.group} {s.task.task_id} "
                 f"INFRA ERROR after {time.monotonic() - t0:.1f}s: {exc}")
+            streak += 1
+            cause = ("backend unreachable" if isinstance(exc, BackendUnreachableError) else
+                     f"{streak} consecutive infra errors" if streak >= MAX_CONSECUTIVE_INFRA_ERRORS else None)
+            if cause:
+                recorded = sum(1 for r in results if r["error"] is None and r.get("kind") != "dev")
+                msg = (f"ABORT: {cause} at episode {n}/{len(steps)} ({exc}); {recorded} episodes recorded "
+                       f"in this batch. Fix the backend, then run the remainder under a new name.")
+                out(msg)
+                raise BatchAbort(msg) from exc
         results.append(res)
         if s.group == "D" and s.kind == "train":
             results += learn_procedures(exp, cfg, store, make_client, group_d, history=s.history,

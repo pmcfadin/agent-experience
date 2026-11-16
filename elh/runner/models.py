@@ -31,6 +31,11 @@ class InfraError(RuntimeError):
     """The episode could not run for reasons outside the agent's control; it is re-queued."""
 
 
+class BackendUnreachableError(InfraError):
+    """The backend (or its gateway) cannot be reached: connection failure, timeout, HTTP 5xx after the client's
+    retries, or the /props fetch failing. `run_batch` aborts at once instead of skipping episodes."""
+
+
 class DegenerateOutputError(InfraError):
     """The backend returned a degenerate reply (a server fault, not agent behaviour); the episode is skipped."""
 
@@ -279,8 +284,9 @@ class OpenAICompatClient:
             if "context" in str(exc).lower() or "too long" in str(exc).lower():
                 raise ContextLimitError(str(exc)) from exc
             raise
-        except (openai.RateLimitError, openai.InternalServerError, openai.APIConnectionError,
-                openai.APITimeoutError) as exc:
+        except (openai.InternalServerError, openai.APIConnectionError, openai.APITimeoutError) as exc:
+            raise BackendUnreachableError(f"{type(exc).__name__}: {exc}") from exc
+        except openai.RateLimitError as exc:
             raise InfraError(f"{type(exc).__name__}: {exc}") from exc
         resp = raw.parse()
         latency = time.perf_counter() - t0
