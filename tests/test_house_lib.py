@@ -549,3 +549,21 @@ def test_degenerate_rerun_batches_schedule_exactly_the_excluded_episodes():
         exp, cfg = load_experiment(Path(__file__).parent.parent / "experiments" / "batches" / f"{name}.yaml")
         got.update((exp.family.split("/")[1], s.group, s.task.task_id) for s in schedule(exp, cfg))
     assert got == want
+
+
+def test_w2_remainder_batches_are_subsets_of_their_calibration_batch():
+    """exp40-calib-<w>-rest-{a,phand} rerun episodes of exp40-calib-<w> that left no row (degenerate-reply skips,
+    the 2026-11-14 backend outage): same setup as the parent, one group each, tasks drawn from the parent's panel."""
+    from elh.batch import schedule
+
+    root = Path(__file__).parent.parent / "experiments" / "batches"
+    for world, n_a, n_hand in (("L16-c0-w2", 2, 4), ("L64-c0-w2", 5, 17), ("L64-c50-w2", 463, 467)):
+        parent, pcfg = load_experiment(root / f"exp40-calib-{world}.yaml")
+        panel = {(s.group, s.task.task_id) for s in schedule(parent, pcfg)}
+        for suffix, group, n in (("a", "A", n_a), ("phand", "P-hand", n_hand)):
+            exp, cfg = load_experiment(root / f"exp40-calib-{world}-rest-{suffix}.yaml")
+            steps = schedule(exp, cfg)
+            assert exp.groups == [group] and len(steps) == n
+            assert {(s.group, s.task.task_id) for s in steps} <= panel and len({s.task.task_id for s in steps}) == n
+            assert (exp.family, exp.overrides, exp.histories) == (parent.family, parent.overrides, parent.histories)
+            assert cfg.model == pcfg.model

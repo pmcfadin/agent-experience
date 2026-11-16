@@ -1,0 +1,23 @@
+# Remainder of exp40-calib-L16-c0-w2, group A only (2 episodes): 6 episodes (A 2, P-hand 4) skipped on a degenerate server reply. An InfraError leaves no
+# database row and `elh run-batch` cannot resume, so this file schedules exactly the panel tasks of A that have no row in
+# the original batch (found by comparing `schedule()` with the stored (test_group, task_id)), with the original's base_config,
+# overrides, family, histories and phase label. Only `name` differs (it is part of the run id and config hash); group A
+# has no per-run memory, so episodes are comparable. analysis/exp17_calibration.py pools `exp40-calib-L16-c0-w2` and `exp40-calib-L16-c0-w2-rest*`.
+name: exp40-calib-L16-c0-w2-rest-a
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  memory_service.experience_position: after_ticket
+  rules: {enabled: true, store: verbatim}
+family: house_lib/L16-c0-w2
+histories: 1
+groups: [A]
+phases:
+- eval:
+    label: calibration
+    tasks:
+      items:
+      - [required_wrapper.orders, inventory, 3087]
+      - [required_wrapper.shipping, course_registration, 3098]

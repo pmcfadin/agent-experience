@@ -1,0 +1,38 @@
+# Remainder of exp40-calib-L64-c0-w2, group P-hand only (17 episodes): 22 episodes (A 5, P-hand 17) skipped on a degenerate server reply. An InfraError leaves no
+# database row and `elh run-batch` cannot resume, so this file schedules exactly the panel tasks of P-hand that have no row in
+# the original batch (found by comparing `schedule()` with the stored (test_group, task_id)), with the original's base_config,
+# overrides, family, histories and phase label. Only `name` differs (it is part of the run id and config hash); group P-hand
+# has no per-run memory, so episodes are comparable. analysis/exp17_calibration.py pools `exp40-calib-L64-c0-w2` and `exp40-calib-L64-c0-w2-rest*`.
+name: exp40-calib-L64-c0-w2-rest-phand
+base_config: experiments/phase0-local.yaml
+overrides:
+  memory_service.record_format: lesson-v3
+  memory_service.recall_types: [experience]
+  memory_service.agent_search: true
+  memory_service.experience_position: after_ticket
+  rules: {enabled: true, store: verbatim}
+family: house_lib/L64-c0-w2
+histories: 1
+groups: [P-hand]
+phases:
+- eval:
+    label: calibration
+    tasks:
+      items:
+      - [event_fields.catalog, inventory, 3069]
+      - [call_order.payroll, billing, 3044]
+      - [event_fields.payments, logistics, 3099]
+      - [event_fields.payments, network_flows, 3096]
+      - [partner_format.corvo, network_flows, 3200]
+      - [required_wrapper.shipping, network_flows, 3446]
+      - [feature_flag.catalog, telemetry, 3135]
+      - [partner_format.mirro, billing, 3260]
+      - [call_order.crm, inventory, 3013]
+      - [partner_format.halden, billing, 3236]
+      - [required_wrapper.reporting, inventory, 3437]
+      - [event_fields.crm, network_flows, 3072]
+      - [event_fields.reporting, network_flows, 3112]
+      - [partner_format.elm, logistics, 3219]
+      - [unit_convention.orders, network_flows, 3472]
+      - [required_wrapper.ledger, telemetry, 3401]
+      - [partner_format.nadir, network_flows, 3270]
