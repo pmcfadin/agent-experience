@@ -1,0 +1,154 @@
+{
+ "world": "L16-c50-w2",
+ "batches": [
+  "exp40-calib-L16-c50-w2/0 (A)",
+  "exp41-learn-L16-c50-w2/0 (P-task)"
+ ],
+ "episodes": 256,
+ "lessons": [
+  {
+   "lesson": "call_order.catalog",
+   "a_n": 26,
+   "a_rate": 0.0,
+   "hand_n": 26,
+   "hand_rate": 0.9615384615384616,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "call_order.ledger",
+   "a_n": 25,
+   "a_rate": 0.0,
+   "hand_n": 25,
+   "hand_rate": 0.8,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "call_order.orders",
+   "a_n": 24,
+   "a_rate": 0.0,
+   "hand_n": 24,
+   "hand_rate": 0.9166666666666666,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "feature_flag.ledger",
+   "a_n": 25,
+   "a_rate": 0.0,
+   "hand_n": 25,
+   "hand_rate": 0.92,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "feature_flag.orders",
+   "a_n": 24,
+   "a_rate": 0.0,
+   "hand_n": 24,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "feature_flag.reporting",
+   "a_n": 8,
+   "a_rate": 0.0,
+   "hand_n": 8,
+   "hand_rate": 0.875,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.corvo",
+   "a_n": 29,
+   "a_rate": 0.0,
+   "hand_n": 29,
+   "hand_rate": 0.8275862068965517,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "region_redaction.uk",
+   "a_n": 26,
+   "a_rate": 0.0,
+   "hand_n": 26,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "required_wrapper.catalog",
+   "a_n": 13,
+   "a_rate": 0.0,
+   "hand_n": 13,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "required_wrapper.crm",
+   "a_n": 12,
+   "a_rate": 0.0,
+   "hand_n": 12,
+   "hand_rate": 0.9166666666666666,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "required_wrapper.ledger",
+   "a_n": 11,
+   "a_rate": 0.0,
+   "hand_n": 11,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "required_wrapper.payroll",
+   "a_n": 8,
+   "a_rate": 0.0,
+   "hand_n": 8,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "unit_convention.catalog",
+   "a_n": 13,
+   "a_rate": 0.0,
+   "hand_n": 13,
+   "hand_rate": 0.9230769230769231,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "unit_convention.crm",
+   "a_n": 10,
+   "a_rate": 0.0,
+   "hand_n": 10,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "unit_convention.orders",
+   "a_n": 11,
+   "a_rate": 0.0,
+   "hand_n": 11,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "unit_convention.payments",
+   "a_n": 8,
+   "a_rate": 0.0,
+   "hand_n": 8,
+   "hand_rate": 0.75,
+   "keep": true,
+   "reason": "kept"
+  }
+ ]
+}

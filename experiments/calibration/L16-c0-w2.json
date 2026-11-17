@@ -1,0 +1,154 @@
+{
+ "world": "L16-c0-w2",
+ "batches": [
+  "exp40-calib-L16-c0-w2/0 + exp40-calib-L16-c0-w2-rest-a/0 (A)",
+  "exp41-learn-L16-c0-w2/0 (P-task)"
+ ],
+ "episodes": 256,
+ "lessons": [
+  {
+   "lesson": "event_fields.catalog",
+   "a_n": 11,
+   "a_rate": 0.0,
+   "hand_n": 11,
+   "hand_rate": 0.8181818181818182,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "event_fields.orders",
+   "a_n": 11,
+   "a_rate": 0.0,
+   "hand_n": 11,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "feature_flag.payments",
+   "a_n": 17,
+   "a_rate": 0.0,
+   "hand_n": 17,
+   "hand_rate": 0.47058823529411764,
+   "keep": false,
+   "reason": "not learnable: P-task passes 47% < 60%"
+  },
+  {
+   "lesson": "partner_format.brant",
+   "a_n": 10,
+   "a_rate": 0.0,
+   "hand_n": 10,
+   "hand_rate": 0.9,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.corvo",
+   "a_n": 10,
+   "a_rate": 0.0,
+   "hand_n": 10,
+   "hand_rate": 0.8,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.halden",
+   "a_n": 12,
+   "a_rate": 0.0,
+   "hand_n": 12,
+   "hand_rate": 0.9166666666666666,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.lumo",
+   "a_n": 16,
+   "a_rate": 0.0,
+   "hand_n": 16,
+   "hand_rate": 0.9375,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.sabel",
+   "a_n": 13,
+   "a_rate": 0.0,
+   "hand_n": 13,
+   "hand_rate": 0.8461538461538461,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "partner_format.ystad",
+   "a_n": 14,
+   "a_rate": 0.0,
+   "hand_n": 14,
+   "hand_rate": 0.9285714285714286,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "region_redaction.apac",
+   "a_n": 25,
+   "a_rate": 0.0,
+   "hand_n": 25,
+   "hand_rate": 0.96,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "required_wrapper.orders",
+   "a_n": 10,
+   "a_rate": 0.0,
+   "hand_n": 10,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "required_wrapper.reporting",
+   "a_n": 13,
+   "a_rate": 0.0,
+   "hand_n": 13,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "required_wrapper.shipping",
+   "a_n": 9,
+   "a_rate": 0.0,
+   "hand_n": 9,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "unit_convention.crm",
+   "a_n": 12,
+   "a_rate": 0.0,
+   "hand_n": 12,
+   "hand_rate": 0.9166666666666666,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "unit_convention.orders",
+   "a_n": 10,
+   "a_rate": 0.0,
+   "hand_n": 10,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  },
+  {
+   "lesson": "unit_convention.payments",
+   "a_n": 10,
+   "a_rate": 0.0,
+   "hand_n": 10,
+   "hand_rate": 1.0,
+   "keep": true,
+   "reason": "kept"
+  }
+ ]
+}
