@@ -633,6 +633,8 @@ Sealed study (step 5):
 - **Model**: one agent model (the registered Qwen3-Coder-30B). A Sonnet 5.5 replication of the
   primary test is named in the protocol as a planned follow-up, not part of the sealed study.
 
+Draft protocol document for the sealed study (open items collected): `docs/protocol/sealed-study.md`.
+
 Engineering to do: 4.3 batch generator with the L64 gate first; 4.3 analysis combining 4.1's A and
 P-hand with 4.3's groups; the power-analysis simulation; w2 world generation and validation; the
 protocol document (the harness hash-lock is built).
