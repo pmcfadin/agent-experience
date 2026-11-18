@@ -153,6 +153,17 @@ output tokens and finish reason, `retry_clean`, `retry_cached_tokens`, which is 
 honoured the flag) on the trace's `response` / `rule_response` event; `elh check-degenerate` lists
 these per batch. Decided 2026-11-11 with the server admin.
 
+Each degenerate reply (first attempt and retry) is also saved for the server admin to match against
+the llama.cpp log, which does not log our request ids: `runs/degenerate/<UTC>-<first request id>.json`
+(`$ELH_DEGENERATE_DIR` overrides the directory) holds the exact payload sent (model, messages, tools,
+sampling, `max_tokens`), and for each attempt the request id, UTC send and receive times (ms), latency,
+finish reason, usage including `cached_tokens`, and the first 200 characters of the reply, plus the
+backend build when a props URL is configured. No API key is written; the path is in the stderr line and
+the `cache_retry` record (`capture`). `uv run elh replay-degenerate <file> [--n 3] [--cache-prompt]
+[--top-logprobs 5] [--max-tokens 512]` re-sends that payload (cache off by default) with log-probabilities
+and flags NaN or infinite values on the first bad token (`NUMERICS: ...`); results go to
+`<file>.replay-<UTC>.json`. Normal requests are unchanged.
+
 **Splits and seeds.** Splits are assigned over (cause, theme) cells, not seeds. In the batch
 experiments, training uses five themes and evaluation uses a sixth (`inventory`), with disjoint
 seed ranges: train seeds 1000–1999, eval seeds 2000–2999 (2900+ for difficulty probes), dev seeds

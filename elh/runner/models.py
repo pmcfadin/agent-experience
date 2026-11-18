@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timezone
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,6 +26,7 @@ class ModelResponse:
     latency_s: float = 0.0
     served: dict = field(default_factory=dict)  # backend identity as reported by the gateway
     cache_retry: dict | None = None  # set when a degenerate reply was retried without the prompt cache
+    attempt: dict | None = field(default=None, repr=False)  # request payload + timing, kept for degenerate-reply capture
 
 
 class InfraError(RuntimeError):
@@ -217,6 +219,15 @@ def alias_lock(alias: str):
             fcntl.flock(fh, fcntl.LOCK_UN)
 
 
+def utc_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def degenerate_dir() -> Path:
+    """Where degenerate-reply captures go: $ELH_DEGENERATE_DIR, else runs/degenerate under the cwd."""
+    return Path(os.environ.get("ELH_DEGENERATE_DIR") or "runs/degenerate")
+
+
 def fetch_backend_props(url: str, timeout_s: float = 10) -> bytes:
     """GET a llama.cpp /props document (model path, build, n_ctx, default sampling) verbatim.
     No credentials: the relay serving it is read-only and must not see the gateway key."""
@@ -237,13 +248,15 @@ class OpenAICompatClient:
     registry itself."""
 
     def __init__(self, model_id: str, base_url: str, api_key: str, temperature: float | None = None,
-                 top_p: float | None = None, max_retries: int = 4, timeout_s: float = 900):
+                 top_p: float | None = None, max_retries: int = 4, timeout_s: float = 900,
+                 props_url: str | None = None):
         import openai
 
         self._openai = openai
         self.model_id = model_id
         self.temperature = temperature
         self.top_p = top_p
+        self.props_url = props_url
         self.client = openai.OpenAI(base_url=base_url, api_key=api_key, max_retries=max_retries, timeout=timeout_s)
 
     def create(self, *, system: str, messages: list[dict], tools: list[dict], max_tokens: int) -> ModelResponse:
@@ -257,14 +270,53 @@ class OpenAICompatClient:
         info = {"first_request_id": resp.request_id, "first_output_tokens": resp.usage["output_tokens"],
                 "first_finish": resp.stop_reason, "retry_request_id": retry.request_id, "retry_clean": not why2,
                 "retry_cached_tokens": retry.usage["cache_read_input_tokens"]}
+        path = self._capture(resp, retry, why, why2)
+        if path:
+            info["capture"] = str(path)
         print(f"DEGENERATE reply (request {resp.request_id}): retried without prompt cache -> "
-              f"{'degenerate' if why2 else 'clean'} (request {retry.request_id})", file=sys.stderr, flush=True)
+              f"{'degenerate' if why2 else 'clean'} (request {retry.request_id})"
+              + (f"; saved {path}" if path else ""), file=sys.stderr, flush=True)
         if why2:
             raise DegenerateOutputError(
                 f"degenerate reply from {self.model_id} (stop {retry.stop_reason}, {retry.usage['output_tokens']} "
-                f"output tokens, also without prompt cache; first request {resp.request_id}): {why2}", cache_retry=info)
+                f"output tokens, also without prompt cache; first request {resp.request_id}"
+                + (f"; saved {path}" if path else "") + f"): {why2}", cache_retry=info)
         retry.cache_retry = info
         return retry
+
+    def _capture(self, first, retry, why1, why2) -> Path | None:
+        """Save the failing request (exact payload, both attempts' ids, UTC timestamps, finish reasons, usage,
+        reply head) so the server admin can match it against the backend log. Never fatal; holds no API key."""
+        try:
+            attempts = []
+            for label, r, w in (("first", first, why1), ("retry_no_cache", retry, why2)):
+                a = dict(r.attempt or {})
+                a.pop("payload", None)
+                a.update(attempt=label, request_id=r.request_id, degenerate=bool(w), degenerate_reason=w or None,
+                         latency_s=round(r.latency_s, 3), stop_reason=r.stop_reason,
+                         usage=a.pop("usage_raw", None) or r.usage)
+                attempts.append(a)
+            doc = {"model": self.model_id, "served": first.served, "payload": (first.attempt or {}).get("payload"),
+                   "retry_extra_body": {"cache_prompt": False}, "attempts": attempts,
+                   "backend": self._backend_build()}
+            d = degenerate_dir()
+            d.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")[:-4] + "Z"
+            path = d / f"{stamp}-{str(first.request_id).replace('/', '_')}.json"
+            path.write_text(json.dumps(doc, indent=2, default=str))
+            return path
+        except Exception as exc:  # capture must never break an episode
+            print(f"degenerate capture failed: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+            return None
+
+    def _backend_build(self) -> dict | None:
+        if not self.props_url:
+            return None
+        try:
+            props = json.loads(fetch_backend_props(self.props_url, timeout_s=5))
+            return {k: props.get(k) for k in ("build_info", "model_path", "n_ctx") if k in props} or None
+        except Exception:
+            return None
 
     def _request(self, system, messages, tools, max_tokens, extra_body) -> tuple[ModelResponse, str | None]:
         openai = self._openai
@@ -273,13 +325,14 @@ class OpenAICompatClient:
             kwargs["temperature"] = self.temperature
         if self.top_p is not None:
             kwargs["top_p"] = self.top_p
+        payload = {"model": self.model_id, "messages": to_openai_messages(system, messages),
+                   "tools": to_openai_tools(tools), "max_tokens": max_tokens, **kwargs,
+                   **({"extra_body": extra_body} if extra_body else {})}
         try:
             with alias_lock(self.model_id):
+                sent_at = utc_iso()
                 t0 = time.perf_counter()
-                raw = self.client.chat.completions.with_raw_response.create(
-                    model=self.model_id, messages=to_openai_messages(system, messages),
-                    tools=to_openai_tools(tools), max_tokens=max_tokens,
-                    **kwargs, **({"extra_body": extra_body} if extra_body else {}))
+                raw = self.client.chat.completions.with_raw_response.create(**payload)
         except openai.BadRequestError as exc:
             if "context" in str(exc).lower() or "too long" in str(exc).lower():
                 raise ContextLimitError(str(exc)) from exc
@@ -290,6 +343,7 @@ class OpenAICompatClient:
             raise InfraError(f"{type(exc).__name__}: {exc}") from exc
         resp = raw.parse()
         latency = time.perf_counter() - t0
+        received_at = utc_iso()
         served = {v: raw.headers[k] for k, v in SERVED_HEADERS.items() if k in raw.headers}
         served["system_fingerprint"] = getattr(resp, "system_fingerprint", None)
         if served.get("alias", self.model_id) != self.model_id:
@@ -330,9 +384,13 @@ class OpenAICompatClient:
         }
         if timings:
             served["timings"] = timings
+        request_id = raw.headers.get("x-litellm-call-id") or raw.headers.get("x-request-id") or resp.id
+        # kept on every response (references, no copy); written to disk only for degenerate replies
+        attempt = {"payload": payload, "sent_at_utc": sent_at, "received_at_utc": received_at,
+                   "finish_reason": choice.finish_reason, "usage_raw": u.model_dump() if u is not None else None,
+                   "reply_head": (msg.content or "")[:200], "gateway_id": resp.id}
         return ModelResponse(content=content, stop_reason=stop, usage=usage, model=resp.model or self.model_id,
-                             request_id=raw.headers.get("x-litellm-call-id") or raw.headers.get("x-request-id")
-                             or resp.id, latency_s=latency, served=served), why
+                             request_id=request_id, latency_s=latency, served=served, attempt=attempt), why
 
 
 def make_client(model_cfg) -> "ModelClient":
@@ -345,4 +403,6 @@ def make_client(model_cfg) -> "ModelClient":
     api_key = os.environ.get(model_cfg.api_key_env)
     if not base_url or not api_key:
         raise RuntimeError(f"set {model_cfg.base_url_env} and {model_cfg.api_key_env} for the local model gateway")
-    return OpenAICompatClient(model_cfg.id, base_url, api_key, model_cfg.temperature, model_cfg.top_p)
+    return OpenAICompatClient(model_cfg.id, base_url, api_key, model_cfg.temperature, model_cfg.top_p,
+                              props_url=getattr(model_cfg, "props_url", None)
+                              or (os.environ.get(model_cfg.props_url_env, "") if getattr(model_cfg, "props_url_env", None) else None) or None)
