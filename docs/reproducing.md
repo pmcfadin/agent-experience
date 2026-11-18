@@ -32,6 +32,7 @@ Requirements, configuration, commands and repository layout, moved from the READ
 | `ELH_HINDSIGHT_PORT`, `ELH_HINDSIGHT_PG_PORT` | `serve.sh` | Hindsight and embedded PostgreSQL ports (8901, 8902) |
 | `ELH_HINDSIGHT_URL` | tests | Hindsight base URL for integration tests |
 | `ELH_LOCK_DIR` | harness | per-model-alias lock directory |
+| `ELH_DEGENERATE_DIR` | harness | where degenerate-reply captures are saved (default `runs/degenerate`) |
 
 Keep keys in a private env file outside the repository; `.env` files are gitignored.
 
@@ -47,6 +48,8 @@ uv run elh run-batch experiments/batches/exp13-histories.yaml --client model  # 
 uv run elh prereg-lock --batches experiments/batches/<sealed>.yaml --analysis analysis/<script>.py  # protocol lock (SPEC §13)
 uv run elh prereg-verify [batch.yaml]              # check the tree against experiments/prereg/manifest.json
 uv run elh analyze exp13-histories                 # comparisons, bootstrap, ΔRR/ΔNL, GPU-seconds
+uv run elh check-degenerate <batch-prefix>         # stored episodes with degenerate replies / cache retries
+uv run elh replay-degenerate runs/degenerate/<file>.json --n 3   # re-send a captured request with logprobs; flags NaN/inf
 ```
 
 Runs write a SQLite database, content-addressed JSONL traces, workspaces and memory snapshots under

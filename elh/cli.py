@@ -187,6 +187,15 @@ def cmd_sandbox_setup(args) -> int:
     return 0
 
 
+def cmd_replay_degenerate(args) -> int:
+    from pathlib import Path
+
+    from elh.replay import replay
+
+    _, runs = replay(Path(args.file), args.n, args.cache_prompt, args.top_logprobs, args.max_tokens)
+    return 1 if any(r.get("numerics") or r.get("degenerate") for r in runs) else 0
+
+
 def cmd_check_degenerate(args) -> int:
     from collections import Counter
 
@@ -224,6 +233,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--sandbox", default="local")
     p.add_argument("--workers", type=int, default=6)
     p.set_defaults(fn=cmd_validate_family)
+
+    p = sub.add_parser("replay-degenerate", help="re-send a saved degenerate request with logprobs and flag NaN/inf")
+    p.add_argument("file")
+    p.add_argument("--n", type=int, default=3)
+    p.add_argument("--cache-prompt", action="store_true", help="leave the server prompt cache on (default: off)")
+    p.add_argument("--top-logprobs", type=int, default=5)
+    p.add_argument("--max-tokens", type=int, default=512)
+    p.set_defaults(fn=cmd_replay_degenerate)
 
     p = sub.add_parser("sandbox-setup", help="create the UserSandbox pool users and network block (sudo)")
     p.add_argument("--users", type=int, default=8)

@@ -264,3 +264,126 @@ def test_degenerate_reply_mid_episode_records_no_episode(tmp_path, family, monke
         run_single_episode(cfg, store, family.generate("queue_pop_front", "billing", 1),
                            OpenAICompatClient(cfg.model.id, gw.url, "k"), sandbox_backend="local")
     assert store.db.execute("SELECT COUNT(*) FROM episodes").fetchone()[0] == 0
+
+
+# --- degenerate-reply capture and replay ------------------------------------------------------------
+
+def _captures():
+    import os
+    return sorted(Path(os.environ["ELH_DEGENERATE_DIR"]).glob("*.json"))
+
+
+def test_capture_written_on_degenerate_then_clean_retry():
+    gw = _Gateway(["?" * 8192, [("bash", {"command": "ls"})]])
+    client = OpenAICompatClient(load_config(CONFIG).model.id, gw.url, "secret-key-123", 0.7, 0.8)
+    resp = _create(client)
+    (path,) = _captures()
+    assert path.name.endswith(f"-{resp.cache_retry['first_request_id']}.json") and resp.cache_retry["capture"] == str(path)
+    text = path.read_text()
+    assert "secret-key-123" not in text and "api_key" not in text and "authorization" not in text.lower()
+    doc = json.loads(text)
+    p = doc["payload"]
+    assert p["messages"][-1] == {"role": "user", "content": "hi"} and p["tools"][0]["function"]["name"] == "bash"
+    assert p["temperature"] == 0.7 and p["top_p"] == 0.8 and p["max_tokens"] == 8192 and "extra_body" not in p
+    first, retry = doc["attempts"]
+    assert first["attempt"] == "first" and first["degenerate"] and first["finish_reason"] == "length"
+    assert first["reply_head"] == "?" * 200 and first["usage"]["prompt_tokens_details"]["cached_tokens"] == 1000
+    assert first["sent_at_utc"].endswith("Z") and first["received_at_utc"] >= first["sent_at_utc"]
+    assert first["request_id"] and first["latency_s"] >= 0
+    assert retry["attempt"] == "retry_no_cache" and retry["degenerate"] is False
+    assert retry["usage"]["prompt_tokens_details"]["cached_tokens"] == 0 and retry["sent_at_utc"] >= first["received_at_utc"]
+    assert doc["retry_extra_body"] == {"cache_prompt": False} and doc["model"] == load_config(CONFIG).model.id
+
+
+def test_capture_written_when_the_retry_is_degenerate_too(capsys):
+    gw = _Gateway(["?" * 8192, "?" * 8192])
+    with pytest.raises(DegenerateOutputError) as exc:
+        _create(OpenAICompatClient(load_config(CONFIG).model.id, gw.url, "k"))
+    (path,) = _captures()
+    assert str(path) in str(exc.value) and str(path) in capsys.readouterr().err
+    doc = json.loads(path.read_text())
+    assert [a["degenerate"] for a in doc["attempts"]] == [True, True]
+
+
+def test_no_capture_on_normal_reply():
+    _create(OpenAICompatClient(load_config(CONFIG).model.id, _Gateway([[("bash", {"command": "ls"})]]).url, "k"))
+    assert _captures() == []
+
+
+class _LogprobServer:
+    """Stub gateway for replay: replies with scripted (content, logprob content) per request."""
+
+    def __init__(self, replies):
+        self.replies, self.requests = list(replies), []
+        srv = self
+
+        class H(BaseHTTPRequestHandler):
+            def do_POST(self):
+                srv.requests.append(json.loads(self.rfile.read(int(self.headers["content-length"]))))
+                content, lp = srv.replies.pop(0)
+                choice = {"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "length"}
+                if lp is not None:
+                    choice["logprobs"] = {"content": lp}
+                data = json.dumps({"id": "c1", "choices": [choice], "usage": {
+                    "prompt_tokens": 10, "completion_tokens": 3, "prompt_tokens_details": {"cached_tokens": 0}}}).encode()
+                self.send_response(200)
+                self.send_header("content-length", str(len(data)))
+                self.send_header("x-litellm-call-id", f"call-{len(srv.requests)}")
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *a):
+                pass
+
+        self.server = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_port}/v1"
+
+
+def _tok(t, lp, alts=()):
+    return {"token": t, "logprob": lp, "top_logprobs": [{"token": a, "logprob": b} for a, b in alts]}
+
+
+def _replay(tmp_path, monkeypatch, replies, **kw):
+    from elh.replay import replay
+    monkeypatch.setenv("ELH_LOCK_DIR", str(tmp_path / "locks"))
+    srv = _LogprobServer(replies)
+    monkeypatch.setenv("WINTERMUTE_MODEL_API_BASE", srv.url)
+    monkeypatch.setenv("WINTERMUTE_MODEL_API_KEY", "secret-key-123")
+    src = tmp_path / "bad.json"
+    src.write_text(json.dumps({"model": "m", "messages": [{"role": "user", "content": "hi"}], "tools": [],
+                               "temperature": 0.7, "max_tokens": 8192}))
+    out, runs = replay(src, **kw)
+    return srv, out, runs
+
+
+def test_replay_normal_run_has_no_flags(tmp_path, monkeypatch, capsys):
+    srv, out, runs = _replay(tmp_path, monkeypatch, [("Hello", [_tok("Hello", -0.1, [("Hello", -0.1), ("Hi", -2.3)])])], n=1)
+    r = srv.requests[0]
+    assert r["logprobs"] is True and r["top_logprobs"] == 5 and r["cache_prompt"] is False and r["max_tokens"] == 512
+    assert runs[0]["numerics"] == [] and runs[0]["degenerate"] is None and runs[0]["request_id"] == "call-1"
+    printed = capsys.readouterr().out
+    assert "numerics: all log-probabilities finite" in printed and "NUMERICS" not in printed
+    saved = json.loads(out.read_text())
+    assert out.name.startswith("bad.replay-") and saved["runs"][0]["logprobs"][0]["token"] == "Hello"
+    assert "secret-key-123" not in out.read_text()
+
+
+def test_replay_flags_degenerate_and_nan_logprobs(tmp_path, monkeypatch, capsys):
+    nan = float("nan")
+    srv, out, runs = _replay(tmp_path, monkeypatch, [
+        ("?" * 300, [_tok("?", -0.1), _tok("?", nan, [("?", nan), ("x", float("-inf"))])]),
+        ("ok", [_tok("ok", float("-inf"))]),
+    ], n=2, cache_prompt=True, top_logprobs=2, max_tokens=64)
+    assert srv.requests[0]["cache_prompt"] is True and srv.requests[0]["top_logprobs"] == 2 and srv.requests[0]["max_tokens"] == 64
+    assert runs[0]["degenerate"] and runs[0]["numerics"] == ["NUMERICS: NaN logprob; NaN top-logprob for '?'; "
+                                                            "-inf top-logprob for 'x' at token 1"]
+    assert runs[1]["degenerate"] is None and runs[1]["numerics"] == ["NUMERICS: -inf logprob at token 0"]
+    assert "NUMERICS: -inf logprob at token 0" in capsys.readouterr().out
+    assert json.loads(out.read_text())["runs"][0]["logprobs"][1]["logprob"] != 0  # NaN survives the file
+
+
+def test_replay_reports_logprobs_not_returned(tmp_path, monkeypatch, capsys):
+    _, _, runs = _replay(tmp_path, monkeypatch, [("Hello", None)], n=1)
+    assert runs[0]["logprobs_returned"] is False and runs[0]["numerics"] == []
+    assert "logprobs not returned" in capsys.readouterr().out
